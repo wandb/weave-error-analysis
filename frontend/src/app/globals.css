@@ -1,0 +1,144 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:wght@400;500;600;700&family=Source+Sans+3:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-bg: #14171c;
+  --color-surface: #1e2229;
+  --color-surface-elevated: #2a2f38;
+  --color-border: #3a4251;
+  --color-text: #f3ede4;
+  --color-text-muted: #8593a9;
+  --color-accent-primary: #e07356;
+  --color-accent-secondary: #4a9c94;
+  --color-success: #4a9c94;
+  --color-error: #e07356;
+  --color-warning: #d4a84b;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: 'Source Sans 3', system-ui, sans-serif;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-surface);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+/* Subtle grid pattern background */
+.bg-grid-pattern {
+  background-image: 
+    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+/* Card hover effects */
+.trace-card {
+  @apply transition-all duration-200 border border-ink-800 bg-ink-900/50 backdrop-blur-sm;
+}
+
+.trace-card:hover {
+  @apply border-ink-700 bg-ink-900/80 shadow-lg shadow-black/20;
+  transform: translateY(-1px);
+}
+
+/* Status indicators */
+.status-success {
+  @apply bg-accent-teal/20 text-accent-teal border border-accent-teal/30;
+}
+
+.status-error {
+  @apply bg-accent-coral/20 text-accent-coral border border-accent-coral/30;
+}
+
+.status-pending {
+  @apply bg-accent-gold/20 text-accent-gold border border-accent-gold/30;
+}
+
+/* Input styles */
+input, textarea, select {
+  @apply bg-ink-900 border border-ink-700 text-sand-200 rounded-lg px-4 py-2;
+  @apply focus:outline-none focus:ring-2 focus:ring-accent-coral/50 focus:border-accent-coral;
+  @apply placeholder:text-ink-500;
+}
+
+/* Button styles */
+.btn-primary {
+  @apply bg-accent-coral text-white font-medium px-4 py-2 rounded-lg;
+  @apply hover:bg-accent-coral/90 transition-colors duration-200;
+  @apply focus:outline-none focus:ring-2 focus:ring-accent-coral/50;
+}
+
+.btn-secondary {
+  @apply bg-ink-800 text-sand-200 font-medium px-4 py-2 rounded-lg border border-ink-700;
+  @apply hover:bg-ink-700 hover:border-ink-600 transition-colors duration-200;
+  @apply focus:outline-none focus:ring-2 focus:ring-ink-500/50;
+}
+
+.btn-ghost {
+  @apply text-ink-400 font-medium px-3 py-1.5 rounded-lg;
+  @apply hover:bg-ink-800 hover:text-sand-200 transition-colors duration-200;
+}
+
+/* Animations */
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+.shimmer {
+  background: linear-gradient(90deg, var(--color-surface) 0%, var(--color-surface-elevated) 50%, var(--color-surface) 100%);
+  background-size: 1000px 100%;
+  animation: shimmer 2s infinite linear;
+}
+
+/* Code block styling */
+.code-block {
+  @apply font-mono text-sm bg-ink-950 rounded-lg p-4 overflow-x-auto;
+  @apply border border-ink-800;
+}
+
+/* Badge styles */
+.badge {
+  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+}
+
+.badge-coral {
+  @apply bg-accent-coral/20 text-accent-coral;
+}
+
+.badge-teal {
+  @apply bg-accent-teal/20 text-accent-teal;
+}
+
+.badge-gold {
+  @apply bg-accent-gold/20 text-accent-gold;
+}
+
+.badge-plum {
+  @apply bg-accent-plum/20 text-accent-plum;
+}
+

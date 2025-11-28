@@ -1,0 +1,5 @@
+# ADK Travel Planner Agent
+google-adk>=0.3.0
+weave>=0.51.0
+python-dotenv>=1.0.0
+

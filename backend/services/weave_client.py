@@ -27,13 +27,19 @@ class WeaveClient:
             "Content-Type": "application/json"
         }
 
-    async def query_threads(self, limit: int = 50, offset: int = 0) -> list[dict]:
+    async def query_threads(
+        self, 
+        limit: int = 50, 
+        offset: int = 0,
+        sort_by: str = "last_updated",
+        sort_direction: str = "desc"
+    ) -> list[dict]:
         """Query threads from Weave API."""
         request_body = {
             "project_id": self.project_id,
             "limit": limit,
             "offset": offset,
-            "sort_by": [{"field": "last_updated", "direction": "desc"}]
+            "sort_by": [{"field": sort_by, "direction": sort_direction}]
         }
 
         async with httpx.AsyncClient() as client:

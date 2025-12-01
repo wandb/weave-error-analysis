@@ -33,7 +33,15 @@ import {
   Edit3,
   X,
   Copy,
-  Check
+  Check,
+  Filter,
+  SortDesc,
+  Shuffle,
+  Clock,
+  CheckSquare,
+  Square,
+  Send,
+  StickyNote
 } from "lucide-react";
 import { format, parseISO, formatDistanceToNow } from "date-fns";
 
@@ -46,6 +54,21 @@ interface Thread {
   turn_count: number;
   start_time: string | null;
   last_updated: string | null;
+  is_reviewed?: boolean;
+}
+
+interface ThreadMetrics {
+  total_latency_ms: number;
+  turn_count: number;
+  has_error: boolean;
+}
+
+interface AnnotationProgress {
+  reviewed_count: number;
+  target: number;
+  progress_percent: number;
+  recent_reviews_24h: number;
+  remaining: number;
 }
 
 interface ConversationMessage {
@@ -71,6 +94,8 @@ interface ThreadDetail {
   conversation: ConversationMessage[];
   feedback: Record<string, Array<{ type: string; payload: unknown }>>;
   total_calls: number;
+  metrics?: ThreadMetrics;
+  is_reviewed?: boolean;
 }
 
 interface FeedbackSummary {
@@ -166,6 +191,19 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  
+  // Filtering & Sorting state
+  const [sortBy, setSortBy] = useState<string>("last_updated");
+  const [sortDirection, setSortDirection] = useState<string>("desc");
+  const [filterMinTurns, setFilterMinTurns] = useState<number | null>(null);
+  const [filterReviewed, setFilterReviewed] = useState<boolean | null>(null);
+  const [showFilters, setShowFilters] = useState(false);
+  
+  // Annotation state
+  const [annotationProgress, setAnnotationProgress] = useState<AnnotationProgress | null>(null);
+  const [newNote, setNewNote] = useState("");
+  const [addingNote, setAddingNote] = useState(false);
+  const [markingReviewed, setMarkingReviewed] = useState(false);
   
   // Taxonomy state
   const [taxonomy, setTaxonomy] = useState<Taxonomy | null>(null);
@@ -269,7 +307,20 @@ ${notesList || "No notes"}`;
   const fetchThreads = useCallback(async () => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/threads?limit=100`);
+      const params = new URLSearchParams({
+        limit: "100",
+        sort_by: sortBy,
+        direction: sortDirection,
+      });
+      
+      if (filterMinTurns !== null) {
+        params.append("min_turns", filterMinTurns.toString());
+      }
+      if (filterReviewed !== null) {
+        params.append("reviewed", filterReviewed.toString());
+      }
+      
+      const response = await fetch(`/api/threads?${params}`);
       const data = await response.json();
       setThreads(data.threads || []);
     } catch (error) {
@@ -277,7 +328,20 @@ ${notesList || "No notes"}`;
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [sortBy, sortDirection, filterMinTurns, filterReviewed]);
+
+  const fetchRandomSample = async (size: number = 20) => {
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/threads?sample=random&sample_size=${size}`);
+      const data = await response.json();
+      setThreads(data.threads || []);
+    } catch (error) {
+      console.error("Error fetching random sample:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchFeedbackSummary = useCallback(async () => {
     try {
@@ -286,6 +350,16 @@ ${notesList || "No notes"}`;
       setFeedbackSummary(data);
     } catch (error) {
       console.error("Error fetching feedback summary:", error);
+    }
+  }, []);
+
+  const fetchAnnotationProgress = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/annotation-progress`);
+      const data = await response.json();
+      setAnnotationProgress(data);
+    } catch (error) {
+      console.error("Error fetching annotation progress:", error);
     }
   }, []);
 
@@ -299,6 +373,76 @@ ${notesList || "No notes"}`;
       console.error("Error fetching thread detail:", error);
     } finally {
       setLoadingDetail(false);
+    }
+  };
+
+  // ============================================================================
+  // Annotation Actions
+  // ============================================================================
+
+  const markThreadReviewed = async (threadId: string) => {
+    setMarkingReviewed(true);
+    try {
+      const response = await fetch(`/api/threads/${threadId}/mark-reviewed`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      });
+      if (response.ok) {
+        // Update local state
+        setSelectedThread(prev => prev ? { ...prev, is_reviewed: true } : null);
+        setThreads(prev => prev.map(t => 
+          t.thread_id === threadId ? { ...t, is_reviewed: true } : t
+        ));
+        // Refresh annotation progress
+        fetchAnnotationProgress();
+      }
+    } catch (error) {
+      console.error("Error marking thread as reviewed:", error);
+    } finally {
+      setMarkingReviewed(false);
+    }
+  };
+
+  const unmarkThreadReviewed = async (threadId: string) => {
+    setMarkingReviewed(true);
+    try {
+      const response = await fetch(`/api/threads/${threadId}/mark-reviewed`, {
+        method: "DELETE"
+      });
+      if (response.ok) {
+        setSelectedThread(prev => prev ? { ...prev, is_reviewed: false } : null);
+        setThreads(prev => prev.map(t => 
+          t.thread_id === threadId ? { ...t, is_reviewed: false } : t
+        ));
+        fetchAnnotationProgress();
+      }
+    } catch (error) {
+      console.error("Error unmarking thread as reviewed:", error);
+    } finally {
+      setMarkingReviewed(false);
+    }
+  };
+
+  const addNoteToThread = async (threadId: string, note: string) => {
+    if (!note.trim()) return;
+    
+    setAddingNote(true);
+    try {
+      const response = await fetch(`/api/threads/${threadId}/note`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note })
+      });
+      if (response.ok) {
+        setNewNote("");
+        // Refresh feedback summary to show new note
+        fetchFeedbackSummary();
+      }
+    } catch (error) {
+      console.error("Error adding note:", error);
+    } finally {
+      setAddingNote(false);
     }
   };
 
@@ -448,7 +592,8 @@ ${notesList || "No notes"}`;
   useEffect(() => {
     fetchThreads();
     fetchFeedbackSummary();
-  }, [fetchThreads, fetchFeedbackSummary]);
+    fetchAnnotationProgress();
+  }, [fetchThreads, fetchFeedbackSummary, fetchAnnotationProgress]);
 
   useEffect(() => {
     if (activeTab === "taxonomy") {
@@ -598,133 +743,307 @@ ${notesList || "No notes"}`;
   // ============================================================================
 
   const SessionsTab = () => (
-    <div className="grid grid-cols-12 gap-6">
-      {/* Left Panel - Thread List */}
-      <div className="col-span-4 space-y-4 min-w-0">
-        <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-4 overflow-hidden">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-display text-lg font-semibold text-sand-100 flex items-center gap-2">
-              <MessageCircle className="w-5 h-5 text-accent-coral" />
-              Sessions
-            </h2>
-            <span className="badge badge-coral">{threads.length}</span>
+    <div className="space-y-4">
+      {/* Annotation Progress Bar */}
+      {annotationProgress && (
+        <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-4">
+          <div className="flex items-center justify-between mb-2">
+            <h3 className="font-display text-sm font-semibold text-sand-100 flex items-center gap-2">
+              <Target className="w-4 h-4 text-accent-teal" />
+              Review Progress
+            </h3>
+            <span className="text-xs text-ink-400">
+              {annotationProgress.reviewed_count} / {annotationProgress.target} reviewed
+            </span>
           </div>
-          
-          {/* Search */}
-          <div className="mb-4">
-            <div className="relative">
-              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-500" />
-              <input
-                type="text"
-                placeholder="Search sessions..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 text-sm"
-              />
-            </div>
+          <div className="h-2 bg-ink-800 rounded-full overflow-hidden">
+            <div 
+              className="h-full bg-gradient-to-r from-accent-teal to-accent-coral transition-all duration-500"
+              style={{ width: `${annotationProgress.progress_percent}%` }}
+            />
           </div>
-
-          {/* Thread List */}
-          <div className="space-y-2 max-h-[calc(100vh-320px)] overflow-y-auto">
-            {loading ? (
-              <div className="space-y-2">
-                {[...Array(5)].map((_, i) => (
-                  <div key={i} className="h-20 shimmer rounded-lg" />
-                ))}
-              </div>
-            ) : filteredThreads.length === 0 ? (
-              <div className="text-center py-8 text-ink-500">
-                <AlertTriangle className="w-8 h-8 mx-auto mb-2" />
-                <p>No sessions found</p>
-                <p className="text-sm">Generate some traces first</p>
-              </div>
-            ) : (
-              filteredThreads.map((thread) => (
-                <button
-                  key={thread.thread_id}
-                  onClick={() => fetchThreadDetail(thread.thread_id)}
-                  className={`w-full text-left trace-card rounded-lg p-3 ${
-                    selectedThread?.thread_id === thread.thread_id ? "ring-2 ring-accent-coral" : ""
-                  }`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <Hash className="w-3 h-3 text-ink-500" />
-                        <p className="font-mono text-sm text-sand-200 truncate">
-                          {thread.thread_id}
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-3 mt-2">
-                        <span className="badge badge-teal text-xs">
-                          {thread.turn_count} turn{thread.turn_count !== 1 ? 's' : ''}
-                        </span>
-                        <span className="text-xs text-ink-500">
-                          {formatRelativeTime(thread.last_updated)}
-                        </span>
-                      </div>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-ink-600 flex-shrink-0" />
-                  </div>
-                </button>
-              ))
-            )}
+          <div className="flex items-center justify-between mt-2 text-xs text-ink-500">
+            <span>{annotationProgress.remaining} remaining</span>
+            <span>{annotationProgress.recent_reviews_24h} reviewed today</span>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Right Panel - Conversation View */}
-      <div className="col-span-8 space-y-4">
-        <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-4">
-          <h2 className="font-display text-lg font-semibold text-sand-100 flex items-center gap-2 mb-4">
-            <MessageSquare className="w-5 h-5 text-accent-teal" />
-            Conversation
-          </h2>
-
-          {loadingDetail ? (
-            <div className="space-y-4">
-              <div className="h-8 shimmer rounded w-1/3" />
-              <div className="h-24 shimmer rounded" />
-              <div className="h-24 shimmer rounded" />
+      <div className="grid grid-cols-12 gap-6">
+        {/* Left Panel - Thread List */}
+        <div className="col-span-4 space-y-4 min-w-0">
+          <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-4 overflow-hidden">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-display text-lg font-semibold text-sand-100 flex items-center gap-2">
+                <MessageCircle className="w-5 h-5 text-accent-coral" />
+                Sessions
+              </h2>
+              <span className="badge badge-coral">{threads.length}</span>
             </div>
-          ) : selectedThread ? (
-            <div className="space-y-4 animate-fade-in">
-              {/* Thread Info */}
-              <div className="flex items-center justify-between bg-ink-950 rounded-lg p-3 border border-ink-800">
-                <div>
-                  <p className="font-mono text-accent-coral text-sm">
-                    {selectedThread.thread_id}
-                  </p>
-                  <p className="text-xs text-ink-500 mt-1">
-                    {selectedThread.total_calls} calls · {selectedThread.conversation.length} messages
-                  </p>
-                </div>
-                <a
-                  href={`https://wandb.ai/ayut/error-analysis-demo/weave/threads/${selectedThread.thread_id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-ghost flex items-center gap-1 text-xs"
+            
+            {/* Search */}
+            <div className="mb-3">
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-500" />
+                <input
+                  type="text"
+                  placeholder="Search sessions..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 text-sm"
+                />
+              </div>
+            </div>
+
+            {/* Sort & Filter Controls */}
+            <div className="mb-3 space-y-2">
+              {/* Sort */}
+              <div className="flex items-center gap-2">
+                <SortDesc className="w-4 h-4 text-ink-500" />
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="flex-1 text-xs bg-ink-950 border border-ink-700 rounded px-2 py-1"
                 >
-                  <ExternalLink className="w-3 h-3" />
-                  View in Weave
-                </a>
+                  <option value="last_updated">Last Updated</option>
+                  <option value="turn_count">Turn Count</option>
+                </select>
+                <button
+                  onClick={() => setSortDirection(d => d === "desc" ? "asc" : "desc")}
+                  className="p-1 bg-ink-950 border border-ink-700 rounded text-xs"
+                  title={sortDirection === "desc" ? "Descending" : "Ascending"}
+                >
+                  {sortDirection === "desc" ? "↓" : "↑"}
+                </button>
               </div>
 
-              {/* Conversation Messages */}
-              <div className="space-y-4 max-h-[calc(100vh-380px)] overflow-y-auto pr-2">
-                {selectedThread.conversation.length > 0 ? (
-                  selectedThread.conversation.map((msg, idx) => 
-                    renderConversationMessage(msg, idx)
-                  )
-                ) : (
-                  <div className="text-center py-8 text-ink-500">
-                    <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                    <p>No conversation data extracted</p>
-                    <p className="text-xs mt-1">
-                      Raw calls available: {selectedThread.total_calls}
-                    </p>
+              {/* Quick Filters */}
+              <div className="flex flex-wrap gap-1">
+                <button
+                  onClick={() => setFilterMinTurns(filterMinTurns === 5 ? null : 5)}
+                  className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${
+                    filterMinTurns === 5 
+                      ? "bg-accent-coral/20 border-accent-coral text-accent-coral" 
+                      : "bg-ink-950 border-ink-700 text-ink-400 hover:border-ink-600"
+                  }`}
+                >
+                  5+ turns
+                </button>
+                <button
+                  onClick={() => setFilterReviewed(filterReviewed === false ? null : false)}
+                  className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${
+                    filterReviewed === false 
+                      ? "bg-accent-gold/20 border-accent-gold text-accent-gold" 
+                      : "bg-ink-950 border-ink-700 text-ink-400 hover:border-ink-600"
+                  }`}
+                >
+                  Not Reviewed
+                </button>
+                <button
+                  onClick={() => setFilterReviewed(filterReviewed === true ? null : true)}
+                  className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${
+                    filterReviewed === true 
+                      ? "bg-accent-teal/20 border-accent-teal text-accent-teal" 
+                      : "bg-ink-950 border-ink-700 text-ink-400 hover:border-ink-600"
+                  }`}
+                >
+                  Reviewed
+                </button>
+                <button
+                  onClick={() => fetchRandomSample(20)}
+                  className="px-2 py-0.5 text-xs rounded-full border bg-ink-950 border-ink-700 text-ink-400 hover:border-accent-plum hover:text-accent-plum transition-colors flex items-center gap-1"
+                >
+                  <Shuffle className="w-3 h-3" />
+                  Random 20
+                </button>
+              </div>
+            </div>
+
+            {/* Thread List */}
+            <div className="space-y-2 max-h-[calc(100vh-480px)] overflow-y-auto">
+              {loading ? (
+                <div className="space-y-2">
+                  {[...Array(5)].map((_, i) => (
+                    <div key={i} className="h-20 shimmer rounded-lg" />
+                  ))}
+                </div>
+              ) : filteredThreads.length === 0 ? (
+                <div className="text-center py-8 text-ink-500">
+                  <AlertTriangle className="w-8 h-8 mx-auto mb-2" />
+                  <p>No sessions found</p>
+                  <p className="text-sm">Try adjusting filters</p>
+                </div>
+              ) : (
+                filteredThreads.map((thread) => (
+                  <button
+                    key={thread.thread_id}
+                    onClick={() => fetchThreadDetail(thread.thread_id)}
+                    className={`w-full text-left trace-card rounded-lg p-3 ${
+                      selectedThread?.thread_id === thread.thread_id ? "ring-2 ring-accent-coral" : ""
+                    }`}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          {thread.is_reviewed ? (
+                            <CheckSquare className="w-3 h-3 text-accent-teal" />
+                          ) : (
+                            <Square className="w-3 h-3 text-ink-600" />
+                          )}
+                          <p className="font-mono text-sm text-sand-200 truncate">
+                            {thread.thread_id}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3 mt-2">
+                          <span className="badge badge-teal text-xs">
+                            {thread.turn_count} turn{thread.turn_count !== 1 ? 's' : ''}
+                          </span>
+                          <span className="text-xs text-ink-500">
+                            {formatRelativeTime(thread.last_updated)}
+                          </span>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-ink-600 flex-shrink-0" />
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Right Panel - Conversation View */}
+        <div className="col-span-8 space-y-4">
+          <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-4">
+            <h2 className="font-display text-lg font-semibold text-sand-100 flex items-center gap-2 mb-4">
+              <MessageSquare className="w-5 h-5 text-accent-teal" />
+              Conversation
+            </h2>
+
+            {loadingDetail ? (
+              <div className="space-y-4">
+                <div className="h-8 shimmer rounded w-1/3" />
+                <div className="h-24 shimmer rounded" />
+                <div className="h-24 shimmer rounded" />
+              </div>
+            ) : selectedThread ? (
+              <div className="space-y-4 animate-fade-in">
+                {/* Thread Info */}
+                <div className="flex items-center justify-between bg-ink-950 rounded-lg p-3 border border-ink-800">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <p className="font-mono text-accent-coral text-sm">
+                        {selectedThread.thread_id}
+                      </p>
+                      {selectedThread.is_reviewed && (
+                        <span className="badge bg-accent-teal/20 text-accent-teal text-xs">Reviewed</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 mt-1">
+                      <span className="text-xs text-ink-500">
+                        {selectedThread.total_calls} calls · {selectedThread.conversation.length} messages
+                      </span>
+                      {selectedThread.metrics && (
+                        <>
+                          <span className="text-xs text-ink-500">
+                            <Clock className="w-3 h-3 inline mr-1" />
+                            {Math.round(selectedThread.metrics.total_latency_ms)}ms
+                          </span>
+                          {selectedThread.metrics.has_error && (
+                            <span className="text-xs text-red-400">
+                              <AlertTriangle className="w-3 h-3 inline mr-1" />
+                              Has errors
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
-                )}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => selectedThread.is_reviewed 
+                        ? unmarkThreadReviewed(selectedThread.thread_id)
+                        : markThreadReviewed(selectedThread.thread_id)
+                      }
+                      disabled={markingReviewed}
+                      className={`btn-ghost text-xs flex items-center gap-1 ${
+                        selectedThread.is_reviewed 
+                          ? "text-accent-teal" 
+                          : "text-ink-400 hover:text-accent-teal"
+                      }`}
+                    >
+                      {markingReviewed ? (
+                        <RefreshCw className="w-3 h-3 animate-spin" />
+                      ) : selectedThread.is_reviewed ? (
+                        <CheckSquare className="w-3 h-3" />
+                      ) : (
+                        <Square className="w-3 h-3" />
+                      )}
+                      {selectedThread.is_reviewed ? "Reviewed" : "Mark Reviewed"}
+                    </button>
+                    <a
+                      href={`https://wandb.ai/ayut/error-analysis-demo/weave/threads/${selectedThread.thread_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-ghost flex items-center gap-1 text-xs"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      Weave
+                    </a>
+                  </div>
+                </div>
+
+                {/* Conversation Messages */}
+                <div className="space-y-4 max-h-[calc(100vh-580px)] overflow-y-auto pr-2">
+                  {selectedThread.conversation.length > 0 ? (
+                    selectedThread.conversation.map((msg, idx) => 
+                      renderConversationMessage(msg, idx)
+                    )
+                  ) : (
+                    <div className="text-center py-8 text-ink-500">
+                      <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                      <p>No conversation data extracted</p>
+                      <p className="text-xs mt-1">
+                        Raw calls available: {selectedThread.total_calls}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+              {/* Inline Note-Taking */}
+              <div className="border-t border-ink-800 pt-4 mt-4">
+                <div className="flex items-start gap-3">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-accent-gold/20 flex items-center justify-center">
+                    <StickyNote className="w-4 h-4 text-accent-gold" />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs font-medium text-accent-gold mb-1 block">Add Note</label>
+                    <textarea
+                      value={newNote}
+                      onChange={(e) => setNewNote(e.target.value)}
+                      placeholder="Document any issues, observations, or failure patterns you notice..."
+                      rows={2}
+                      className="w-full text-sm bg-ink-950 border border-ink-700 rounded-lg p-2 resize-none focus:border-accent-gold focus:ring-1 focus:ring-accent-gold"
+                    />
+                    <div className="flex items-center justify-between mt-2">
+                      <p className="text-xs text-ink-500">
+                        Notes are saved to Weave and synced to Taxonomy
+                      </p>
+                      <button
+                        onClick={() => addNoteToThread(selectedThread.thread_id, newNote)}
+                        disabled={!newNote.trim() || addingNote}
+                        className="btn-primary text-xs flex items-center gap-1 px-3 py-1.5 disabled:opacity-50"
+                      >
+                        {addingNote ? (
+                          <RefreshCw className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Send className="w-3 h-3" />
+                        )}
+                        Add Note
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           ) : (
@@ -734,6 +1053,7 @@ ${notesList || "No notes"}`;
               <p className="text-sm mt-1">Click on a session from the list</p>
             </div>
           )}
+          </div>
         </div>
       </div>
     </div>
@@ -753,7 +1073,7 @@ ${notesList || "No notes"}`;
             <h2 className="font-display text-lg font-semibold text-sand-100 flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-accent-teal" />
               Saturation Tracking
-            </h2>
+          </h2>
             {taxonomy?.saturation.status === "saturated" && (
               <span className="badge bg-emerald-500/20 text-emerald-400">Saturated</span>
             )}
@@ -788,13 +1108,13 @@ ${notesList || "No notes"}`;
                 <div className="bg-ink-950 rounded-lg p-3 text-center">
                   <div className="text-2xl font-bold text-accent-coral">
                     {taxonomy.stats.total_failure_modes}
-                  </div>
+                </div>
                   <div className="text-xs text-ink-500">Failure Modes</div>
                 </div>
                 <div className="bg-ink-950 rounded-lg p-3 text-center">
                   <div className="text-2xl font-bold text-accent-gold">
                     {taxonomy.stats.total_uncategorized}
-                  </div>
+              </div>
                   <div className="text-xs text-ink-500">Uncategorized</div>
                 </div>
                 <div className="bg-ink-950 rounded-lg p-3 text-center">
@@ -815,7 +1135,7 @@ ${notesList || "No notes"}`;
           <h2 className="font-display text-lg font-semibold text-sand-100 flex items-center gap-2 mb-4">
             <Zap className="w-5 h-5 text-accent-gold" />
             Actions
-          </h2>
+            </h2>
           
           <div className="grid grid-cols-2 gap-4">
             {/* Sync Notes */}
@@ -847,7 +1167,7 @@ ${notesList || "No notes"}`;
             >
               <div className="flex items-center gap-3 mb-2">
                 <div className="w-10 h-10 rounded-lg bg-accent-plum/20 flex items-center justify-center group-hover:scale-110 transition-transform">
-                  {categorizing ? (
+              {categorizing ? (
                     <RefreshCw className="w-5 h-5 text-accent-plum animate-spin" />
                   ) : (
                     <Sparkles className="w-5 h-5 text-accent-plum" />
@@ -868,7 +1188,7 @@ ${notesList || "No notes"}`;
               <div className="flex items-center gap-3 mb-2">
                 <div className="w-10 h-10 rounded-lg bg-accent-coral/20 flex items-center justify-center group-hover:scale-110 transition-transform">
                   <Plus className="w-5 h-5 text-accent-coral" />
-                </div>
+          </div>
                 <div>
                   <h3 className="font-medium text-sand-200">New Failure Mode</h3>
                   <p className="text-xs text-ink-500">Create manually</p>
@@ -968,7 +1288,7 @@ ${notesList || "No notes"}`;
                   >
                     <X className="w-4 h-4" />
                   </button>
-                </div>
+        </div>
                 <p className="text-sm text-sand-300 mb-3 line-clamp-2">{selectedNote.content}</p>
                 
                 {/* AI Suggestion Button */}
@@ -995,15 +1315,15 @@ ${notesList || "No notes"}`;
                     
                     {noteSuggestion.match_type === "existing" ? (
                       <div>
-                        <p className="text-sm text-sand-300">
+                <p className="text-sm text-sand-300">
                           Matches existing: <strong className="text-accent-teal">
                             {taxonomy?.failure_modes.find(m => m.id === noteSuggestion.existing_mode_id)?.name}
                           </strong>
                         </p>
                         <p className="text-xs text-ink-500 mt-1">
                           Confidence: {Math.round(noteSuggestion.confidence * 100)}%
-                        </p>
-                      </div>
+                </p>
+              </div>
                     ) : (
                       <div>
                         <p className="text-sm text-sand-300">
@@ -1110,7 +1430,7 @@ ${notesList || "No notes"}`;
                       <div className="flex items-center gap-2 ml-4">
                         <span className="badge badge-plum text-xs">
                           {mode.times_seen} note{mode.times_seen !== 1 ? 's' : ''}
-                        </span>
+                      </span>
                         {expandedModes.has(mode.id) ? (
                           <ChevronUp className="w-4 h-4 text-ink-500" />
                         ) : (
@@ -1132,12 +1452,12 @@ ${notesList || "No notes"}`;
                       {/* Suggested Fix */}
                       {mode.suggested_fix && (
                         <div className="flex items-start gap-2 p-2 bg-ink-900 rounded-lg">
-                          <Sparkles className="w-4 h-4 text-accent-teal flex-shrink-0 mt-0.5" />
+                        <Sparkles className="w-4 h-4 text-accent-teal flex-shrink-0 mt-0.5" />
                           <div>
                             <span className="text-xs font-medium text-accent-teal">Suggested Fix</span>
                             <p className="text-sm text-sand-300 mt-1">{mode.suggested_fix}</p>
-                          </div>
-                        </div>
+                      </div>
+                    </div>
                       )}
 
                       {/* Notes in this category */}
@@ -1145,7 +1465,7 @@ ${notesList || "No notes"}`;
                         <div>
                           <span className="text-xs font-medium text-ink-400 block mb-2">
                             Notes ({mode.note_ids.length})
-                          </span>
+                      </span>
                           <div className="space-y-1">
                             {taxonomy.notes?.filter(n => mode.note_ids.includes(n.id)).slice(0, 3).map((note) => (
                               <div key={note.id} className="text-xs text-sand-400 bg-ink-900 rounded p-2 flex items-center justify-between">
@@ -1160,15 +1480,15 @@ ${notesList || "No notes"}`;
                                     <ExternalLink className="w-3 h-3" />
                                   </a>
                                 )}
-                              </div>
-                            ))}
+                  </div>
+                ))}
                             {mode.note_ids.length > 3 && (
                               <p className="text-xs text-ink-500 pl-2">
                                 +{mode.note_ids.length - 3} more notes
                               </p>
                             )}
-                          </div>
-                        </div>
+              </div>
+            </div>
                       )}
 
                       {/* Actions */}
@@ -1210,11 +1530,11 @@ ${notesList || "No notes"}`;
                 <p className="text-lg">No failure modes yet</p>
                 <p className="mt-2 max-w-md mx-auto text-sm">
                   Sync notes from Weave, then use Auto-Categorize to discover failure patterns automatically.
-                </p>
-              </div>
-            )}
-          </div>
+              </p>
+            </div>
+          )}
         </div>
+      </div>
       </div>
 
       {/* Create Failure Mode Modal */}
@@ -1343,7 +1663,7 @@ ${notesList || "No notes"}`;
                   <div className="flex items-center gap-1 text-emerald-400">
                     <ThumbsUp className="w-4 h-4" />
                     <span>{feedbackSummary.thumbs_up}</span>
-                  </div>
+              </div>
                   <div className="flex items-center gap-1 text-red-400">
                     <ThumbsDown className="w-4 h-4" />
                     <span>{feedbackSummary.thumbs_down}</span>

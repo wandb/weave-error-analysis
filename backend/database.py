@@ -87,6 +87,29 @@ def init_db():
             )
         """)
         
+        # Reviewed threads table - tracks which threads have been reviewed
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS reviewed_threads (
+                thread_id TEXT PRIMARY KEY,
+                reviewed_at TEXT NOT NULL,
+                reviewer_notes TEXT
+            )
+        """)
+        
+        # Annotation settings table - stores user preferences
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS annotation_settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+        """)
+        
+        # Initialize default review target
+        cursor.execute("""
+            INSERT OR IGNORE INTO annotation_settings (key, value) 
+            VALUES ('review_target', '100')
+        """)
+        
         # Create indexes for common queries
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_notes_failure_mode 
@@ -99,6 +122,10 @@ def init_db():
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_saturation_timestamp 
             ON saturation_log(timestamp)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_reviewed_threads_date 
+            ON reviewed_threads(reviewed_at)
         """)
 
 

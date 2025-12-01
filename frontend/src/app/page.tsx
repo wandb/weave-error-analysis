@@ -31,7 +31,9 @@ import {
   ChevronDown,
   ChevronUp,
   Edit3,
-  X
+  X,
+  Copy,
+  Check
 } from "lucide-react";
 import { format, parseISO, formatDistanceToNow } from "date-fns";
 
@@ -181,6 +183,84 @@ export default function Home() {
   const [newModeName, setNewModeName] = useState("");
   const [newModeDescription, setNewModeDescription] = useState("");
   const [newModeSeverity, setNewModeSeverity] = useState("medium");
+  const [copiedTaxonomy, setCopiedTaxonomy] = useState(false);
+  const [copiedModeId, setCopiedModeId] = useState<string | null>(null);
+
+  // ============================================================================
+  // Copy Functions
+  // ============================================================================
+
+  const formatTaxonomyForCopy = () => {
+    if (!taxonomy?.failure_modes.length) return "";
+    
+    const formatted = taxonomy.failure_modes.map((mode, idx) => {
+      const notes = taxonomy.notes?.filter(n => mode.note_ids.includes(n.id)) || [];
+      const notesList = notes.map(n => `    - "${n.content}"`).join("\n");
+      
+      return `## ${idx + 1}. ${mode.name} [${mode.severity.toUpperCase()}]
+
+**Description:** ${mode.description}
+
+**Suggested Fix:** ${mode.suggested_fix || "N/A"}
+
+**Occurrences:** ${mode.times_seen} times (Last seen: ${mode.last_seen_at ? formatRelativeTime(mode.last_seen_at) : "N/A"})
+
+**Example Notes:**
+${notesList || "    No notes"}
+`;
+    }).join("\n---\n\n");
+
+    return `# Failure Mode Taxonomy
+
+**Total Failure Modes:** ${taxonomy.failure_modes.length}
+**Saturation Score:** ${Math.round((taxonomy.saturation?.saturation_score || 0) * 100)}%
+**Status:** ${taxonomy.saturation?.status || "Unknown"}
+
+---
+
+${formatted}
+
+---
+*Generated from Error Analysis Tool*`;
+  };
+
+  const formatSingleModeForCopy = (mode: FailureMode) => {
+    const notes = taxonomy?.notes?.filter(n => mode.note_ids.includes(n.id)) || [];
+    const notesList = notes.map(n => `- "${n.content}"`).join("\n");
+    
+    return `## ${mode.name} [${mode.severity.toUpperCase()}]
+
+**Description:** ${mode.description}
+
+**Suggested Fix:** ${mode.suggested_fix || "N/A"}
+
+**Occurrences:** ${mode.times_seen} times
+
+**Example Notes:**
+${notesList || "No notes"}`;
+  };
+
+  const copyTaxonomyToClipboard = async () => {
+    const text = formatTaxonomyForCopy();
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedTaxonomy(true);
+      setTimeout(() => setCopiedTaxonomy(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy:", err);
+    }
+  };
+
+  const copySingleModeToClipboard = async (mode: FailureMode) => {
+    const text = formatSingleModeForCopy(mode);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedModeId(mode.id);
+      setTimeout(() => setCopiedModeId(null), 2000);
+    } catch (err) {
+      console.error("Failed to copy:", err);
+    }
+  };
 
   // ============================================================================
   // Data Fetching
@@ -977,9 +1057,30 @@ export default function Home() {
               <AlertTriangle className="w-5 h-5 text-accent-coral" />
               Failure Modes
             </h2>
-            <span className="badge badge-coral">
-              {taxonomy?.failure_modes.length || 0}
-            </span>
+            <div className="flex items-center gap-2">
+              {taxonomy?.failure_modes.length ? (
+                <button
+                  onClick={copyTaxonomyToClipboard}
+                  className="btn-ghost text-xs flex items-center gap-1.5 px-2 py-1"
+                  title="Copy all failure modes to clipboard"
+                >
+                  {copiedTaxonomy ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 text-emerald-400" />
+                      <span className="text-emerald-400">Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5" />
+                      <span>Copy All</span>
+                    </>
+                  )}
+                </button>
+              ) : null}
+              <span className="badge badge-coral">
+                {taxonomy?.failure_modes.length || 0}
+              </span>
+            </div>
           </div>
 
           <div className="space-y-3 max-h-[calc(100vh-400px)] overflow-y-auto">
@@ -1072,6 +1173,25 @@ export default function Home() {
 
                       {/* Actions */}
                       <div className="flex items-center gap-2 pt-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            copySingleModeToClipboard(mode);
+                          }}
+                          className="btn-ghost text-xs flex items-center"
+                        >
+                          {copiedModeId === mode.id ? (
+                            <>
+                              <Check className="w-3 h-3 mr-1 text-emerald-400" />
+                              <span className="text-emerald-400">Copied!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy className="w-3 h-3 mr-1" />
+                              Copy
+                            </>
+                          )}
+                        </button>
                         <button
                           onClick={() => deleteFailureMode(mode.id)}
                           className="btn-ghost text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10"

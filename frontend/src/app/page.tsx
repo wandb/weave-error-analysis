@@ -286,8 +286,8 @@ export default function Home() {
         <div className="grid grid-cols-12 gap-6">
           
           {/* Left Panel - Trace List */}
-          <div className="col-span-4 space-y-4">
-            <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-4">
+          <div className="col-span-4 space-y-4 min-w-0">
+            <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-4 overflow-hidden">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-display text-lg font-semibold text-sand-100 flex items-center gap-2">
                   <Clock className="w-5 h-5 text-accent-coral" />
@@ -297,19 +297,21 @@ export default function Home() {
               </div>
               
               {/* Filters */}
-              <div className="flex gap-2 mb-4">
-                <div className="flex-1 relative">
-                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-500" />
-                  <input
-                    type="text"
-                    placeholder="Search traces..."
-                    className="w-full pl-10 text-sm"
-                  />
+              <div className="space-y-2 mb-4 overflow-hidden">
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1 min-w-0">
+                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-500" />
+                    <input
+                      type="text"
+                      placeholder="Search traces..."
+                      className="w-full pl-10 text-sm truncate"
+                    />
+                  </div>
                 </div>
                 <select
                   value={opNameFilter}
                   onChange={(e) => setOpNameFilter(e.target.value)}
-                  className="text-sm"
+                  className="w-full text-sm truncate"
                 >
                   <option value="">All operations</option>
                   {opNames.map((name) => (

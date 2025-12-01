@@ -1,24 +1,19 @@
 """
 Backend Service for Error Analysis Workflow
 
-This FastAPI service provides:
-- Trace querying from W&B Weave
-- Feedback and notes management
-- LLM-powered failure mode categorization
+Uses Weave Trace API (https://trace.wandb.ai) to query traces and feedback.
 """
 
 import os
-from datetime import datetime, timedelta
+import base64
+import httpx
+from datetime import datetime
 from typing import Optional
 from dotenv import load_dotenv
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-
-import weave
-from weave.trace.weave_client import WeaveClient
-from weave.trace_server.trace_server_interface import CallsFilter
 
 import litellm
 
@@ -39,62 +34,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize Weave client
+# Configuration
+WANDB_API_KEY = os.getenv("WANDB_API_KEY")
+WANDB_ENTITY = os.getenv("WANDB_ENTITY")
 WEAVE_PROJECT = os.getenv("WEAVE_PROJECT", "error-analysis-demo")
-WANDB_ENTITY = os.getenv("WANDB_ENTITY", None)  # Your W&B username or team name
+PROJECT_ID = f"{WANDB_ENTITY}/{WEAVE_PROJECT}" if WANDB_ENTITY else WEAVE_PROJECT
+
+# Weave Trace API
+WEAVE_API_BASE = "https://trace.wandb.ai"
 
 
-def get_weave_client() -> WeaveClient:
-    """Get or create a Weave client."""
-    # The project name format is entity/project
-    if WANDB_ENTITY:
-        project_id = f"{WANDB_ENTITY}/{WEAVE_PROJECT}"
-    else:
-        project_id = WEAVE_PROJECT
-    
-    client = weave.init(project_id)
-    return client
+def get_auth_header() -> dict:
+    """Get HTTP Basic auth header for Weave API."""
+    if not WANDB_API_KEY:
+        return {}
+    auth = base64.b64encode(f"api:{WANDB_API_KEY}".encode()).decode()
+    return {
+        "Authorization": f"Basic {auth}",
+        "Content-Type": "application/json"
+    }
 
 
 # Pydantic models
-class TraceListResponse(BaseModel):
-    traces: list
-    total_count: int
-    page: int
-    page_size: int
-
-
-class TraceDetail(BaseModel):
-    id: str
-    op_name: str
-    started_at: Optional[str]
-    ended_at: Optional[str]
-    inputs: Optional[dict]
-    outputs: Optional[dict]
-    status: Optional[str]
-    exception: Optional[str]
-    feedback: Optional[list]
-    attributes: Optional[dict]
-
-
-class AddNoteRequest(BaseModel):
-    trace_id: str
-    note: str
-    failure_mode: Optional[str] = None
-
-
 class CategorizeRequest(BaseModel):
     notes: list[str]
 
 
-class CategorizeResponse(BaseModel):
-    categories: list[dict]
-    summary: str
-
-
 class FeedbackRequest(BaseModel):
     trace_id: str
-    feedback_type: str  # "thumbs_up", "thumbs_down", "note"
+    feedback_type: str
     value: Optional[str] = None
 
 
@@ -102,7 +70,11 @@ class FeedbackRequest(BaseModel):
 @app.get("/")
 async def root():
     """Health check endpoint."""
-    return {"status": "healthy", "service": "error-analysis-backend"}
+    return {
+        "status": "healthy",
+        "service": "error-analysis-backend",
+        "project": PROJECT_ID
+    }
 
 
 @app.get("/api/traces")
@@ -110,157 +82,219 @@ async def get_traces(
     start_time: Optional[str] = Query(None, description="ISO format start time"),
     end_time: Optional[str] = Query(None, description="ISO format end time"),
     op_name: Optional[str] = Query(None, description="Filter by operation name"),
-    page: int = Query(1, ge=1),
-    page_size: int = Query(50, ge=1, le=100)
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0)
 ):
-    """
-    Get list of traces from Weave with optional filtering.
-    """
+    """Get list of traces from Weave using /calls/stream_query."""
     try:
-        client = get_weave_client()
-        
         # Build filter
-        filter_dict = {}
-        
+        filter_obj = {}
         if op_name:
-            filter_dict["op_names"] = [op_name]
+            filter_obj["op_names"] = [op_name]
         
-        # Get calls (traces) from Weave
-        calls = client.get_calls(
-            filter=CallsFilter(**filter_dict) if filter_dict else None,
-            limit=page_size,
-            offset=(page - 1) * page_size
-        )
+        # NOTE: Weave API does not support time filtering directly in query
+        # Time filtering should be done client-side or via different endpoint
+        # For now, we fetch all traces and the frontend can filter if needed
         
-        traces = []
-        for call in calls:
-            # Parse timestamps
-            started_at = None
-            ended_at = None
-            
-            if hasattr(call, 'started_at') and call.started_at:
-                started_at = call.started_at.isoformat() if hasattr(call.started_at, 'isoformat') else str(call.started_at)
-            
-            if hasattr(call, 'ended_at') and call.ended_at:
-                ended_at = call.ended_at.isoformat() if hasattr(call.ended_at, 'isoformat') else str(call.ended_at)
-            
-            # Apply time filter if specified
-            if start_time and started_at:
-                if started_at < start_time:
-                    continue
-            if end_time and started_at:
-                if started_at > end_time:
-                    continue
-            
-            trace_data = {
-                "id": call.id,
-                "op_name": call.op_name if hasattr(call, 'op_name') else "unknown",
-                "started_at": started_at,
-                "ended_at": ended_at,
-                "status": getattr(call, 'status', 'unknown'),
-                "inputs_preview": _truncate_dict(call.inputs if hasattr(call, 'inputs') else {}),
-                "has_exception": hasattr(call, 'exception') and call.exception is not None
-            }
-            traces.append(trace_data)
-        
-        return {
-            "traces": traces,
-            "total_count": len(traces),
-            "page": page,
-            "page_size": page_size
+        request_body = {
+            "project_id": PROJECT_ID,
+            "limit": limit,
+            "offset": offset,
+            "sort_by": [{"field": "started_at", "direction": "desc"}]
         }
+        
+        if filter_obj:
+            request_body["filter"] = filter_obj
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{WEAVE_API_BASE}/calls/stream_query",
+                headers=get_auth_header(),
+                json=request_body,
+                timeout=30.0
+            )
+            
+            if response.status_code != 200:
+                print(f"Weave API error: {response.status_code} - {response.text}")
+                return {
+                    "traces": [],
+                    "total_count": 0,
+                    "error": f"API error: {response.status_code}"
+                }
+            
+            # Parse JSONL response
+            traces = []
+            for line in response.text.strip().split("\n"):
+                if line:
+                    import json
+                    call = json.loads(line)
+                    traces.append({
+                        "id": call.get("id"),
+                        "op_name": call.get("op_name", "unknown"),
+                        "started_at": call.get("started_at"),
+                        "ended_at": call.get("ended_at"),
+                        "status": "error" if call.get("exception") else "success",
+                        "inputs_preview": _truncate_dict(call.get("inputs", {})),
+                        "has_exception": call.get("exception") is not None,
+                        "trace_id": call.get("trace_id"),
+                        "parent_id": call.get("parent_id")
+                    })
+            
+            return {
+                "traces": traces,
+                "total_count": len(traces)
+            }
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching traces: {str(e)}")
+        print(f"Error fetching traces: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "traces": [],
+            "total_count": 0,
+            "error": str(e)
+        }
 
 
 @app.get("/api/traces/{trace_id}")
 async def get_trace_detail(trace_id: str):
-    """
-    Get detailed information about a specific trace.
-    """
+    """Get detailed information about a specific trace using /call/read."""
     try:
-        client = get_weave_client()
-        
-        # Get the specific call
-        call = client.get_call(trace_id)
-        
-        if not call:
-            raise HTTPException(status_code=404, detail="Trace not found")
-        
-        # Get feedback for this trace
-        feedback = []
-        try:
-            if hasattr(call, 'feedback'):
-                for fb in call.feedback:
-                    feedback.append({
-                        "type": getattr(fb, 'feedback_type', 'unknown'),
-                        "value": getattr(fb, 'payload', None),
-                        "created_at": getattr(fb, 'created_at', None)
-                    })
-        except Exception:
-            pass  # Feedback might not be available
-        
-        # Parse timestamps
-        started_at = None
-        ended_at = None
-        
-        if hasattr(call, 'started_at') and call.started_at:
-            started_at = call.started_at.isoformat() if hasattr(call.started_at, 'isoformat') else str(call.started_at)
-        
-        if hasattr(call, 'ended_at') and call.ended_at:
-            ended_at = call.ended_at.isoformat() if hasattr(call.ended_at, 'isoformat') else str(call.ended_at)
-        
-        return {
-            "id": call.id,
-            "op_name": call.op_name if hasattr(call, 'op_name') else "unknown",
-            "started_at": started_at,
-            "ended_at": ended_at,
-            "inputs": call.inputs if hasattr(call, 'inputs') else {},
-            "output": call.output if hasattr(call, 'output') else None,
-            "status": getattr(call, 'status', 'unknown'),
-            "exception": str(call.exception) if hasattr(call, 'exception') and call.exception else None,
-            "feedback": feedback,
-            "attributes": call.attributes if hasattr(call, 'attributes') else {},
-            "children": _get_child_calls(client, trace_id)
+        request_body = {
+            "project_id": PROJECT_ID,
+            "id": trace_id
         }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{WEAVE_API_BASE}/call/read",
+                headers=get_auth_header(),
+                json=request_body,
+                timeout=30.0
+            )
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=f"API error: {response.text}")
+            
+            import json
+            data = response.json()
+            call = data.get("call")
+            
+            if not call:
+                raise HTTPException(status_code=404, detail="Trace not found")
+            
+            # Get child calls
+            children = await _get_child_calls(trace_id)
+            
+            # Get feedback for this call
+            feedback = await _get_feedback_for_call(trace_id)
+            
+            return {
+                "id": call.get("id"),
+                "op_name": call.get("op_name"),
+                "started_at": call.get("started_at"),
+                "ended_at": call.get("ended_at"),
+                "inputs": call.get("inputs", {}),
+                "output": call.get("output"),
+                "status": "error" if call.get("exception") else "success",
+                "exception": call.get("exception"),
+                "feedback": feedback,
+                "attributes": call.get("attributes", {}),
+                "children": children,
+                "trace_id": call.get("trace_id"),
+                "summary": call.get("summary", {})
+            }
     
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching trace: {str(e)}")
+        print(f"Error fetching trace detail: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-def _get_child_calls(client, parent_id: str) -> list:
+async def _get_child_calls(parent_id: str) -> list:
     """Get child calls for a trace."""
     try:
-        calls = client.get_calls(
-            filter=CallsFilter(parent_ids=[parent_id]),
-            limit=100
-        )
+        request_body = {
+            "project_id": PROJECT_ID,
+            "filter": {"parent_ids": [parent_id]},
+            "limit": 50
+        }
         
-        children = []
-        for call in calls:
-            started_at = None
-            ended_at = None
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{WEAVE_API_BASE}/calls/stream_query",
+                headers=get_auth_header(),
+                json=request_body,
+                timeout=30.0
+            )
             
-            if hasattr(call, 'started_at') and call.started_at:
-                started_at = call.started_at.isoformat() if hasattr(call.started_at, 'isoformat') else str(call.started_at)
+            if response.status_code != 200:
+                return []
             
-            if hasattr(call, 'ended_at') and call.ended_at:
-                ended_at = call.ended_at.isoformat() if hasattr(call.ended_at, 'isoformat') else str(call.ended_at)
+            children = []
+            import json
+            for line in response.text.strip().split("\n"):
+                if line:
+                    call = json.loads(line)
+                    children.append({
+                        "id": call.get("id"),
+                        "op_name": call.get("op_name"),
+                        "started_at": call.get("started_at"),
+                        "ended_at": call.get("ended_at"),
+                        "inputs_preview": _truncate_dict(call.get("inputs", {})),
+                        "output_preview": _truncate_value(call.get("output"))
+                    })
             
-            children.append({
-                "id": call.id,
-                "op_name": call.op_name if hasattr(call, 'op_name') else "unknown",
-                "started_at": started_at,
-                "ended_at": ended_at,
-                "inputs_preview": _truncate_dict(call.inputs if hasattr(call, 'inputs') else {}),
-                "output_preview": _truncate_value(call.output if hasattr(call, 'output') else None)
-            })
-        
-        return children
+            return children
     except Exception:
+        return []
+
+
+async def _get_feedback_for_call(call_id: str) -> list:
+    """Get feedback for a specific call."""
+    try:
+        # Build weave ref for the call
+        weave_ref = f"weave:///{PROJECT_ID}/call/{call_id}"
+        
+        request_body = {
+            "project_id": PROJECT_ID,
+            "query": {
+                "$expr": {
+                    "$eq": [
+                        {"$getField": "weave_ref"},
+                        {"$literal": weave_ref}
+                    ]
+                }
+            }
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{WEAVE_API_BASE}/feedback/query",
+                headers=get_auth_header(),
+                json=request_body,
+                timeout=30.0
+            )
+            
+            if response.status_code != 200:
+                return []
+            
+            data = response.json()
+            feedback_list = []
+            for fb in data.get("result", []):
+                feedback_list.append({
+                    "id": fb.get("id"),
+                    "type": fb.get("feedback_type"),
+                    "payload": fb.get("payload"),
+                    "created_at": fb.get("created_at")
+                })
+            
+            return feedback_list
+    except Exception as e:
+        print(f"Error fetching feedback: {e}")
         return []
 
 
@@ -269,7 +303,7 @@ def _truncate_dict(d: dict, max_length: int = 100) -> dict:
     if not d:
         return {}
     result = {}
-    for k, v in d.items():
+    for k, v in list(d.items())[:5]:  # Limit to 5 keys
         result[k] = _truncate_value(v, max_length)
     return result
 
@@ -283,51 +317,68 @@ def _truncate_value(v, max_length: int = 100):
     if isinstance(v, dict):
         return _truncate_dict(v, max_length)
     if isinstance(v, list):
-        return [_truncate_value(item, max_length) for item in v[:5]]
+        return [_truncate_value(item, max_length) for item in v[:3]]
     return v
 
 
 @app.post("/api/traces/{trace_id}/feedback")
 async def add_feedback(trace_id: str, request: FeedbackRequest):
-    """
-    Add feedback to a trace (thumbs up/down or note).
-    """
+    """Add feedback to a trace using /feedback/create."""
     try:
-        client = get_weave_client()
-        call = client.get_call(trace_id)
+        weave_ref = f"weave:///{PROJECT_ID}/call/{trace_id}"
         
-        if not call:
-            raise HTTPException(status_code=404, detail="Trace not found")
-        
-        # Add feedback based on type
+        # Build payload based on feedback type
         if request.feedback_type == "thumbs_up":
-            call.feedback.add_reaction("👍")
+            payload = {"emoji": "👍"}
+            feedback_type = "wandb.reaction.1"
         elif request.feedback_type == "thumbs_down":
-            call.feedback.add_reaction("👎")
+            payload = {"emoji": "👎"}
+            feedback_type = "wandb.reaction.1"
         elif request.feedback_type == "note":
-            call.feedback.add_note(request.value or "")
+            payload = {"note": request.value or ""}
+            feedback_type = "wandb.note.1"
         else:
-            raise HTTPException(status_code=400, detail="Invalid feedback type")
+            payload = {"value": request.value}
+            feedback_type = request.feedback_type
         
-        return {"status": "success", "message": "Feedback added"}
+        request_body = {
+            "project_id": PROJECT_ID,
+            "weave_ref": weave_ref,
+            "feedback_type": feedback_type,
+            "payload": payload
+        }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{WEAVE_API_BASE}/feedback/create",
+                headers=get_auth_header(),
+                json=request_body,
+                timeout=30.0
+            )
+            
+            if response.status_code != 200:
+                raise HTTPException(status_code=response.status_code, detail=f"API error: {response.text}")
+            
+            data = response.json()
+            return {
+                "status": "success",
+                "feedback_id": data.get("id"),
+                "message": "Feedback added"
+            }
     
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error adding feedback: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/categorize")
 async def categorize_notes(request: CategorizeRequest):
-    """
-    Use LLM to categorize notes into failure modes.
-    This implements the "Axial Coding" step from the error analysis workflow.
-    """
+    """Use LLM to categorize notes into failure modes."""
     if not request.notes:
         return {"categories": [], "summary": "No notes to categorize"}
     
     try:
-        # Build prompt for categorization
         notes_text = "\n".join([f"- {note}" for note in request.notes])
         
         prompt = f"""You are an expert at analyzing AI system failures. Given the following notes/observations about AI system behavior, identify and categorize the common failure modes.
@@ -358,14 +409,13 @@ Respond in this JSON format:
 Be specific and actionable. Focus on patterns that appear multiple times."""
 
         response = litellm.completion(
-            model=os.getenv("CATEGORIZATION_MODEL", "gpt-4o"),
+            model=os.getenv("CATEGORIZATION_MODEL", "gpt-4o-mini"),
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
         
         import json
         result = json.loads(response.choices[0].message.content)
-        
         return result
     
     except Exception as e:
@@ -377,81 +427,97 @@ async def get_feedback_summary(
     start_time: Optional[str] = Query(None),
     end_time: Optional[str] = Query(None)
 ):
-    """
-    Get a summary of all feedback across traces.
-    """
+    """Get summary of all feedback using /feedback/query."""
     try:
-        client = get_weave_client()
-        
-        # Get all calls with feedback
-        calls = client.get_calls(limit=500)
-        
-        notes = []
-        thumbs_up = 0
-        thumbs_down = 0
-        
-        for call in calls:
-            # Apply time filter
-            if hasattr(call, 'started_at') and call.started_at:
-                started_at = call.started_at.isoformat() if hasattr(call.started_at, 'isoformat') else str(call.started_at)
-                if start_time and started_at < start_time:
-                    continue
-                if end_time and started_at > end_time:
-                    continue
-            
-            try:
-                if hasattr(call, 'feedback'):
-                    for fb in call.feedback:
-                        fb_type = getattr(fb, 'feedback_type', '')
-                        if 'reaction' in fb_type.lower():
-                            payload = getattr(fb, 'payload', {})
-                            if payload.get('emoji') == '👍':
-                                thumbs_up += 1
-                            elif payload.get('emoji') == '👎':
-                                thumbs_down += 1
-                        elif 'note' in fb_type.lower():
-                            payload = getattr(fb, 'payload', {})
-                            if payload.get('note'):
-                                notes.append({
-                                    "trace_id": call.id,
-                                    "note": payload.get('note'),
-                                    "op_name": call.op_name if hasattr(call, 'op_name') else "unknown"
-                                })
-            except Exception:
-                pass
-        
-        return {
-            "thumbs_up": thumbs_up,
-            "thumbs_down": thumbs_down,
-            "notes": notes,
-            "total_notes": len(notes)
+        request_body = {
+            "project_id": PROJECT_ID,
+            "limit": 500
         }
+        
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{WEAVE_API_BASE}/feedback/query",
+                headers=get_auth_header(),
+                json=request_body,
+                timeout=30.0
+            )
+            
+            if response.status_code != 200:
+                return {"thumbs_up": 0, "thumbs_down": 0, "notes": [], "total_notes": 0}
+            
+            data = response.json()
+            
+            thumbs_up = 0
+            thumbs_down = 0
+            notes = []
+            
+            for fb in data.get("result", []):
+                fb_type = fb.get("feedback_type", "")
+                payload = fb.get("payload", {})
+                
+                if "reaction" in fb_type:
+                    emoji = payload.get("emoji", "")
+                    if emoji == "👍":
+                        thumbs_up += 1
+                    elif emoji == "👎":
+                        thumbs_down += 1
+                elif "note" in fb_type:
+                    note_text = payload.get("note", "")
+                    if note_text:
+                        notes.append({
+                            "note": note_text,
+                            "trace_id": fb.get("weave_ref", "").split("/")[-1] if fb.get("weave_ref") else "",
+                            "created_at": fb.get("created_at")
+                        })
+            
+            return {
+                "thumbs_up": thumbs_up,
+                "thumbs_down": thumbs_down,
+                "notes": notes,
+                "total_notes": len(notes)
+            }
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching feedback summary: {str(e)}")
+        print(f"Error fetching feedback summary: {e}")
+        return {"thumbs_up": 0, "thumbs_down": 0, "notes": [], "total_notes": 0, "error": str(e)}
 
 
 @app.get("/api/op-names")
 async def get_op_names():
-    """
-    Get list of unique operation names for filtering.
-    """
+    """Get list of unique operation names."""
     try:
-        client = get_weave_client()
-        calls = client.get_calls(limit=500)
+        # Fetch traces and extract unique op names
+        request_body = {
+            "project_id": PROJECT_ID,
+            "limit": 200
+        }
         
-        op_names = set()
-        for call in calls:
-            if hasattr(call, 'op_name') and call.op_name:
-                op_names.add(call.op_name)
-        
-        return {"op_names": sorted(list(op_names))}
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{WEAVE_API_BASE}/calls/stream_query",
+                headers=get_auth_header(),
+                json=request_body,
+                timeout=30.0
+            )
+            
+            if response.status_code != 200:
+                return {"op_names": []}
+            
+            op_names = set()
+            import json
+            for line in response.text.strip().split("\n"):
+                if line:
+                    call = json.loads(line)
+                    op_name = call.get("op_name")
+                    if op_name:
+                        op_names.add(op_name)
+            
+            return {"op_names": sorted(list(op_names))}
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error fetching op names: {str(e)}")
+        return {"op_names": [], "error": str(e)}
 
 
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
-

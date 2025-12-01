@@ -79,6 +79,8 @@ input, textarea, select {
   @apply bg-ink-900 border border-ink-700 text-sand-200 rounded-lg px-4 py-2;
   @apply focus:outline-none focus:ring-2 focus:ring-accent-coral/50 focus:border-accent-coral;
   @apply placeholder:text-ink-500;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 /* Button styles */

@@ -1,14 +1,15 @@
 """
 Generate sample traces for the error analysis demo.
 
-This script runs various scenarios through the travel planner agent
-to generate traces in W&B Weave that can be analyzed.
+Runs various scenarios through the travel planner agent to generate
+traces in W&B Weave for analysis.
 """
 
 import os
 import asyncio
 import uuid
 from dotenv import load_dotenv
+
 import weave
 
 load_dotenv()
@@ -18,110 +19,105 @@ weave.init(os.getenv("WEAVE_PROJECT", "error-analysis-demo"))
 
 from travel_planner import chat_with_agent
 
-# Test scenarios - mix of good and potentially problematic queries
+# Realistic test scenarios - mix of straightforward and edge cases
 TEST_SCENARIOS = [
-    # Good queries
+    # Straightforward requests
     {
-        "name": "Basic beach vacation",
+        "name": "Simple trip inquiry",
         "messages": [
-            "I want to plan a beach vacation",
-            "My budget is moderate, around $2000 for a week",
-            "I'm interested in Bali, what's the weather like in July?",
-            "Can you create a 7-day itinerary focused on relaxation?"
+            "I want to plan a trip to Japan",
+            "I'm thinking about 2 weeks in April. What should I know?",
+            "What's the budget look like for a moderate traveler?"
         ]
     },
     {
-        "name": "Adventure trip planning",
+        "name": "Weekend getaway",
         "messages": [
-            "Looking for an adventure trip",
-            "Budget is flexible, maybe luxury",
-            "What about New Zealand in December?",
-            "Give me a 10-day adventure itinerary"
+            "I need a quick weekend trip from San Francisco",
+            "Something relaxing, maybe wine country?",
+            "What's the best time to go?"
         ]
     },
     {
-        "name": "City exploration",
+        "name": "Family vacation planning",
         "messages": [
-            "I want to explore a European city",
-            "Moderate budget",
-            "How about Barcelona in April?",
-            "Create a cultural itinerary for 5 days"
+            "Planning a family trip with two kids ages 8 and 12",
+            "They love theme parks and beaches",
+            "We have about $5000 budget for a week"
         ]
     },
-    # Potentially problematic queries (edge cases for error analysis)
+    
+    # Edge cases that might reveal issues
     {
         "name": "Vague request",
         "messages": [
-            "I want to go somewhere",
-            "Not sure about budget",
-            "Whenever is fine"
-        ]
-    },
-    {
-        "name": "Conflicting requirements",
-        "messages": [
-            "I want a luxury beach vacation",
-            "But my budget is only $500 for two weeks",
-            "Can you make it work?"
+            "I want to go somewhere nice",
+            "Not sure when",
+            "Budget is flexible"
         ]
     },
     {
         "name": "Complex date handling",
         "messages": [
-            "I want to travel two weeks from now",
-            "Maybe late next month",
-            "Actually, let's do the third week of March 2025"
+            "I want to travel from December 28 to January 5",
+            "How many days is that?",
+            "What destinations are good for New Year's?"
         ]
     },
     {
-        "name": "Multiple destinations",
+        "name": "Budget constraints",
         "messages": [
-            "I want to visit Paris, Tokyo, and Sydney in one trip",
-            "I only have 5 days",
-            "Budget is moderate"
-        ]
-    },
-    {
-        "name": "Special requirements",
-        "messages": [
-            "Planning a trip with my elderly parents",
-            "They need wheelchair accessibility",
-            "Looking for a relaxing mountain destination",
-            "Budget is luxury"
+            "I only have $500 for a week-long international trip",
+            "Is that even possible?",
+            "What are my options?"
         ]
     },
     {
         "name": "Last minute planning",
         "messages": [
-            "I need to plan a trip for tomorrow",
-            "Going to Tokyo",
-            "What should I pack?"
+            "I need to book a trip for next week",
+            "Going to Paris",
+            "What should I prioritize with only 3 days?"
         ]
     },
     {
-        "name": "Group trip complexity",
+        "name": "Special requirements",
         "messages": [
-            "Planning a trip for 15 people",
-            "Mix of families with kids and young couples",
-            "Some want adventure, some want relaxation",
-            "Budget varies from cheap to moderate"
-        ]
-    },
-    # More edge cases
-    {
-        "name": "Weather-sensitive planning",
-        "messages": [
-            "I hate rain, where should I go in August?",
-            "Also don't like extreme heat",
-            "Beach preferred"
+            "Planning a trip with my elderly mother who uses a wheelchair",
+            "She wants to see the Grand Canyon",
+            "What's accessible there?"
         ]
     },
     {
-        "name": "Budget breakdown request",
+        "name": "Multi-destination trip",
         "messages": [
-            "What's the cheapest way to visit Japan?",
-            "For 2 weeks",
-            "Break down all the costs for me"
+            "I want to visit London, Paris, and Rome in 10 days",
+            "Is that realistic?",
+            "How should I split the time?"
+        ]
+    },
+    {
+        "name": "Off-season travel",
+        "messages": [
+            "Is Iceland good to visit in November?",
+            "I want to see the Northern Lights",
+            "What about the weather?"
+        ]
+    },
+    {
+        "name": "Solo female traveler",
+        "messages": [
+            "I'm a solo female traveler going to Morocco",
+            "Any safety tips?",
+            "Best areas to stay in Marrakech?"
+        ]
+    },
+    {
+        "name": "Honeymoon planning",
+        "messages": [
+            "Planning our honeymoon for next June",
+            "We want something romantic and secluded",
+            "Budget around $8000 for two weeks"
         ]
     },
 ]
@@ -141,13 +137,13 @@ async def run_scenario(scenario: dict):
         try:
             response = await chat_with_agent(user_id, session_id, message)
             # Truncate long responses for display
-            display_response = response[:200] + "..." if len(response) > 200 else response
+            display_response = response[:300] + "..." if len(response) > 300 else response
             print(f"Assistant: {display_response}")
         except Exception as e:
             print(f"ERROR: {e}")
         
         # Small delay between messages
-        await asyncio.sleep(1)
+        await asyncio.sleep(0.5)
 
 
 async def main():
@@ -157,9 +153,12 @@ async def main():
     print(f"Running {len(TEST_SCENARIOS)} scenarios...")
     
     for scenario in TEST_SCENARIOS:
-        await run_scenario(scenario)
+        try:
+            await run_scenario(scenario)
+        except Exception as e:
+            print(f"Failed scenario '{scenario['name']}': {e}")
         # Delay between scenarios
-        await asyncio.sleep(2)
+        await asyncio.sleep(1)
     
     print("\n" + "="*60)
     print("✅ Trace generation complete!")
@@ -169,4 +168,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-

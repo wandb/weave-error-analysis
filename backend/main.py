@@ -13,6 +13,7 @@ from routers import (
     traces_router,
     feedback_router,
     categorize_router,
+    taxonomy_router,
 )
 
 app = FastAPI(
@@ -35,6 +36,7 @@ app.include_router(threads_router)
 app.include_router(traces_router)
 app.include_router(feedback_router)
 app.include_router(categorize_router)
+app.include_router(taxonomy_router)
 
 
 @app.get("/")

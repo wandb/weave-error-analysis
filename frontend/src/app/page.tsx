@@ -8,52 +8,61 @@ import {
   ThumbsUp, 
   ThumbsDown,
   ChevronRight,
-  Filter,
   RefreshCw,
   Sparkles,
   AlertTriangle,
-  CheckCircle2,
-  XCircle,
-  Calendar,
-  Layers
+  ExternalLink,
+  User,
+  Bot,
+  Wrench,
+  Layers,
+  MessageCircle,
+  Hash
 } from "lucide-react";
-import { format, subDays, parseISO } from "date-fns";
+import { format, subDays, parseISO, formatDistanceToNow } from "date-fns";
 
-interface Trace {
-  id: string;
-  op_name: string;
-  started_at: string | null;
-  ended_at: string | null;
-  status: string;
-  inputs_preview: Record<string, unknown>;
-  has_exception: boolean;
+interface Thread {
+  thread_id: string;
+  turn_count: number;
+  start_time: string | null;
+  last_updated: string | null;
 }
 
-interface TraceDetail {
-  id: string;
-  op_name: string;
-  started_at: string | null;
-  ended_at: string | null;
-  inputs: Record<string, unknown>;
-  output: unknown;
-  status: string;
-  exception: string | null;
-  feedback: Array<{ type: string; value: unknown; created_at: string }>;
-  attributes: Record<string, unknown>;
-  children: Array<{
+interface ConversationMessage {
+  type: "user" | "assistant" | "tool_call" | "system";
+  content?: string;
+  tool_name?: string;
+  tool_input?: unknown;
+  tool_output?: unknown;
+  call_id: string;
+  timestamp: string;
+}
+
+interface ThreadDetail {
+  thread_id: string;
+  calls: Array<{
     id: string;
     op_name: string;
-    started_at: string | null;
-    ended_at: string | null;
-    inputs_preview: Record<string, unknown>;
-    output_preview: unknown;
+    started_at: string;
+    ended_at: string;
+    inputs: Record<string, unknown>;
+    output: unknown;
   }>;
+  conversation: ConversationMessage[];
+  feedback: Record<string, Array<{ type: string; payload: unknown }>>;
+  total_calls: number;
 }
 
 interface FeedbackSummary {
   thumbs_up: number;
   thumbs_down: number;
-  notes: Array<{ trace_id: string; note: string; op_name: string }>;
+  notes: Array<{ 
+    note: string; 
+    call_id: string; 
+    weave_ref: string;
+    weave_url: string;
+    created_at: string;
+  }>;
   total_notes: number;
 }
 
@@ -71,8 +80,8 @@ interface CategorizeResponse {
 }
 
 export default function Home() {
-  const [traces, setTraces] = useState<Trace[]>([]);
-  const [selectedTrace, setSelectedTrace] = useState<TraceDetail | null>(null);
+  const [threads, setThreads] = useState<Thread[]>([]);
+  const [selectedThread, setSelectedThread] = useState<ThreadDetail | null>(null);
   const [feedbackSummary, setFeedbackSummary] = useState<FeedbackSummary | null>(null);
   const [categories, setCategories] = useState<CategorizeResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -81,11 +90,7 @@ export default function Home() {
   
   // Filters
   const [timeRange, setTimeRange] = useState("7d");
-  const [opNameFilter, setOpNameFilter] = useState("");
-  const [opNames, setOpNames] = useState<string[]>([]);
-  
-  // Notes
-  const [newNote, setNewNote] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
 
   const getTimeFilter = useCallback(() => {
     const now = new Date();
@@ -114,35 +119,18 @@ export default function Home() {
     };
   }, [timeRange]);
 
-  const fetchTraces = useCallback(async () => {
+  const fetchThreads = useCallback(async () => {
     setLoading(true);
     try {
-      const timeFilter = getTimeFilter();
-      const params = new URLSearchParams({
-        start_time: timeFilter.start_time,
-        end_time: timeFilter.end_time,
-        ...(opNameFilter && { op_name: opNameFilter })
-      });
-      
-      const response = await fetch(`/api/traces?${params}`);
+      const response = await fetch(`/api/threads?limit=100`);
       const data = await response.json();
-      setTraces(data.traces || []);
+      setThreads(data.threads || []);
     } catch (error) {
-      console.error("Error fetching traces:", error);
+      console.error("Error fetching threads:", error);
     } finally {
       setLoading(false);
     }
-  }, [getTimeFilter, opNameFilter]);
-
-  const fetchOpNames = async () => {
-    try {
-      const response = await fetch("/api/op-names");
-      const data = await response.json();
-      setOpNames(data.op_names || []);
-    } catch (error) {
-      console.error("Error fetching op names:", error);
-    }
-  };
+  }, []);
 
   const fetchFeedbackSummary = useCallback(async () => {
     try {
@@ -160,33 +148,16 @@ export default function Home() {
     }
   }, [getTimeFilter]);
 
-  const fetchTraceDetail = async (traceId: string) => {
+  const fetchThreadDetail = async (threadId: string) => {
     setLoadingDetail(true);
     try {
-      const response = await fetch(`/api/traces/${traceId}`);
+      const response = await fetch(`/api/threads/${threadId}`);
       const data = await response.json();
-      setSelectedTrace(data);
+      setSelectedThread(data);
     } catch (error) {
-      console.error("Error fetching trace detail:", error);
+      console.error("Error fetching thread detail:", error);
     } finally {
       setLoadingDetail(false);
-    }
-  };
-
-  const addFeedback = async (traceId: string, feedbackType: string, value?: string) => {
-    try {
-      await fetch(`/api/traces/${traceId}/feedback`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ trace_id: traceId, feedback_type: feedbackType, value })
-      });
-      // Refresh data
-      fetchFeedbackSummary();
-      if (selectedTrace?.id === traceId) {
-        fetchTraceDetail(traceId);
-      }
-    } catch (error) {
-      console.error("Error adding feedback:", error);
     }
   };
 
@@ -210,28 +181,113 @@ export default function Home() {
   };
 
   useEffect(() => {
-    fetchTraces();
-    fetchOpNames();
+    fetchThreads();
     fetchFeedbackSummary();
-  }, [fetchTraces, fetchFeedbackSummary]);
+  }, [fetchThreads, fetchFeedbackSummary]);
 
   const formatTime = (isoString: string | null) => {
     if (!isoString) return "—";
     try {
-      return format(parseISO(isoString), "MMM d, HH:mm:ss");
+      return format(parseISO(isoString), "MMM d, HH:mm");
     } catch {
       return isoString;
     }
   };
 
-  const getStatusColor = (trace: Trace) => {
-    if (trace.has_exception) return "status-error";
-    if (trace.status === "success") return "status-success";
-    return "status-pending";
+  const formatRelativeTime = (isoString: string | null) => {
+    if (!isoString) return "—";
+    try {
+      return formatDistanceToNow(parseISO(isoString), { addSuffix: true });
+    } catch {
+      return isoString;
+    }
+  };
+
+  const filteredThreads = threads.filter(thread => {
+    if (!searchQuery) return true;
+    return thread.thread_id.toLowerCase().includes(searchQuery.toLowerCase());
+  });
+
+  const renderConversationMessage = (msg: ConversationMessage, index: number) => {
+    if (msg.type === "user") {
+      return (
+        <div key={`${msg.call_id}-${index}`} className="flex gap-3 animate-fade-in">
+          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-accent-coral/20 flex items-center justify-center">
+            <User className="w-4 h-4 text-accent-coral" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs font-medium text-accent-coral">User</span>
+              <span className="text-xs text-ink-500">{formatTime(msg.timestamp)}</span>
+            </div>
+            <div className="bg-ink-900 rounded-lg rounded-tl-none p-3 border border-ink-800">
+              <p className="text-sm text-sand-200 whitespace-pre-wrap">{msg.content}</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (msg.type === "assistant") {
+      return (
+        <div key={`${msg.call_id}-${index}`} className="flex gap-3 animate-fade-in">
+          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-accent-teal/20 flex items-center justify-center">
+            <Bot className="w-4 h-4 text-accent-teal" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs font-medium text-accent-teal">Assistant</span>
+              <span className="text-xs text-ink-500">{formatTime(msg.timestamp)}</span>
+            </div>
+            <div className="bg-ink-950 rounded-lg rounded-tl-none p-3 border border-ink-800">
+              <p className="text-sm text-sand-300 whitespace-pre-wrap">{msg.content}</p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (msg.type === "tool_call") {
+      return (
+        <div key={`${msg.call_id}-${index}`} className="flex gap-3 animate-fade-in">
+          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-accent-gold/20 flex items-center justify-center">
+            <Wrench className="w-4 h-4 text-accent-gold" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs font-medium text-accent-gold">Tool: {msg.tool_name}</span>
+              <span className="text-xs text-ink-500">{formatTime(msg.timestamp)}</span>
+            </div>
+            <div className="bg-ink-950 rounded-lg rounded-tl-none p-3 border border-accent-gold/30 space-y-2">
+              {msg.tool_input && (
+                <div>
+                  <span className="text-xs text-ink-500">Input:</span>
+                  <pre className="text-xs text-sand-400 mt-1 overflow-x-auto">
+                    {JSON.stringify(msg.tool_input, null, 2)}
+                  </pre>
+                </div>
+              )}
+              {msg.tool_output && (
+                <div className="border-t border-ink-800 pt-2 mt-2">
+                  <span className="text-xs text-ink-500">Output:</span>
+                  <pre className="text-xs text-accent-teal mt-1 overflow-x-auto max-h-32">
+                    {typeof msg.tool_output === 'string' 
+                      ? msg.tool_output.slice(0, 500) + (msg.tool_output.length > 500 ? '...' : '')
+                      : JSON.stringify(msg.tool_output, null, 2).slice(0, 500)}
+                  </pre>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return null;
   };
 
   return (
-    <div className="min-h-screen">
+    <div className="min-h-screen bg-grid-pattern">
       {/* Header */}
       <header className="border-b border-ink-800 bg-ink-950/80 backdrop-blur-md sticky top-0 z-50">
         <div className="max-w-[1800px] mx-auto px-6 py-4">
@@ -269,7 +325,7 @@ export default function Home() {
               {/* Refresh */}
               <button 
                 onClick={() => {
-                  fetchTraces();
+                  fetchThreads();
                   fetchFeedbackSummary();
                 }}
                 className="btn-secondary flex items-center gap-2"
@@ -285,42 +341,32 @@ export default function Home() {
       <main className="max-w-[1800px] mx-auto px-6 py-6">
         <div className="grid grid-cols-12 gap-6">
           
-          {/* Left Panel - Trace List */}
-          <div className="col-span-4 space-y-4 min-w-0">
+          {/* Left Panel - Thread List */}
+          <div className="col-span-3 space-y-4 min-w-0">
             <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-4 overflow-hidden">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="font-display text-lg font-semibold text-sand-100 flex items-center gap-2">
-                  <Clock className="w-5 h-5 text-accent-coral" />
-                  Traces
+                  <MessageCircle className="w-5 h-5 text-accent-coral" />
+                  Sessions
                 </h2>
-                <span className="badge badge-coral">{traces.length}</span>
+                <span className="badge badge-coral">{threads.length}</span>
               </div>
               
-              {/* Filters */}
-              <div className="space-y-2 mb-4 overflow-hidden">
-                <div className="flex items-center gap-2">
-                  <div className="relative flex-1 min-w-0">
-                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-500" />
-                    <input
-                      type="text"
-                      placeholder="Search traces..."
-                      className="w-full pl-10 text-sm truncate"
-                    />
-                  </div>
+              {/* Search */}
+              <div className="mb-4">
+                <div className="relative">
+                  <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-500" />
+                  <input
+                    type="text"
+                    placeholder="Search sessions..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full pl-10 text-sm"
+                  />
                 </div>
-                <select
-                  value={opNameFilter}
-                  onChange={(e) => setOpNameFilter(e.target.value)}
-                  className="w-full text-sm truncate"
-                >
-                  <option value="">All operations</option>
-                  {opNames.map((name) => (
-                    <option key={name} value={name}>{name}</option>
-                  ))}
-                </select>
               </div>
 
-              {/* Trace List */}
+              {/* Thread List */}
               <div className="space-y-2 max-h-[calc(100vh-320px)] overflow-y-auto">
                 {loading ? (
                   <div className="space-y-2">
@@ -328,46 +374,40 @@ export default function Home() {
                       <div key={i} className="h-20 shimmer rounded-lg" />
                     ))}
                   </div>
-                ) : traces.length === 0 ? (
+                ) : filteredThreads.length === 0 ? (
                   <div className="text-center py-8 text-ink-500">
                     <AlertTriangle className="w-8 h-8 mx-auto mb-2" />
-                    <p>No traces found</p>
-                    <p className="text-sm">Try adjusting the time filter</p>
+                    <p>No sessions found</p>
+                    <p className="text-sm">Generate some traces first</p>
                   </div>
                 ) : (
-                  traces.map((trace) => (
+                  filteredThreads.map((thread) => (
                     <button
-                      key={trace.id}
-                      onClick={() => fetchTraceDetail(trace.id)}
+                      key={thread.thread_id}
+                      onClick={() => fetchThreadDetail(thread.thread_id)}
                       className={`w-full text-left trace-card rounded-lg p-3 ${
-                        selectedTrace?.id === trace.id ? "ring-2 ring-accent-coral" : ""
+                        selectedThread?.thread_id === thread.thread_id ? "ring-2 ring-accent-coral" : ""
                       }`}
                     >
                       <div className="flex items-start justify-between">
                         <div className="flex-1 min-w-0">
-                          <p className="font-mono text-sm text-sand-200 truncate">
-                            {trace.op_name}
-                          </p>
-                          <p className="text-xs text-ink-500 mt-1">
-                            {formatTime(trace.started_at)}
-                          </p>
+                          <div className="flex items-center gap-2">
+                            <Hash className="w-3 h-3 text-ink-500" />
+                            <p className="font-mono text-sm text-sand-200 truncate">
+                              {thread.thread_id}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-3 mt-2">
+                            <span className="badge badge-teal text-xs">
+                              {thread.turn_count} turn{thread.turn_count !== 1 ? 's' : ''}
+                            </span>
+                            <span className="text-xs text-ink-500">
+                              {formatRelativeTime(thread.last_updated)}
+                            </span>
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2">
-                          <span className={`badge text-xs ${getStatusColor(trace)}`}>
-                            {trace.has_exception ? (
-                              <XCircle className="w-3 h-3" />
-                            ) : (
-                              <CheckCircle2 className="w-3 h-3" />
-                            )}
-                          </span>
-                          <ChevronRight className="w-4 h-4 text-ink-600" />
-                        </div>
+                        <ChevronRight className="w-4 h-4 text-ink-600 flex-shrink-0" />
                       </div>
-                      {trace.inputs_preview && Object.keys(trace.inputs_preview).length > 0 && (
-                        <div className="mt-2 text-xs text-ink-500 truncate">
-                          {JSON.stringify(trace.inputs_preview).slice(0, 60)}...
-                        </div>
-                      )}
                     </button>
                   ))
                 )}
@@ -375,169 +415,72 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Center Panel - Trace Detail & Open Coding */}
+          {/* Center Panel - Conversation View */}
           <div className="col-span-5 space-y-4">
             <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-4">
               <h2 className="font-display text-lg font-semibold text-sand-100 flex items-center gap-2 mb-4">
                 <MessageSquare className="w-5 h-5 text-accent-teal" />
-                Trace Detail
+                Conversation
               </h2>
 
               {loadingDetail ? (
                 <div className="space-y-4">
                   <div className="h-8 shimmer rounded w-1/3" />
-                  <div className="h-40 shimmer rounded" />
+                  <div className="h-24 shimmer rounded" />
+                  <div className="h-24 shimmer rounded" />
                 </div>
-              ) : selectedTrace ? (
+              ) : selectedThread ? (
                 <div className="space-y-4 animate-fade-in">
-                  {/* Header */}
-                  <div className="flex items-center justify-between">
+                  {/* Thread Info */}
+                  <div className="flex items-center justify-between bg-ink-950 rounded-lg p-3 border border-ink-800">
                     <div>
-                      <p className="font-mono text-accent-coral text-sm">{selectedTrace.op_name}</p>
+                      <p className="font-mono text-accent-coral text-sm">
+                        {selectedThread.thread_id}
+                      </p>
                       <p className="text-xs text-ink-500 mt-1">
-                        ID: {selectedTrace.id.slice(0, 16)}...
+                        {selectedThread.total_calls} calls · {selectedThread.conversation.length} messages
                       </p>
                     </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => addFeedback(selectedTrace.id, "thumbs_up")}
-                        className="btn-ghost flex items-center gap-1"
-                      >
-                        <ThumbsUp className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => addFeedback(selectedTrace.id, "thumbs_down")}
-                        className="btn-ghost flex items-center gap-1"
-                      >
-                        <ThumbsDown className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Timing */}
-                  <div className="flex gap-4 text-sm">
-                    <div>
-                      <span className="text-ink-500">Started:</span>{" "}
-                      <span className="text-sand-300">{formatTime(selectedTrace.started_at)}</span>
-                    </div>
-                    <div>
-                      <span className="text-ink-500">Ended:</span>{" "}
-                      <span className="text-sand-300">{formatTime(selectedTrace.ended_at)}</span>
-                    </div>
-                  </div>
-
-                  {/* Inputs */}
-                  <div>
-                    <h3 className="text-sm font-semibold text-sand-300 mb-2">Inputs</h3>
-                    <div className="code-block">
-                      <pre className="text-xs text-sand-400 whitespace-pre-wrap">
-                        {JSON.stringify(selectedTrace.inputs, null, 2)}
-                      </pre>
-                    </div>
-                  </div>
-
-                  {/* Output */}
-                  <div>
-                    <h3 className="text-sm font-semibold text-sand-300 mb-2">Output</h3>
-                    <div className="code-block max-h-48 overflow-y-auto">
-                      <pre className="text-xs text-sand-400 whitespace-pre-wrap">
-                        {JSON.stringify(selectedTrace.output, null, 2)}
-                      </pre>
-                    </div>
-                  </div>
-
-                  {/* Exception */}
-                  {selectedTrace.exception && (
-                    <div>
-                      <h3 className="text-sm font-semibold text-accent-coral mb-2 flex items-center gap-2">
-                        <AlertTriangle className="w-4 h-4" />
-                        Exception
-                      </h3>
-                      <div className="code-block border-accent-coral/30">
-                        <pre className="text-xs text-accent-coral whitespace-pre-wrap">
-                          {selectedTrace.exception}
-                        </pre>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Child Calls */}
-                  {selectedTrace.children && selectedTrace.children.length > 0 && (
-                    <div>
-                      <h3 className="text-sm font-semibold text-sand-300 mb-2">
-                        Child Calls ({selectedTrace.children.length})
-                      </h3>
-                      <div className="space-y-2 max-h-40 overflow-y-auto">
-                        {selectedTrace.children.map((child) => (
-                          <div key={child.id} className="bg-ink-950 rounded-lg p-2 text-xs">
-                            <p className="font-mono text-accent-teal">{child.op_name}</p>
-                            <p className="text-ink-500 mt-1 truncate">
-                              {JSON.stringify(child.inputs_preview)}
-                            </p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Existing Feedback */}
-                  {selectedTrace.feedback && selectedTrace.feedback.length > 0 && (
-                    <div>
-                      <h3 className="text-sm font-semibold text-sand-300 mb-2">Feedback</h3>
-                      <div className="space-y-2">
-                        {selectedTrace.feedback.map((fb, idx) => (
-                          <div key={idx} className="bg-ink-950 rounded-lg p-2 text-xs">
-                            <span className="badge badge-gold mr-2">{fb.type}</span>
-                            <span className="text-sand-400">{JSON.stringify(fb.value)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Add Note (Open Coding) */}
-                  <div className="border-t border-ink-800 pt-4">
-                    <h3 className="text-sm font-semibold text-sand-300 mb-2 flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-accent-gold" />
-                      Open Coding — Add Note
-                    </h3>
-                    <p className="text-xs text-ink-500 mb-2">
-                      Describe any problems, surprises, or incorrect behaviors you observe.
-                    </p>
-                    <div className="flex gap-2">
-                      <textarea
-                        value={newNote}
-                        onChange={(e) => setNewNote(e.target.value)}
-                        placeholder="e.g., Agent failed to understand date format..."
-                        className="flex-1 text-sm min-h-[80px]"
-                      />
-                    </div>
-                    <button
-                      onClick={() => {
-                        if (newNote.trim()) {
-                          addFeedback(selectedTrace.id, "note", newNote);
-                          setNewNote("");
-                        }
-                      }}
-                      disabled={!newNote.trim()}
-                      className="btn-primary mt-2 w-full disabled:opacity-50"
+                    <a
+                      href={`https://wandb.ai/ayut/error-analysis-demo/weave/threads/${selectedThread.thread_id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-ghost flex items-center gap-1 text-xs"
                     >
-                      Add Note
-                    </button>
+                      <ExternalLink className="w-3 h-3" />
+                      View in Weave
+                    </a>
+                  </div>
+
+                  {/* Conversation Messages */}
+                  <div className="space-y-4 max-h-[calc(100vh-380px)] overflow-y-auto pr-2">
+                    {selectedThread.conversation.length > 0 ? (
+                      selectedThread.conversation.map((msg, idx) => 
+                        renderConversationMessage(msg, idx)
+                      )
+                    ) : (
+                      <div className="text-center py-8 text-ink-500">
+                        <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                        <p>No conversation data extracted</p>
+                        <p className="text-xs mt-1">
+                          Raw calls available: {selectedThread.total_calls}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (
                 <div className="text-center py-12 text-ink-500">
                   <MessageSquare className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <p>Select a trace to view details</p>
-                  <p className="text-sm mt-1">Click on a trace from the list</p>
+                  <p>Select a session to view conversation</p>
+                  <p className="text-sm mt-1">Click on a session from the list</p>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Right Panel - Failure Modes */}
-          <div className="col-span-3 space-y-4">
+          {/* Right Panel - Feedback & Failure Modes */}
+          <div className="col-span-4 space-y-4">
             {/* Summary Stats */}
             <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-4">
               <h2 className="font-display text-lg font-semibold text-sand-100 mb-4">
@@ -596,20 +539,33 @@ export default function Home() {
                 </button>
               </div>
 
-              <div className="space-y-2 max-h-48 overflow-y-auto">
+              <div className="space-y-2 max-h-64 overflow-y-auto">
                 {feedbackSummary?.notes?.length ? (
                   feedbackSummary.notes.map((note, idx) => (
-                    <div key={idx} className="bg-ink-950 rounded-lg p-3 text-sm">
+                    <div key={idx} className="bg-ink-950 rounded-lg p-3 text-sm group">
                       <p className="text-sand-300">{note.note}</p>
-                      <p className="text-xs text-ink-500 mt-1 font-mono">
-                        {note.op_name}
-                      </p>
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="text-xs text-ink-600">
+                          {formatRelativeTime(note.created_at)}
+                        </span>
+                        {note.weave_url && (
+                          <a
+                            href={note.weave_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-accent-coral hover:text-accent-coral/80 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            View trace
+                          </a>
+                        )}
+                      </div>
                     </div>
                   ))
                 ) : (
                   <div className="text-center py-6 text-ink-500 text-sm">
                     <p>No notes yet</p>
-                    <p className="text-xs mt-1">Add notes to traces for analysis</p>
+                    <p className="text-xs mt-1">Add notes in Weave UI to see them here</p>
                   </div>
                 )}
               </div>
@@ -618,7 +574,7 @@ export default function Home() {
             {/* Failure Mode Categories */}
             <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-4">
               <h2 className="font-display text-lg font-semibold text-sand-100 mb-4 flex items-center gap-2">
-                <Filter className="w-5 h-5 text-accent-plum" />
+                <AlertTriangle className="w-5 h-5 text-accent-plum" />
                 Failure Modes
               </h2>
 
@@ -628,7 +584,7 @@ export default function Home() {
                     {categories.summary}
                   </p>
                   
-                  <div className="space-y-3">
+                  <div className="space-y-3 max-h-64 overflow-y-auto">
                     {categories.categories.map((cat, idx) => (
                       <div 
                         key={idx} 
@@ -684,4 +640,3 @@ export default function Home() {
     </div>
   );
 }
-

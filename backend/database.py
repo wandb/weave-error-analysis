@@ -110,6 +110,89 @@ def init_db():
             VALUES ('review_target', '100')
         """)
         
+        # =====================================================================
+        # Phase 1: Agent Registry Tables
+        # =====================================================================
+        
+        # Registered agents table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS agents (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                version TEXT DEFAULT '1.0.0',
+                agent_type TEXT,
+                framework TEXT,
+                endpoint_url TEXT NOT NULL,
+                agent_info_raw TEXT NOT NULL,
+                agent_info_parsed JSON,
+                connection_status TEXT DEFAULT 'unknown',
+                last_connection_test TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        
+        # Testing dimensions extracted from AGENT_INFO
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS agent_dimensions (
+                id TEXT PRIMARY KEY,
+                agent_id TEXT NOT NULL,
+                name TEXT NOT NULL,
+                dimension_values JSON NOT NULL,
+                descriptions JSON,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+            )
+        """)
+        
+        # Agent versions for tracking changes
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS agent_versions (
+                id TEXT PRIMARY KEY,
+                agent_id TEXT NOT NULL,
+                version TEXT NOT NULL,
+                changes_summary TEXT,
+                agent_info_snapshot TEXT,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+            )
+        """)
+        
+        # Synthetic batches for generated test data
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS synthetic_batches (
+                id TEXT PRIMARY KEY,
+                agent_id TEXT NOT NULL,
+                name TEXT,
+                status TEXT DEFAULT 'pending',
+                generation_strategy TEXT,
+                query_count INTEGER DEFAULT 0,
+                success_count INTEGER DEFAULT 0,
+                failure_count INTEGER DEFAULT 0,
+                created_at TEXT NOT NULL,
+                started_at TEXT,
+                completed_at TEXT,
+                FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+            )
+        """)
+        
+        # Individual synthetic queries within a batch
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS synthetic_queries (
+                id TEXT PRIMARY KEY,
+                batch_id TEXT NOT NULL,
+                dimension_tuple JSON,
+                query_text TEXT NOT NULL,
+                trace_id TEXT,
+                execution_status TEXT DEFAULT 'pending',
+                response_text TEXT,
+                error_message TEXT,
+                started_at TEXT,
+                completed_at TEXT,
+                FOREIGN KEY (batch_id) REFERENCES synthetic_batches(id) ON DELETE CASCADE
+            )
+        """)
+        
         # Create indexes for common queries
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_notes_failure_mode 
@@ -126,6 +209,22 @@ def init_db():
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_reviewed_threads_date 
             ON reviewed_threads(reviewed_at)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_agents_name 
+            ON agents(name)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_agent_dimensions_agent 
+            ON agent_dimensions(agent_id)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_synthetic_batches_agent 
+            ON synthetic_batches(agent_id)
+        """)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_synthetic_queries_batch 
+            ON synthetic_queries(batch_id)
         """)
 
 

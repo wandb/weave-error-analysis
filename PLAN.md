@@ -389,11 +389,17 @@ CREATE TABLE agents (
 4. Agent detail view showing parsed AGENT_INFO
 
 **Deliverables:**
-- [ ] AGENT_INFO.md schema definition and Pydantic parser
-- [ ] Agent registration API endpoints
-- [ ] Connection testing endpoint (ping AG-UI endpoint)
-- [ ] Frontend agent registration UI
-- [ ] Markdown preview for AGENT_INFO
+- [x] AGENT_INFO.md schema definition and Pydantic parser (`backend/services/agent_info.py`)
+- [x] Agent registration API endpoints (`backend/routers/agents.py`)
+- [x] Connection testing endpoint (`POST /api/agents/{id}/test-connection`)
+- [x] Frontend agent registration UI (Agents tab in `frontend/src/app/page.tsx`)
+- [x] Template loading for AGENT_INFO (`GET /api/agents/template`)
+
+**Implementation Notes:**
+- Created `AgentInfo` Pydantic model with full schema
+- Added `agents`, `agent_dimensions`, `agent_versions`, `synthetic_batches`, `synthetic_queries` tables
+- Frontend shows agent list, registration form, detail view with capabilities/tools/dimensions
+- Connection testing pings the AG-UI health endpoint
 
 ---
 

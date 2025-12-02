@@ -41,7 +41,15 @@ import {
   CheckSquare,
   Square,
   Send,
-  StickyNote
+  StickyNote,
+  Cpu,
+  Link,
+  Wifi,
+  WifiOff,
+  FileText,
+  Settings,
+  Play,
+  Eye
 } from "lucide-react";
 import { format, parseISO, formatDistanceToNow } from "date-fns";
 
@@ -135,6 +143,39 @@ interface TaxonomyNote {
   assigned_at: string | null;
 }
 
+// Agent types
+interface Agent {
+  id: string;
+  name: string;
+  version: string;
+  agent_type: string | null;
+  framework: string | null;
+  endpoint_url: string;
+  connection_status: string;
+  last_connection_test: string | null;
+  created_at: string;
+  updated_at: string;
+  purpose: string | null;
+  capabilities: string[];
+  testing_dimensions_count: number;
+}
+
+interface AgentDetail extends Agent {
+  agent_info_raw: string;
+  agent_info_parsed: Record<string, unknown> | null;
+  limitations: string[];
+  success_criteria: string[];
+  tools: Array<{ name: string; purpose: string; inputs: string; outputs: string }>;
+  testing_dimensions: Array<{ name: string; values: string[]; descriptions: Record<string, string> | null }>;
+}
+
+interface ConnectionTestResult {
+  success: boolean;
+  status_code: number | null;
+  response_time_ms: number | null;
+  error: string | null;
+}
+
 interface SaturationStats {
   status: string;
   message: string;
@@ -175,7 +216,7 @@ interface AISuggestion {
   };
 }
 
-type TabType = "sessions" | "taxonomy";
+type TabType = "sessions" | "taxonomy" | "agents";
 
 // ============================================================================
 // Main Component
@@ -223,6 +264,19 @@ export default function Home() {
   const [newModeSeverity, setNewModeSeverity] = useState("medium");
   const [copiedTaxonomy, setCopiedTaxonomy] = useState(false);
   const [copiedModeId, setCopiedModeId] = useState<string | null>(null);
+  
+  // Agents state
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [selectedAgent, setSelectedAgent] = useState<AgentDetail | null>(null);
+  const [loadingAgents, setLoadingAgents] = useState(false);
+  const [showAgentForm, setShowAgentForm] = useState(false);
+  const [agentFormMode, setAgentFormMode] = useState<"create" | "edit">("create");
+  const [newAgentName, setNewAgentName] = useState("");
+  const [newAgentEndpoint, setNewAgentEndpoint] = useState("");
+  const [newAgentInfo, setNewAgentInfo] = useState("");
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [connectionResult, setConnectionResult] = useState<ConnectionTestResult | null>(null);
+  const [savingAgent, setSavingAgent] = useState(false);
 
   // ============================================================================
   // Copy Functions
@@ -460,6 +514,152 @@ ${notesList || "No notes"}`;
   }, []);
 
   // ============================================================================
+  // Agent API Functions
+  // ============================================================================
+
+  const fetchAgents = useCallback(async () => {
+    setLoadingAgents(true);
+    try {
+      const response = await fetch("/api/agents");
+      const data = await response.json();
+      setAgents(data);
+    } catch (error) {
+      console.error("Error fetching agents:", error);
+    } finally {
+      setLoadingAgents(false);
+    }
+  }, []);
+
+  const fetchAgentDetail = async (agentId: string) => {
+    try {
+      const response = await fetch(`/api/agents/${agentId}`);
+      const data = await response.json();
+      setSelectedAgent(data);
+    } catch (error) {
+      console.error("Error fetching agent detail:", error);
+    }
+  };
+
+  const testAgentConnection = async (agentId: string) => {
+    setTestingConnection(true);
+    setConnectionResult(null);
+    try {
+      const response = await fetch(`/api/agents/${agentId}/test-connection`, {
+        method: "POST"
+      });
+      const result = await response.json();
+      setConnectionResult(result);
+      // Refresh agents list to update status
+      await fetchAgents();
+    } catch (error) {
+      console.error("Error testing connection:", error);
+      setConnectionResult({
+        success: false,
+        status_code: null,
+        response_time_ms: null,
+        error: String(error)
+      });
+    } finally {
+      setTestingConnection(false);
+    }
+  };
+
+  const createAgent = async () => {
+    if (!newAgentName || !newAgentEndpoint || !newAgentInfo) return;
+    
+    setSavingAgent(true);
+    try {
+      const response = await fetch("/api/agents", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newAgentName,
+          endpoint_url: newAgentEndpoint,
+          agent_info_content: newAgentInfo
+        })
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Failed to create agent");
+      }
+      
+      await fetchAgents();
+      resetAgentForm();
+    } catch (error) {
+      console.error("Error creating agent:", error);
+      alert(error instanceof Error ? error.message : "Failed to create agent");
+    } finally {
+      setSavingAgent(false);
+    }
+  };
+
+  const updateAgent = async (agentId: string) => {
+    setSavingAgent(true);
+    try {
+      const body: Record<string, string> = {};
+      if (newAgentName) body.name = newAgentName;
+      if (newAgentEndpoint) body.endpoint_url = newAgentEndpoint;
+      if (newAgentInfo) body.agent_info_content = newAgentInfo;
+      
+      const response = await fetch(`/api/agents/${agentId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Failed to update agent");
+      }
+      
+      await fetchAgents();
+      if (selectedAgent?.id === agentId) {
+        await fetchAgentDetail(agentId);
+      }
+      resetAgentForm();
+    } catch (error) {
+      console.error("Error updating agent:", error);
+      alert(error instanceof Error ? error.message : "Failed to update agent");
+    } finally {
+      setSavingAgent(false);
+    }
+  };
+
+  const deleteAgent = async (agentId: string) => {
+    if (!confirm("Are you sure you want to delete this agent?")) return;
+    
+    try {
+      await fetch(`/api/agents/${agentId}`, { method: "DELETE" });
+      await fetchAgents();
+      if (selectedAgent?.id === agentId) {
+        setSelectedAgent(null);
+      }
+    } catch (error) {
+      console.error("Error deleting agent:", error);
+    }
+  };
+
+  const resetAgentForm = () => {
+    setShowAgentForm(false);
+    setAgentFormMode("create");
+    setNewAgentName("");
+    setNewAgentEndpoint("");
+    setNewAgentInfo("");
+    setConnectionResult(null);
+  };
+
+  const getAgentInfoTemplate = async () => {
+    try {
+      const response = await fetch(`/api/agents/template?name=${encodeURIComponent(newAgentName || "My Agent")}`);
+      const data = await response.json();
+      setNewAgentInfo(data.template);
+    } catch (error) {
+      console.error("Error fetching template:", error);
+    }
+  };
+
+  // ============================================================================
   // Taxonomy Actions
   // ============================================================================
 
@@ -598,8 +798,10 @@ ${notesList || "No notes"}`;
   useEffect(() => {
     if (activeTab === "taxonomy") {
       fetchTaxonomy();
+    } else if (activeTab === "agents") {
+      fetchAgents();
     }
-  }, [activeTab, fetchTaxonomy]);
+  }, [activeTab, fetchTaxonomy, fetchAgents]);
 
   // ============================================================================
   // Helpers
@@ -769,31 +971,31 @@ ${notesList || "No notes"}`;
         </div>
       )}
 
-      <div className="grid grid-cols-12 gap-6">
-        {/* Left Panel - Thread List */}
-        <div className="col-span-4 space-y-4 min-w-0">
-          <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-4 overflow-hidden">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-display text-lg font-semibold text-sand-100 flex items-center gap-2">
-                <MessageCircle className="w-5 h-5 text-accent-coral" />
-                Sessions
-              </h2>
-              <span className="badge badge-coral">{threads.length}</span>
-            </div>
-            
-            {/* Search */}
+    <div className="grid grid-cols-12 gap-6">
+      {/* Left Panel - Thread List */}
+      <div className="col-span-4 space-y-4 min-w-0">
+        <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-4 overflow-hidden">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-display text-lg font-semibold text-sand-100 flex items-center gap-2">
+              <MessageCircle className="w-5 h-5 text-accent-coral" />
+              Sessions
+            </h2>
+            <span className="badge badge-coral">{threads.length}</span>
+          </div>
+          
+          {/* Search */}
             <div className="mb-3">
-              <div className="relative">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-500" />
-                <input
-                  type="text"
-                  placeholder="Search sessions..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-10 text-sm"
-                />
-              </div>
+            <div className="relative">
+              <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-500" />
+              <input
+                type="text"
+                placeholder="Search sessions..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-10 text-sm"
+              />
             </div>
+          </div>
 
             {/* Sort & Filter Controls */}
             <div className="mb-3 space-y-2">
@@ -859,89 +1061,89 @@ ${notesList || "No notes"}`;
               </div>
             </div>
 
-            {/* Thread List */}
+          {/* Thread List */}
             <div className="space-y-2 max-h-[calc(100vh-480px)] overflow-y-auto">
-              {loading ? (
-                <div className="space-y-2">
-                  {[...Array(5)].map((_, i) => (
-                    <div key={i} className="h-20 shimmer rounded-lg" />
-                  ))}
-                </div>
-              ) : filteredThreads.length === 0 ? (
-                <div className="text-center py-8 text-ink-500">
-                  <AlertTriangle className="w-8 h-8 mx-auto mb-2" />
-                  <p>No sessions found</p>
+            {loading ? (
+              <div className="space-y-2">
+                {[...Array(5)].map((_, i) => (
+                  <div key={i} className="h-20 shimmer rounded-lg" />
+                ))}
+              </div>
+            ) : filteredThreads.length === 0 ? (
+              <div className="text-center py-8 text-ink-500">
+                <AlertTriangle className="w-8 h-8 mx-auto mb-2" />
+                <p>No sessions found</p>
                   <p className="text-sm">Try adjusting filters</p>
-                </div>
-              ) : (
-                filteredThreads.map((thread) => (
-                  <button
-                    key={thread.thread_id}
-                    onClick={() => fetchThreadDetail(thread.thread_id)}
-                    className={`w-full text-left trace-card rounded-lg p-3 ${
-                      selectedThread?.thread_id === thread.thread_id ? "ring-2 ring-accent-coral" : ""
-                    }`}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
+              </div>
+            ) : (
+              filteredThreads.map((thread) => (
+                <button
+                  key={thread.thread_id}
+                  onClick={() => fetchThreadDetail(thread.thread_id)}
+                  className={`w-full text-left trace-card rounded-lg p-3 ${
+                    selectedThread?.thread_id === thread.thread_id ? "ring-2 ring-accent-coral" : ""
+                  }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
                           {thread.is_reviewed ? (
                             <CheckSquare className="w-3 h-3 text-accent-teal" />
                           ) : (
                             <Square className="w-3 h-3 text-ink-600" />
                           )}
-                          <p className="font-mono text-sm text-sand-200 truncate">
-                            {thread.thread_id}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-3 mt-2">
-                          <span className="badge badge-teal text-xs">
-                            {thread.turn_count} turn{thread.turn_count !== 1 ? 's' : ''}
-                          </span>
-                          <span className="text-xs text-ink-500">
-                            {formatRelativeTime(thread.last_updated)}
-                          </span>
-                        </div>
+                        <p className="font-mono text-sm text-sand-200 truncate">
+                          {thread.thread_id}
+                        </p>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-ink-600 flex-shrink-0" />
+                      <div className="flex items-center gap-3 mt-2">
+                        <span className="badge badge-teal text-xs">
+                          {thread.turn_count} turn{thread.turn_count !== 1 ? 's' : ''}
+                        </span>
+                        <span className="text-xs text-ink-500">
+                          {formatRelativeTime(thread.last_updated)}
+                        </span>
+                      </div>
                     </div>
-                  </button>
-                ))
-              )}
-            </div>
+                    <ChevronRight className="w-4 h-4 text-ink-600 flex-shrink-0" />
+                  </div>
+                </button>
+              ))
+            )}
           </div>
         </div>
+      </div>
 
-        {/* Right Panel - Conversation View */}
-        <div className="col-span-8 space-y-4">
-          <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-4">
-            <h2 className="font-display text-lg font-semibold text-sand-100 flex items-center gap-2 mb-4">
-              <MessageSquare className="w-5 h-5 text-accent-teal" />
-              Conversation
-            </h2>
+      {/* Right Panel - Conversation View */}
+      <div className="col-span-8 space-y-4">
+        <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-4">
+          <h2 className="font-display text-lg font-semibold text-sand-100 flex items-center gap-2 mb-4">
+            <MessageSquare className="w-5 h-5 text-accent-teal" />
+            Conversation
+          </h2>
 
-            {loadingDetail ? (
-              <div className="space-y-4">
-                <div className="h-8 shimmer rounded w-1/3" />
-                <div className="h-24 shimmer rounded" />
-                <div className="h-24 shimmer rounded" />
-              </div>
-            ) : selectedThread ? (
-              <div className="space-y-4 animate-fade-in">
-                {/* Thread Info */}
-                <div className="flex items-center justify-between bg-ink-950 rounded-lg p-3 border border-ink-800">
-                  <div>
+          {loadingDetail ? (
+            <div className="space-y-4">
+              <div className="h-8 shimmer rounded w-1/3" />
+              <div className="h-24 shimmer rounded" />
+              <div className="h-24 shimmer rounded" />
+            </div>
+          ) : selectedThread ? (
+            <div className="space-y-4 animate-fade-in">
+              {/* Thread Info */}
+              <div className="flex items-center justify-between bg-ink-950 rounded-lg p-3 border border-ink-800">
+                <div>
                     <div className="flex items-center gap-2">
-                      <p className="font-mono text-accent-coral text-sm">
-                        {selectedThread.thread_id}
-                      </p>
+                  <p className="font-mono text-accent-coral text-sm">
+                    {selectedThread.thread_id}
+                  </p>
                       {selectedThread.is_reviewed && (
                         <span className="badge bg-accent-teal/20 text-accent-teal text-xs">Reviewed</span>
                       )}
                     </div>
                     <div className="flex items-center gap-3 mt-1">
                       <span className="text-xs text-ink-500">
-                        {selectedThread.total_calls} calls · {selectedThread.conversation.length} messages
+                    {selectedThread.total_calls} calls · {selectedThread.conversation.length} messages
                       </span>
                       {selectedThread.metrics && (
                         <>
@@ -957,7 +1159,7 @@ ${notesList || "No notes"}`;
                           )}
                         </>
                       )}
-                    </div>
+                </div>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
@@ -981,34 +1183,34 @@ ${notesList || "No notes"}`;
                       )}
                       {selectedThread.is_reviewed ? "Reviewed" : "Mark Reviewed"}
                     </button>
-                    <a
-                      href={`https://wandb.ai/ayut/error-analysis-demo/weave/threads/${selectedThread.thread_id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn-ghost flex items-center gap-1 text-xs"
-                    >
-                      <ExternalLink className="w-3 h-3" />
+                <a
+                  href={`https://wandb.ai/ayut/error-analysis-demo/weave/threads/${selectedThread.thread_id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-ghost flex items-center gap-1 text-xs"
+                >
+                  <ExternalLink className="w-3 h-3" />
                       Weave
-                    </a>
+                </a>
                   </div>
-                </div>
+              </div>
 
-                {/* Conversation Messages */}
+              {/* Conversation Messages */}
                 <div className="space-y-4 max-h-[calc(100vh-580px)] overflow-y-auto pr-2">
-                  {selectedThread.conversation.length > 0 ? (
-                    selectedThread.conversation.map((msg, idx) => 
-                      renderConversationMessage(msg, idx)
-                    )
-                  ) : (
-                    <div className="text-center py-8 text-ink-500">
-                      <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                      <p>No conversation data extracted</p>
-                      <p className="text-xs mt-1">
-                        Raw calls available: {selectedThread.total_calls}
-                      </p>
-                    </div>
-                  )}
-                </div>
+                {selectedThread.conversation.length > 0 ? (
+                  selectedThread.conversation.map((msg, idx) => 
+                    renderConversationMessage(msg, idx)
+                  )
+                ) : (
+                  <div className="text-center py-8 text-ink-500">
+                    <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                    <p>No conversation data extracted</p>
+                    <p className="text-xs mt-1">
+                      Raw calls available: {selectedThread.total_calls}
+                    </p>
+                  </div>
+                )}
+              </div>
 
               {/* Inline Note-Taking */}
               <div className="border-t border-ink-800 pt-4 mt-4">
@@ -1066,7 +1268,7 @@ ${notesList || "No notes"}`;
   const TaxonomyTab = () => (
     <div className="space-y-6">
       {/* Header with Stats and Actions */}
-      <div className="grid grid-cols-12 gap-6">
+    <div className="grid grid-cols-12 gap-6">
         {/* Saturation Card */}
         <div className="col-span-5 bg-ink-900/50 rounded-xl border border-ink-800 p-4">
           <div className="flex items-center justify-between mb-4">
@@ -1604,6 +1806,408 @@ ${notesList || "No notes"}`;
   );
 
   // ============================================================================
+  // Agents Tab Component
+  // ============================================================================
+
+  const AgentsTab = () => (
+    <div className="grid grid-cols-12 gap-6">
+      {/* Agent List */}
+      <div className="col-span-4 space-y-4">
+        <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-display text-lg flex items-center gap-2">
+              <Cpu className="w-5 h-5 text-accent-teal" />
+              Registered Agents
+              <span className="badge badge-teal text-xs">{agents.length}</span>
+            </h2>
+            <button
+              onClick={() => {
+                setAgentFormMode("create");
+                setShowAgentForm(true);
+              }}
+              className="btn-primary text-sm flex items-center gap-1"
+            >
+              <Plus className="w-4 h-4" />
+              Add Agent
+            </button>
+          </div>
+
+          {loadingAgents ? (
+            <div className="text-center py-8 text-ink-400">Loading agents...</div>
+          ) : agents.length === 0 ? (
+            <div className="text-center py-8">
+              <Cpu className="w-12 h-12 text-ink-600 mx-auto mb-3" />
+              <p className="text-ink-400 mb-4">No agents registered yet</p>
+              <p className="text-ink-500 text-sm mb-4">
+                Register your agent to enable synthetic data generation and automated review.
+              </p>
+              <button
+                onClick={() => {
+                  setAgentFormMode("create");
+                  setShowAgentForm(true);
+                }}
+                className="btn-primary"
+              >
+                Register Your First Agent
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {agents.map(agent => (
+                <button
+                  key={agent.id}
+                  onClick={() => fetchAgentDetail(agent.id)}
+                  className={`w-full text-left p-4 rounded-lg border transition-all ${
+                    selectedAgent?.id === agent.id
+                      ? "bg-accent-teal/10 border-accent-teal"
+                      : "bg-ink-800/50 border-ink-700 hover:border-ink-600"
+                  }`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sand-100 truncate">{agent.name}</span>
+                        <span className="text-xs text-ink-400">v{agent.version}</span>
+                      </div>
+                      <p className="text-sm text-ink-400 truncate mt-1">
+                        {agent.purpose || agent.endpoint_url}
+                      </p>
+                      <div className="flex items-center gap-3 mt-2 text-xs">
+                        <span className={`flex items-center gap-1 ${
+                          agent.connection_status === "connected" 
+                            ? "text-emerald-400" 
+                            : agent.connection_status === "error"
+                            ? "text-red-400"
+                            : "text-ink-400"
+                        }`}>
+                          {agent.connection_status === "connected" ? (
+                            <Wifi className="w-3 h-3" />
+                          ) : agent.connection_status === "error" ? (
+                            <WifiOff className="w-3 h-3" />
+                          ) : (
+                            <Circle className="w-3 h-3" />
+                          )}
+                          {agent.connection_status}
+                        </span>
+                        {agent.testing_dimensions_count > 0 && (
+                          <span className="text-ink-400">
+                            {agent.testing_dimensions_count} dimensions
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-ink-500 flex-shrink-0" />
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Agent Detail / Form */}
+      <div className="col-span-8 space-y-4">
+        {showAgentForm ? (
+          <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-display text-lg">
+                {agentFormMode === "create" ? "Register New Agent" : "Edit Agent"}
+              </h2>
+              <button onClick={resetAgentForm} className="text-ink-400 hover:text-sand-200">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-ink-400 mb-1">Agent Name *</label>
+                <input
+                  type="text"
+                  value={newAgentName}
+                  onChange={(e) => setNewAgentName(e.target.value)}
+                  placeholder="e.g., Customer Support Agent"
+                  className="w-full"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm text-ink-400 mb-1">AG-UI Endpoint URL *</label>
+                <input
+                  type="text"
+                  value={newAgentEndpoint}
+                  onChange={(e) => setNewAgentEndpoint(e.target.value)}
+                  placeholder="e.g., http://localhost:8000"
+                  className="w-full"
+                />
+                <p className="text-xs text-ink-500 mt-1">
+                  The AG-UI compatible endpoint where your agent is hosted
+                </p>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-sm text-ink-400">AGENT_INFO.md Content *</label>
+                  <button
+                    onClick={getAgentInfoTemplate}
+                    className="text-xs text-accent-teal hover:text-accent-teal/80"
+                  >
+                    Load Template
+                  </button>
+                </div>
+                <textarea
+                  value={newAgentInfo}
+                  onChange={(e) => setNewAgentInfo(e.target.value)}
+                  placeholder="Paste your AGENT_INFO.md content here..."
+                  rows={15}
+                  className="w-full font-mono text-sm"
+                />
+                <p className="text-xs text-ink-500 mt-1">
+                  Document your agent&apos;s purpose, capabilities, tools, and testing dimensions
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-ink-800">
+                <button onClick={resetAgentForm} className="btn-ghost">
+                  Cancel
+                </button>
+                <button
+                  onClick={() => agentFormMode === "create" ? createAgent() : updateAgent(selectedAgent!.id)}
+                  disabled={!newAgentName || !newAgentEndpoint || !newAgentInfo || savingAgent}
+                  className="btn-primary flex items-center gap-2"
+                >
+                  {savingAgent ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-4 h-4" />
+                      {agentFormMode === "create" ? "Register Agent" : "Save Changes"}
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : selectedAgent ? (
+          <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-5">
+            {/* Agent Header */}
+            <div className="flex items-start justify-between mb-6">
+              <div>
+                <h2 className="font-display text-xl text-sand-100">{selectedAgent.name}</h2>
+                <p className="text-sm text-ink-400 mt-1">{selectedAgent.purpose}</p>
+                <div className="flex items-center gap-4 mt-2 text-xs">
+                  <span className="text-ink-500">v{selectedAgent.version}</span>
+                  {selectedAgent.framework && (
+                    <span className="badge badge-plum">{selectedAgent.framework}</span>
+                  )}
+                  {selectedAgent.agent_type && (
+                    <span className="badge badge-gold">{selectedAgent.agent_type}</span>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => testAgentConnection(selectedAgent.id)}
+                  disabled={testingConnection}
+                  className="btn-secondary text-sm flex items-center gap-1"
+                >
+                  {testingConnection ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Wifi className="w-4 h-4" />
+                  )}
+                  Test Connection
+                </button>
+                <button
+                  onClick={() => {
+                    setAgentFormMode("edit");
+                    setNewAgentName(selectedAgent.name);
+                    setNewAgentEndpoint(selectedAgent.endpoint_url);
+                    setNewAgentInfo(selectedAgent.agent_info_raw);
+                    setShowAgentForm(true);
+                  }}
+                  className="btn-ghost text-sm flex items-center gap-1"
+                >
+                  <Edit3 className="w-4 h-4" />
+                  Edit
+                </button>
+                <button
+                  onClick={() => deleteAgent(selectedAgent.id)}
+                  className="btn-ghost text-sm text-red-400 hover:text-red-300"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* Connection Status */}
+            {connectionResult && (
+              <div className={`p-4 rounded-lg mb-6 ${
+                connectionResult.success 
+                  ? "bg-emerald-500/10 border border-emerald-500/20" 
+                  : "bg-red-500/10 border border-red-500/20"
+              }`}>
+                <div className="flex items-center gap-2">
+                  {connectionResult.success ? (
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                  ) : (
+                    <AlertTriangle className="w-5 h-5 text-red-400" />
+                  )}
+                  <span className={connectionResult.success ? "text-emerald-400" : "text-red-400"}>
+                    {connectionResult.success ? "Connection successful" : "Connection failed"}
+                  </span>
+                </div>
+                {connectionResult.response_time_ms && (
+                  <p className="text-sm text-ink-400 mt-1">
+                    Response time: {connectionResult.response_time_ms}ms
+                  </p>
+                )}
+                {connectionResult.error && (
+                  <p className="text-sm text-red-400 mt-1">{connectionResult.error}</p>
+                )}
+              </div>
+            )}
+
+            {/* Endpoint */}
+            <div className="mb-6">
+              <h3 className="text-sm font-medium text-ink-400 mb-2">Endpoint</h3>
+              <div className="flex items-center gap-2 bg-ink-800/50 rounded-lg p-3">
+                <Link className="w-4 h-4 text-ink-500" />
+                <code className="text-sm text-sand-200 flex-1">{selectedAgent.endpoint_url}</code>
+                <span className={`flex items-center gap-1 text-xs ${
+                  selectedAgent.connection_status === "connected"
+                    ? "text-emerald-400"
+                    : selectedAgent.connection_status === "error"
+                    ? "text-red-400"
+                    : "text-ink-400"
+                }`}>
+                  {selectedAgent.connection_status === "connected" ? (
+                    <Wifi className="w-3 h-3" />
+                  ) : selectedAgent.connection_status === "error" ? (
+                    <WifiOff className="w-3 h-3" />
+                  ) : (
+                    <Circle className="w-3 h-3" />
+                  )}
+                  {selectedAgent.connection_status}
+                </span>
+              </div>
+            </div>
+
+            {/* Capabilities */}
+            {selectedAgent.capabilities.length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-sm font-medium text-ink-400 mb-2">Capabilities</h3>
+                <ul className="space-y-1">
+                  {selectedAgent.capabilities.map((cap, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-sand-300">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
+                      {cap}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Limitations */}
+            {selectedAgent.limitations.length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-sm font-medium text-ink-400 mb-2">Limitations</h3>
+                <ul className="space-y-1">
+                  {selectedAgent.limitations.map((lim, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-sand-300">
+                      <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                      {lim}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* Tools */}
+            {selectedAgent.tools.length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-sm font-medium text-ink-400 mb-2">Tools ({selectedAgent.tools.length})</h3>
+                <div className="space-y-2">
+                  {selectedAgent.tools.map((tool, i) => (
+                    <div key={i} className="bg-ink-800/50 rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Wrench className="w-4 h-4 text-accent-plum" />
+                        <span className="font-mono text-sm text-sand-200">{tool.name}</span>
+                      </div>
+                      <p className="text-sm text-ink-400">{tool.purpose}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Testing Dimensions */}
+            {selectedAgent.testing_dimensions.length > 0 && (
+              <div className="mb-6">
+                <h3 className="text-sm font-medium text-ink-400 mb-2">
+                  Testing Dimensions ({selectedAgent.testing_dimensions.length})
+                </h3>
+                <div className="space-y-3">
+                  {selectedAgent.testing_dimensions.map((dim, i) => (
+                    <div key={i} className="bg-ink-800/50 rounded-lg p-3">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Target className="w-4 h-4 text-accent-teal" />
+                        <span className="font-medium text-sand-200">{dim.name}</span>
+                        <span className="text-xs text-ink-400">({dim.values.length} values)</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {dim.values.map((val, j) => (
+                          <span key={j} className="badge badge-plum text-xs">
+                            {val}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Success Criteria */}
+            {selectedAgent.success_criteria.length > 0 && (
+              <div>
+                <h3 className="text-sm font-medium text-ink-400 mb-2">Success Criteria</h3>
+                <ol className="space-y-1 list-decimal list-inside">
+                  {selectedAgent.success_criteria.map((crit, i) => (
+                    <li key={i} className="text-sm text-sand-300">{crit}</li>
+                  ))}
+                </ol>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-5">
+            <div className="text-center py-12">
+              <Cpu className="w-16 h-16 text-ink-600 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-sand-200 mb-2">Select an Agent</h3>
+              <p className="text-ink-400 mb-4">
+                Choose an agent from the list to view details, or register a new one.
+              </p>
+              <button
+                onClick={() => {
+                  setAgentFormMode("create");
+                  setShowAgentForm(true);
+                }}
+                className="btn-primary"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Register New Agent
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  // ============================================================================
   // Main Render
   // ============================================================================
 
@@ -1653,6 +2257,22 @@ ${notesList || "No notes"}`;
                     </span>
                   )}
                 </button>
+                <button
+                  onClick={() => setActiveTab("agents")}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                    activeTab === "agents"
+                      ? "bg-accent-teal text-white shadow-lg shadow-accent-teal/20"
+                      : "text-ink-400 hover:text-sand-200 hover:bg-ink-800"
+                  }`}
+                >
+                  <Cpu className="w-4 h-4" />
+                  Agents
+                  {agents.length > 0 && (
+                    <span className="badge badge-teal text-xs ml-1">
+                      {agents.length}
+                    </span>
+                  )}
+                </button>
               </nav>
             </div>
             
@@ -1674,10 +2294,13 @@ ${notesList || "No notes"}`;
               {/* Refresh */}
               <button 
                 onClick={() => {
-                  fetchThreads();
-                  fetchFeedbackSummary();
-                  if (activeTab === "taxonomy") {
+                  if (activeTab === "sessions") {
+                    fetchThreads();
+                    fetchFeedbackSummary();
+                  } else if (activeTab === "taxonomy") {
                     fetchTaxonomy();
+                  } else if (activeTab === "agents") {
+                    fetchAgents();
                   }
                 }}
                 className="btn-secondary flex items-center gap-2"
@@ -1691,7 +2314,9 @@ ${notesList || "No notes"}`;
       </header>
 
       <main className="max-w-[1800px] mx-auto px-6 py-6">
-        {activeTab === "sessions" ? <SessionsTab /> : <TaxonomyTab />}
+        {activeTab === "sessions" && <SessionsTab />}
+        {activeTab === "taxonomy" && <TaxonomyTab />}
+        {activeTab === "agents" && <AgentsTab />}
       </main>
     </div>
   );

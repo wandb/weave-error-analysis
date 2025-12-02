@@ -6,6 +6,7 @@ Provides CRUD operations for registered agents and their AGENT_INFO.
 
 import json
 import httpx
+import asyncio
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -13,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from database import get_db, generate_id, now_iso
 from services.agent_info import parse_agent_info, validate_agent_info, generate_template
+from services.agui_client import AGUIClient, AGUIEvent
 
 router = APIRouter(prefix="/api", tags=["agents"])
 
@@ -69,6 +71,13 @@ class ConnectionTestResult(BaseModel):
     status_code: Optional[int] = None
     response_time_ms: Optional[float] = None
     error: Optional[str] = None
+
+
+class RunAgentRequest(BaseModel):
+    """Request to run a query against an agent."""
+    message: str = Field(..., description="The message to send to the agent")
+    thread_id: Optional[str] = Field(None, description="Optional thread ID for conversation continuity")
+    context: Optional[dict] = Field(None, description="Optional context to pass to the agent")
 
 
 class AgentInfoValidationResult(BaseModel):
@@ -482,4 +491,167 @@ async def get_agent_dimensions(agent_id: str):
         })
     
     return {"agent_id": agent_id, "dimensions": dimensions}
+
+
+# =============================================================================
+# Agent Execution Endpoints (AG-UI Protocol)
+# =============================================================================
+
+@router.post("/agents/{agent_id}/run")
+async def run_agent(agent_id: str, request: RunAgentRequest):
+    """
+    Run a query against an agent using the AG-UI protocol.
+    
+    Returns a Server-Sent Events (SSE) stream of AG-UI events.
+    Events include:
+    - started: Connection initiated
+    - text_chunk: Streaming text response
+    - tool_start: Agent is calling a tool
+    - tool_args: Tool arguments
+    - tool_end: Tool call completed
+    - complete: Run finished successfully
+    - error: An error occurred
+    """
+    # Get agent from database
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
+        row = cursor.fetchone()
+    
+    if not row:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    
+    endpoint_url = row["endpoint_url"]
+    
+    async def event_generator():
+        """Generate SSE events from AG-UI client."""
+        client = AGUIClient(endpoint_url)
+        
+        try:
+            async for event in client.run(
+                message=request.message,
+                thread_id=request.thread_id,
+                context=request.context
+            ):
+                # Convert event to JSON for SSE
+                event_data = {
+                    "type": event.type,
+                    "content": event.content,
+                    "message_id": event.message_id,
+                    "tool_name": event.tool_name,
+                    "tool_args": event.tool_args,
+                    "tool_result": event.tool_result,
+                    "call_id": event.call_id,
+                    "trace_id": event.trace_id,
+                    "error": event.error,
+                    "timestamp": event.timestamp
+                }
+                
+                # Remove None values for cleaner output
+                event_data = {k: v for k, v in event_data.items() if v is not None}
+                
+                yield f"data: {json.dumps(event_data)}\n\n"
+                
+                # Small delay to prevent overwhelming the client
+                await asyncio.sleep(0.01)
+                
+        except Exception as e:
+            # Send error event
+            error_event = {
+                "type": "error",
+                "error": str(e)
+            }
+            yield f"data: {json.dumps(error_event)}\n\n"
+        
+        # Send done marker
+        yield "data: [DONE]\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Disable buffering in nginx
+        }
+    )
+
+
+@router.post("/agents/{agent_id}/run-sync")
+async def run_agent_sync(agent_id: str, request: RunAgentRequest):
+    """
+    Run a query against an agent and return the complete response (non-streaming).
+    
+    Useful for simple queries where streaming isn't needed.
+    Returns the full response text, tool calls, and any errors.
+    """
+    # Get agent from database
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
+        row = cursor.fetchone()
+    
+    if not row:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    
+    endpoint_url = row["endpoint_url"]
+    client = AGUIClient(endpoint_url)
+    
+    try:
+        result = await client.run_sync(
+            message=request.message,
+            thread_id=request.thread_id,
+            context=request.context
+        )
+        
+        return {
+            "success": result["error"] is None,
+            "response": result["response"],
+            "tool_calls": result["tool_calls"],
+            "trace_id": result["trace_id"],
+            "error": result["error"]
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/agents/{agent_id}/status")
+async def get_agent_status(agent_id: str):
+    """
+    Get the current status of an agent including connection health.
+    
+    Performs a live health check and returns current status.
+    """
+    # Get agent from database
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
+        row = cursor.fetchone()
+    
+    if not row:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    
+    # Perform health check
+    client = AGUIClient(row["endpoint_url"])
+    health = await client.health_check()
+    
+    # Update status in database
+    new_status = "connected" if health["healthy"] else "disconnected"
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE agents 
+            SET connection_status = ?, last_connection_test = ?
+            WHERE id = ?
+        """, (new_status, now_iso(), agent_id))
+    
+    return {
+        "agent_id": agent_id,
+        "name": row["name"],
+        "endpoint_url": row["endpoint_url"],
+        "connection_status": new_status,
+        "health_check": health,
+        "last_updated": now_iso()
+    }
 

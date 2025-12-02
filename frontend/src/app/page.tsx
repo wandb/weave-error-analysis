@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { 
   Search, 
   MessageSquare, 
@@ -277,6 +277,26 @@ export default function Home() {
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionResult, setConnectionResult] = useState<ConnectionTestResult | null>(null);
   const [savingAgent, setSavingAgent] = useState(false);
+  
+  // Playground state (AG-UI)
+  const [showPlayground, setShowPlayground] = useState(false);
+  const [playgroundMessage, setPlaygroundMessage] = useState("");
+  const playgroundInputRef = useRef<HTMLInputElement>(null);
+  const [playgroundRunning, setPlaygroundRunning] = useState(false);
+  const [playgroundResponse, setPlaygroundResponse] = useState("");
+  const [playgroundToolCalls, setPlaygroundToolCalls] = useState<Array<{
+    call_id: string;
+    tool_name: string;
+    tool_args: Record<string, unknown>;
+    tool_result: unknown;
+    status: "running" | "complete";
+  }>>([]);
+  const [playgroundError, setPlaygroundError] = useState<string | null>(null);
+  const [playgroundEvents, setPlaygroundEvents] = useState<Array<{
+    type: string;
+    content?: string;
+    timestamp: string;
+  }>>([]);
 
   // ============================================================================
   // Copy Functions
@@ -656,6 +676,133 @@ ${notesList || "No notes"}`;
       setNewAgentInfo(data.template);
     } catch (error) {
       console.error("Error fetching template:", error);
+    }
+  };
+
+  // ============================================================================
+  // Playground Functions (AG-UI)
+  // ============================================================================
+
+  const resetPlayground = () => {
+    setPlaygroundResponse("");
+    setPlaygroundToolCalls([]);
+    setPlaygroundError(null);
+    setPlaygroundEvents([]);
+  };
+
+  const runAgentQuery = async (agentId: string, message: string) => {
+    if (!message.trim() || playgroundRunning) return;
+    
+    setPlaygroundRunning(true);
+    resetPlayground();
+    
+    try {
+      const response = await fetch(`/api/agents/${agentId}/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP error: ${response.status}`);
+      }
+      
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error("No response body");
+      }
+      
+      const decoder = new TextDecoder();
+      let currentToolCall: { call_id: string; tool_name: string; tool_args: Record<string, unknown> } | null = null;
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split("\n");
+        
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          
+          const data = line.slice(6);
+          if (data === "[DONE]") continue;
+          
+          try {
+            const event = JSON.parse(data);
+            
+            // Add to events log
+            setPlaygroundEvents(prev => [...prev, {
+              type: event.type,
+              content: event.content || event.error,
+              timestamp: event.timestamp || new Date().toISOString()
+            }]);
+            
+            // Process event
+            switch (event.type) {
+              case "text_chunk":
+                if (event.content) {
+                  setPlaygroundResponse(prev => prev + event.content);
+                }
+                break;
+                
+              case "tool_start":
+                currentToolCall = {
+                  call_id: event.call_id || "",
+                  tool_name: event.tool_name || "unknown",
+                  tool_args: {}
+                };
+                setPlaygroundToolCalls(prev => [...prev, {
+                  ...currentToolCall!,
+                  tool_result: null,
+                  status: "running"
+                }]);
+                break;
+                
+              case "tool_args":
+                if (event.tool_args && currentToolCall) {
+                  currentToolCall.tool_args = event.tool_args;
+                  setPlaygroundToolCalls(prev => 
+                    prev.map(tc => 
+                      tc.call_id === currentToolCall?.call_id 
+                        ? { ...tc, tool_args: event.tool_args }
+                        : tc
+                    )
+                  );
+                }
+                break;
+                
+              case "tool_end":
+                if (currentToolCall) {
+                  setPlaygroundToolCalls(prev =>
+                    prev.map(tc =>
+                      tc.call_id === currentToolCall?.call_id
+                        ? { ...tc, tool_result: event.tool_result, status: "complete" }
+                        : tc
+                    )
+                  );
+                  currentToolCall = null;
+                }
+                break;
+                
+              case "error":
+                setPlaygroundError(event.error || "Unknown error");
+                break;
+                
+              case "complete":
+                // Run completed successfully
+                break;
+            }
+          } catch (e) {
+            console.warn("Failed to parse SSE event:", data);
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error running agent:", error);
+      setPlaygroundError(error instanceof Error ? error.message : "Unknown error");
+    } finally {
+      setPlaygroundRunning(false);
     }
   };
 
@@ -2009,6 +2156,18 @@ ${notesList || "No notes"}`;
               </div>
               <div className="flex items-center gap-2">
                 <button
+                  onClick={() => {
+                    setShowPlayground(!showPlayground);
+                    if (!showPlayground) resetPlayground();
+                  }}
+                  className={`btn-primary text-sm flex items-center gap-1 ${
+                    showPlayground ? "bg-accent-teal" : ""
+                  }`}
+                >
+                  <Play className="w-4 h-4" />
+                  {showPlayground ? "Hide Playground" : "Try Playground"}
+                </button>
+                <button
                   onClick={() => testAgentConnection(selectedAgent.id)}
                   disabled={testingConnection}
                   className="btn-secondary text-sm flex items-center gap-1"
@@ -2018,7 +2177,7 @@ ${notesList || "No notes"}`;
                   ) : (
                     <Wifi className="w-4 h-4" />
                   )}
-                  Test Connection
+                  Test
                 </button>
                 <button
                   onClick={() => {
@@ -2031,7 +2190,6 @@ ${notesList || "No notes"}`;
                   className="btn-ghost text-sm flex items-center gap-1"
                 >
                   <Edit3 className="w-4 h-4" />
-                  Edit
                 </button>
                 <button
                   onClick={() => deleteAgent(selectedAgent.id)}
@@ -2066,6 +2224,160 @@ ${notesList || "No notes"}`;
                 )}
                 {connectionResult.error && (
                   <p className="text-sm text-red-400 mt-1">{connectionResult.error}</p>
+                )}
+              </div>
+            )}
+
+            {/* Playground Panel */}
+            {showPlayground && (
+              <div className="mb-6 bg-ink-800/50 rounded-lg border border-ink-700 overflow-hidden">
+                <div className="p-4 border-b border-ink-700 bg-ink-900/50">
+                  <h3 className="text-sm font-medium text-sand-200 flex items-center gap-2">
+                    <Play className="w-4 h-4 text-accent-teal" />
+                    Agent Playground
+                  </h3>
+                  <p className="text-xs text-ink-400 mt-1">
+                    Test your agent with real queries using the AG-UI protocol
+                  </p>
+                </div>
+                
+                {/* Input */}
+                <div className="p-4 border-b border-ink-700">
+                  <div className="flex gap-2">
+                    <input
+                      ref={playgroundInputRef}
+                      type="text"
+                      value={playgroundMessage}
+                      onChange={(e) => {
+                        setPlaygroundMessage(e.target.value);
+                        // Keep focus on input after state update
+                        setTimeout(() => playgroundInputRef.current?.focus(), 0);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" && !e.shiftKey && selectedAgent) {
+                          e.preventDefault();
+                          runAgentQuery(selectedAgent.id, playgroundMessage);
+                        }
+                      }}
+                      placeholder="Type a message to test the agent..."
+                      className="flex-1"
+                      disabled={playgroundRunning}
+                      autoFocus={showPlayground}
+                    />
+                    <button
+                      onClick={() => selectedAgent && runAgentQuery(selectedAgent.id, playgroundMessage)}
+                      disabled={!playgroundMessage.trim() || playgroundRunning}
+                      className="btn-primary flex items-center gap-2"
+                    >
+                      {playgroundRunning ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          Running...
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-4 h-4" />
+                          Send
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+                
+                {/* Tool Calls */}
+                {playgroundToolCalls.length > 0 && (
+                  <div className="p-4 border-b border-ink-700">
+                    <h4 className="text-xs font-medium text-ink-400 mb-2 flex items-center gap-2">
+                      <Wrench className="w-3 h-3" />
+                      Tool Calls ({playgroundToolCalls.length})
+                    </h4>
+                    <div className="space-y-2">
+                      {playgroundToolCalls.map((tc, i) => (
+                        <div key={i} className="bg-ink-900/50 rounded-lg p-3 text-sm">
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="font-mono text-accent-plum">{tc.tool_name}</span>
+                            <span className={`text-xs ${
+                              tc.status === "running" ? "text-amber-400" : "text-emerald-400"
+                            }`}>
+                              {tc.status === "running" ? "⏳ Running..." : "✓ Complete"}
+                            </span>
+                          </div>
+                          {Object.keys(tc.tool_args).length > 0 && (
+                            <div className="mb-2">
+                              <span className="text-xs text-ink-500">Arguments:</span>
+                              <pre className="text-xs text-ink-300 mt-1 overflow-x-auto">
+                                {JSON.stringify(tc.tool_args, null, 2)}
+                              </pre>
+                            </div>
+                          )}
+                          {tc.tool_result !== null && tc.tool_result !== undefined && (
+                            <div>
+                              <span className="text-xs text-ink-500">Result:</span>
+                              <pre className="text-xs text-ink-300 mt-1 overflow-x-auto max-h-32">
+                                {typeof tc.tool_result === "string" 
+                                  ? tc.tool_result 
+                                  : JSON.stringify(tc.tool_result, null, 2)}
+                              </pre>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                
+                {/* Response */}
+                <div className="p-4">
+                  <h4 className="text-xs font-medium text-ink-400 mb-2 flex items-center gap-2">
+                    <Bot className="w-3 h-3" />
+                    Response
+                  </h4>
+                  {playgroundError ? (
+                    <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+                      <p className="text-sm text-red-400">{playgroundError}</p>
+                    </div>
+                  ) : playgroundResponse ? (
+                    <div className="bg-ink-900/50 rounded-lg p-3">
+                      <p className="text-sm text-sand-200 whitespace-pre-wrap">{playgroundResponse}</p>
+                    </div>
+                  ) : playgroundRunning ? (
+                    <div className="text-sm text-ink-400 flex items-center gap-2">
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      Waiting for response...
+                    </div>
+                  ) : (
+                    <p className="text-sm text-ink-500 italic">
+                      Send a message to see the agent&apos;s response
+                    </p>
+                  )}
+                </div>
+                
+                {/* Events Log (collapsible) */}
+                {playgroundEvents.length > 0 && (
+                  <div className="p-4 border-t border-ink-700 bg-ink-900/30">
+                    <details>
+                      <summary className="text-xs text-ink-400 cursor-pointer hover:text-ink-300">
+                        Show event log ({playgroundEvents.length} events)
+                      </summary>
+                      <div className="mt-2 max-h-40 overflow-y-auto space-y-1">
+                        {playgroundEvents.map((evt, i) => (
+                          <div key={i} className="text-xs font-mono">
+                            <span className="text-ink-500">{new Date(evt.timestamp).toLocaleTimeString()}</span>
+                            {" "}
+                            <span className={`${
+                              evt.type === "error" ? "text-red-400" :
+                              evt.type === "text_chunk" ? "text-emerald-400" :
+                              evt.type.includes("tool") ? "text-accent-plum" :
+                              "text-ink-400"
+                            }`}>{evt.type}</span>
+                            {evt.content && (
+                              <span className="text-ink-300"> - {evt.content.slice(0, 50)}{evt.content.length > 50 ? "..." : ""}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </details>
+                  </div>
                 )}
               </div>
             )}

@@ -532,11 +532,17 @@ async def run_agent(agent_id: str, request: RunRequest):
 4. Connection status indicators
 
 **Deliverables:**
-- [ ] AG-UI client library (`AGUIClient`)
-- [ ] SSE streaming endpoint for agent runs
-- [ ] Frontend agent playground UI
-- [ ] Real-time response display with tool calls
-- [ ] Error handling for disconnected agents
+- [x] AG-UI client library (`AGUIClient`) - `backend/services/agui_client.py`
+- [x] SSE streaming endpoint for agent runs - `POST /api/agents/{id}/run`
+- [x] Frontend agent playground UI - Embedded in agent detail view
+- [x] Real-time response display with tool calls - Streaming updates with tool call visualization
+- [x] Error handling for disconnected agents - Graceful error states and messages
+
+**Implementation Notes:**
+- Created `AGUIClient` class with health check, streaming run, and sync run methods
+- Backend streams AG-UI events via SSE to frontend
+- Frontend displays real-time text chunks, tool calls with args/results, and error states
+- Playground UI includes input field, send button, tool call cards, response display, and event log
 
 ---
 

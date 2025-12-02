@@ -328,6 +328,51 @@ class AGUIClient:
                 raw=data
             )
     
+    async def get_agent_info(self) -> Dict[str, Any]:
+        """
+        Fetch the AGENT_INFO from the agent endpoint.
+        
+        AG-UI agents should expose their AGENT_INFO.md at /agent-info or /agent-info/json.
+        
+        Returns:
+            Dict with agent info including 'raw_content', 'sections', 'testing_dimensions'
+        """
+        async with httpx.AsyncClient() as client:
+            # Try JSON endpoint first
+            endpoints_to_try = [
+                (f"{self.endpoint_url}/agent-info/json", "json"),
+                (f"{self.endpoint_url}/agent-info", "markdown"),
+                (f"{self.endpoint_url}/api/agent-info/json", "json"),
+                (f"{self.endpoint_url}/api/agent-info", "markdown"),
+            ]
+            
+            for endpoint, format_type in endpoints_to_try:
+                try:
+                    response = await client.get(endpoint, timeout=10.0)
+                    
+                    if response.status_code == 200:
+                        if format_type == "json":
+                            return response.json()
+                        else:
+                            # Return markdown as raw content
+                            return {
+                                "raw_content": response.text,
+                                "format": "markdown"
+                            }
+                            
+                except httpx.TimeoutException:
+                    continue
+                except httpx.RequestError:
+                    continue
+                except Exception:
+                    continue
+            
+            # No agent info available
+            return {
+                "error": "Agent does not expose AGENT_INFO",
+                "raw_content": None
+            }
+    
     async def run_sync(
         self,
         message: str,

@@ -462,6 +462,35 @@ async def test_agent_connection(agent_id: str):
         )
 
 
+@router.get("/agents/{agent_id}/agent-info")
+async def get_agent_remote_info(agent_id: str):
+    """
+    Fetch AGENT_INFO.md from the agent's AG-UI endpoint.
+    
+    This retrieves the agent's self-description including purpose,
+    capabilities, testing dimensions, and system prompts.
+    """
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT endpoint_url FROM agents WHERE id = ?", (agent_id,))
+        row = cursor.fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        
+        endpoint_url = row["endpoint_url"]
+    
+    # Use AGUIClient to fetch agent info
+    from services.agui_client import AGUIClient
+    client = AGUIClient(endpoint_url)
+    
+    try:
+        agent_info = await client.get_agent_info()
+        return agent_info
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to fetch agent info: {str(e)}")
+
+
 @router.get("/agents/{agent_id}/dimensions")
 async def get_agent_dimensions(agent_id: str):
     """

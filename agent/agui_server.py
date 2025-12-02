@@ -23,11 +23,16 @@ import asyncio
 from datetime import datetime
 from typing import Optional, AsyncGenerator
 
+from pathlib import Path
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
+
+# Path to AGENT_INFO.md
+AGENT_DIR = Path(__file__).parent
+AGENT_INFO_PATH = AGENT_DIR / "AGENT_INFO.md"
 
 load_dotenv()
 
@@ -208,6 +213,82 @@ async def health_check():
     return {"status": "healthy", "agent": "TaskFlow Support", "protocol": "AG-UI"}
 
 
+@app.get("/agent-info")
+async def get_agent_info():
+    """
+    Get the AGENT_INFO.md content.
+    This provides context about the agent for the Error Analysis application.
+    """
+    if not AGENT_INFO_PATH.exists():
+        raise HTTPException(status_code=404, detail="AGENT_INFO.md not found")
+    
+    content = AGENT_INFO_PATH.read_text()
+    return PlainTextResponse(content, media_type="text/markdown")
+
+
+@app.get("/agent-info/json")
+async def get_agent_info_json():
+    """
+    Get the AGENT_INFO as parsed JSON (basic parsing).
+    Extracts key sections for programmatic access.
+    """
+    if not AGENT_INFO_PATH.exists():
+        raise HTTPException(status_code=404, detail="AGENT_INFO.md not found")
+    
+    content = AGENT_INFO_PATH.read_text()
+    
+    # Basic parsing of AGENT_INFO.md
+    info = {
+        "name": "TaskFlow Support Agent",
+        "version": "1.0.0",
+        "type": "Customer Support",
+        "framework": "Google ADK",
+        "raw_content": content
+    }
+    
+    # Extract sections
+    sections = {}
+    current_section = None
+    current_content = []
+    
+    for line in content.split('\n'):
+        if line.startswith('## '):
+            if current_section:
+                sections[current_section] = '\n'.join(current_content).strip()
+            current_section = line[3:].strip()
+            current_content = []
+        elif current_section:
+            current_content.append(line)
+    
+    if current_section:
+        sections[current_section] = '\n'.join(current_content).strip()
+    
+    info["sections"] = sections
+    
+    # Extract testing dimensions if present
+    if "Testing Dimensions" in sections:
+        dims_text = sections["Testing Dimensions"]
+        dimensions = []
+        current_dim = None
+        
+        for line in dims_text.split('\n'):
+            if line.startswith('### '):
+                if current_dim:
+                    dimensions.append(current_dim)
+                current_dim = {"name": line[4:].strip(), "values": []}
+            elif line.startswith('- **') and current_dim:
+                # Extract dimension value
+                value = line.split('**')[1] if '**' in line else line[2:].strip()
+                current_dim["values"].append(value)
+        
+        if current_dim:
+            dimensions.append(current_dim)
+        
+        info["testing_dimensions"] = dimensions
+    
+    return info
+
+
 @app.get("/")
 async def root():
     """Root endpoint."""
@@ -217,6 +298,8 @@ async def root():
         "protocol": "AG-UI",
         "endpoints": {
             "health": "/health",
+            "agent_info": "/agent-info (GET)",
+            "agent_info_json": "/agent-info/json (GET)",
             "run": "/v1/run (POST)",
             "api_run": "/api/run (POST)",
             "run_alt": "/run (POST)"

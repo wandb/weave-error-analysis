@@ -15,44 +15,113 @@ def process_thread_calls(calls: list) -> list:
     the full conversation history that accumulates in each LLM call.
 
     Strategy:
-    1. Prioritize invocation/agent calls - these represent individual turns
-    2. For LLM calls - only extract the LAST user message + OUTPUT
-    3. For tool calls - show the tool execution
-    4. Deduplicate messages by content to avoid duplicates from multiple LLM calls
+    1. Group calls by their trace_id (each trace = one turn/invocation)
+    2. For each trace, find the conversation data from the relevant calls
+    3. Deduplicate messages by content
     """
     conversation = []
     seen_user_messages = set()
     seen_assistant_messages = set()
+    seen_tool_calls = set()
 
+    # Group calls by trace_id - each trace represents one "turn" or invocation
+    traces = {}  # trace_id -> list of calls
     for call in calls:
-        op_name = call.get("op_name", "")
-        inputs = call.get("inputs", {})
-        output = call.get("output")
-        call_id = call.get("id")
-        started_at = call.get("started_at")
-        op_lower = op_name.lower()
+        trace_id = call.get("trace_id", call.get("id"))
+        if trace_id not in traces:
+            traces[trace_id] = []
+        traces[trace_id].append(call)
+    
+    # Process each trace as a unit
+    for trace_id, trace_calls in traces.items():
+        # Sort by started_at to process in order
+        trace_calls.sort(key=lambda c: c.get("started_at", ""))
+        
+        # Find the root call (parent_id is None)
+        root_call = None
+        for call in trace_calls:
+            if call.get("parent_id") is None:
+                root_call = call
+                break
+        
+        # Process the trace to extract conversation
+        _process_trace(
+            trace_calls, root_call, conversation,
+            seen_user_messages, seen_assistant_messages, seen_tool_calls
+        )
 
-        # Priority 1: Invocation / Agent calls - these are turn boundaries
-        if "invoke" in op_lower or "invocation" in op_lower or "agent" in op_lower:
+    return conversation
+
+
+def _process_trace(
+    trace_calls: list,
+    root_call: dict,
+    conversation: list,
+    seen_user_messages: set,
+    seen_assistant_messages: set,
+    seen_tool_calls: set
+):
+    """Process a single trace (one invocation/turn) to extract conversation."""
+    
+    # Try to get user message and response from root call first
+    if root_call:
+        op_name = root_call.get("op_name", "").lower()
+        if "invoke" in op_name or "invocation" in op_name or "agent" in op_name:
+            inputs = root_call.get("inputs", {})
+            output = root_call.get("output")
+            call_id = root_call.get("id")
+            started_at = root_call.get("started_at")
+            
             _process_invocation_call(
                 inputs, output, call_id, started_at,
                 conversation, seen_user_messages, seen_assistant_messages
             )
-
-        # Priority 2: Tool calls - show tool execution
-        elif "execute_tool" in op_lower or ("tool" in op_lower and "execute" in op_lower):
-            _process_tool_call(
-                inputs, output, call_id, started_at, op_name, conversation
-            )
-
-        # Priority 3: LLM calls - extract LAST user message from contents + output
-        elif "llm" in op_lower or "call_llm" in op_lower or "chat" in op_lower:
+    
+    # Process ALL calls in the trace to find user messages, assistant responses, and tool calls
+    for call in trace_calls:
+        op_name = call.get("op_name", "").lower()
+        inputs = call.get("inputs", {})
+        output = call.get("output")
+        call_id = call.get("id")
+        started_at = call.get("started_at")
+        
+        # Process LLM calls for user messages AND responses
+        if "llm" in op_name or "call_llm" in op_name or "chat" in op_name:
             _process_llm_call(
                 inputs, output, call_id, started_at,
                 conversation, seen_user_messages, seen_assistant_messages
             )
-
-    return conversation
+        
+        # Process tool calls - be more flexible with detection
+        elif ("execute_tool" in op_name or 
+              ("tool" in op_name and "execute" in op_name) or
+              "tool_call" in op_name or
+              op_name.startswith("tools.") or
+              "_tool_" in op_name):
+            # Deduplicate tool calls by their name + input
+            tool_name = inputs.get("tool_name", op_name.split("/")[-1] if "/" in op_name else op_name)
+            tool_key = f"{tool_name}:{str(inputs.get('args', ''))[:100]}"
+            
+            if tool_key not in seen_tool_calls:
+                seen_tool_calls.add(tool_key)
+                _process_tool_call(
+                    inputs, output, call_id, started_at, op_name, conversation
+                )
+        
+        # For any call with output that looks like assistant text, try to extract it
+        elif output and call.get("parent_id") is None:
+            # This is a root call - try to get assistant response from output
+            output_text = _extract_llm_output_text(output)
+            if output_text and len(output_text) > 10:  # Only meaningful responses
+                key = _content_key(output_text)
+                if key not in seen_assistant_messages:
+                    seen_assistant_messages.add(key)
+                    conversation.append({
+                        "type": "assistant",
+                        "content": _truncate(output_text),
+                        "call_id": call_id,
+                        "timestamp": started_at
+                    })
 
 
 def _truncate(text: str) -> str:
@@ -240,6 +309,16 @@ def _process_llm_call(
 def _extract_llm_output_text(output) -> str:
     """Extract text from LLM output formats."""
     if isinstance(output, dict):
+        # ADK/Vertex Agent format: gcp.vertex.agent.llm_response.content.parts
+        llm_response = output.get("gcp.vertex.agent.llm_response", {})
+        if llm_response:
+            content = llm_response.get("content", {})
+            if isinstance(content, dict):
+                parts = content.get("parts", [])
+                output_text = _extract_text_from_parts(parts)
+                if output_text:
+                    return output_text
+        
         # Check for text field (ADK format)
         output_text = output.get("text", "")
         if not output_text:
@@ -250,8 +329,47 @@ def _extract_llm_output_text(output) -> str:
             if choices:
                 msg = choices[0].get("message", {})
                 output_text = msg.get("content", "")
+        # Check for nested parts format
+        if not output_text:
+            parts = output.get("parts", [])
+            output_text = _extract_text_from_parts(parts)
+        # Check for candidates array (Gemini format)
+        if not output_text:
+            candidates = output.get("candidates", [])
+            if candidates:
+                content = candidates[0].get("content", {})
+                parts = content.get("parts", [])
+                output_text = _extract_text_from_parts(parts)
         return output_text
     elif isinstance(output, str):
         return output
+    elif isinstance(output, list):
+        # Handle list of responses
+        texts = []
+        for item in output:
+            if isinstance(item, dict):
+                # Check ADK format first
+                llm_response = item.get("gcp.vertex.agent.llm_response", {})
+                if llm_response:
+                    content = llm_response.get("content", {})
+                    if isinstance(content, dict):
+                        parts = content.get("parts", [])
+                        text = _extract_text_from_parts(parts)
+                        if text:
+                            texts.append(text)
+                            continue
+                
+                text = item.get("text", "") or item.get("content", "")
+                if not text:
+                    # Check for nested content
+                    content = item.get("content", {})
+                    if isinstance(content, dict):
+                        parts = content.get("parts", [])
+                        text = _extract_text_from_parts(parts)
+                if text:
+                    texts.append(text)
+            elif isinstance(item, str):
+                texts.append(item)
+        return " ".join(texts) if texts else ""
     return ""
 

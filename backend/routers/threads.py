@@ -1,9 +1,13 @@
 """
 Thread-related API endpoints with enhanced filtering, sorting, and annotation.
+
+Now uses traces with summary.session_id to group sessions instead of the
+threads endpoint which has limitations.
 """
 
 import random
 from typing import Optional, Literal
+from collections import defaultdict
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -50,25 +54,103 @@ async def get_threads(
     sample_size: int = Query(20, ge=1, le=100, description="Sample size for random sampling")
 ):
     """
-    Get list of threads with enhanced filtering and sorting.
+    Get list of sessions by querying traces and grouping by summary.session_id.
     
-    Supports:
-    - Sorting by last_updated, turn_count
-    - Filtering by min/max turns
-    - Filtering by review status
-    - Random sampling
+    This approach uses traces directly instead of the threads endpoint,
+    allowing us to properly group calls by their actual session.
     """
     try:
-        # Fetch threads from Weave
-        # Note: We fetch more than needed to allow for client-side filtering
-        fetch_limit = limit * 3 if min_turns or max_turns or reviewed is not None else limit
-        
-        threads = await weave_client.query_threads(
-            limit=min(fetch_limit, 200),
-            offset=offset,
-            sort_by=sort_by if sort_by in ["last_updated", "turn_count"] else "last_updated",
-            sort_direction=direction
+        # Fetch ALL traces to group by session
+        all_calls = await weave_client.query_calls(
+            limit=500,
+            offset=0,
+            sort_field="started_at",
+            sort_direction="desc"
         )
+        
+        # Build parent-child map to find root's thread_id from children
+        # Some root calls don't have thread_id, but their children do
+        call_by_id = {call.get("id"): call for call in all_calls}
+        
+        # First pass: identify root calls and their thread_id from children
+        root_to_thread = {}  # trace_id -> thread_id (from children)
+        for call in all_calls:
+            thread_id = call.get("thread_id")
+            trace_id = call.get("trace_id")
+            if thread_id and trace_id:
+                # If this call has both thread_id and trace_id, map them
+                if trace_id not in root_to_thread:
+                    root_to_thread[trace_id] = thread_id
+        
+        # Group calls by session_id (prefer thread_id)
+        sessions = defaultdict(lambda: {
+            "calls": [],
+            "first_time": None,
+            "last_time": None,
+            "turn_count": 0
+        })
+        
+        for call in all_calls:
+            trace_id = call.get("trace_id")
+            # Priority: thread_id > inherited from children > trace_id
+            session_id = (
+                call.get("thread_id") or 
+                root_to_thread.get(trace_id) or  # Get from child's thread_id
+                call.get("summary", {}).get("session_id") or 
+                trace_id
+            )
+            
+            if not session_id:
+                continue
+            
+            # Skip if session_id is just a trace_id that we already mapped to a thread_id
+            # This avoids duplication
+            if session_id == trace_id and trace_id in root_to_thread:
+                continue
+            
+            # Only count root calls (no parent) as turns
+            is_root = call.get("parent_id") is None
+            
+            session = sessions[session_id]
+            session["calls"].append(call)
+            
+            started_at = call.get("started_at")
+            if started_at:
+                if session["first_time"] is None or started_at < session["first_time"]:
+                    session["first_time"] = started_at
+                if session["last_time"] is None or started_at > session["last_time"]:
+                    session["last_time"] = started_at
+            
+            if is_root:
+                session["turn_count"] += 1
+        
+        # Convert to list format - only include sessions with session_xxx format (real sessions)
+        threads = []
+        for session_id, session_data in sessions.items():
+            # Only include if it's a real session (not just a trace_id)
+            # Real sessions typically start with "session_" or have multiple calls
+            is_real_session = (
+                session_id.startswith("session_") or 
+                len(session_data["calls"]) > 1 or
+                session_data["turn_count"] > 0
+            )
+            if not is_real_session:
+                continue
+                
+            threads.append({
+                "thread_id": session_id,
+                "turn_count": session_data["turn_count"],
+                "start_time": session_data["first_time"],
+                "last_updated": session_data["last_time"],
+                "call_count": len(session_data["calls"])
+            })
+        
+        # Sort
+        reverse = direction == "desc"
+        if sort_by == "turn_count":
+            threads.sort(key=lambda t: t["turn_count"], reverse=reverse)
+        else:  # last_updated
+            threads.sort(key=lambda t: t["last_updated"] or "", reverse=reverse)
         
         # Get review status for all threads
         thread_ids = [t["thread_id"] for t in threads]
@@ -92,8 +174,8 @@ async def get_threads(
         if sample == "random" and len(threads) > sample_size:
             threads = random.sample(threads, sample_size)
         
-        # Trim to requested limit
-        threads = threads[:limit]
+        # Apply offset and limit
+        threads = threads[offset:offset + limit]
         
         return {
             "threads": threads,
@@ -114,48 +196,82 @@ async def get_threads(
 @router.get("/threads/{thread_id}")
 async def get_thread_detail(thread_id: str):
     """
-    Get all calls in a thread for conversation view.
-    Includes review status and metrics.
+    Get all calls in a session by filtering traces where summary.session_id matches.
+    
+    This fetches all traces and filters by session_id from summary field,
+    giving us the actual calls that belong to this session.
     """
     try:
-        # Query all calls with this thread_id
-        calls = await weave_client.query_calls(
-            limit=200,
-            thread_ids=[thread_id],
+        # Fetch all calls
+        all_calls = await weave_client.query_calls(
+            limit=500,
             sort_field="started_at",
             sort_direction="asc"
         )
+        
+        # Build parent-child map to find root's thread_id from children
+        root_to_thread = {}
+        for call in all_calls:
+            call_thread_id = call.get("thread_id")
+            trace_id = call.get("trace_id")
+            if call_thread_id and trace_id:
+                if trace_id not in root_to_thread:
+                    root_to_thread[trace_id] = call_thread_id
+        
+        # Filter calls that belong to this session
+        # Include calls where thread_id matches OR trace_id maps to this thread_id
+        session_calls = []
+        for call in all_calls:
+            trace_id = call.get("trace_id")
+            call_session_id = (
+                call.get("thread_id") or 
+                root_to_thread.get(trace_id) or
+                call.get("summary", {}).get("session_id") or 
+                trace_id
+            )
+            if call_session_id == thread_id:
+                session_calls.append(call)
+        
+        # Sort by started_at
+        session_calls.sort(key=lambda c: c.get("started_at", ""))
 
         # Process calls into conversation format
-        conversation = process_thread_calls(calls)
+        conversation = process_thread_calls(session_calls)
 
-        # Calculate metrics
+        # Calculate metrics from ROOT calls only (to avoid double-counting nested latency)
         total_latency_ms = 0
         has_error = False
-        for call in calls:
-            started = call.get("started_at")
-            ended = call.get("ended_at")
-            if started and ended:
-                # Parse ISO timestamps and calculate duration
-                try:
-                    from datetime import datetime
-                    start_dt = datetime.fromisoformat(started.replace("Z", "+00:00"))
-                    end_dt = datetime.fromisoformat(ended.replace("Z", "+00:00"))
-                    total_latency_ms += (end_dt - start_dt).total_seconds() * 1000
-                except:
-                    pass
+        root_call_count = 0
+        
+        for call in session_calls:
+            # Only count root calls for latency
+            if call.get("parent_id") is None:
+                root_call_count += 1
+                started = call.get("started_at")
+                ended = call.get("ended_at")
+                if started and ended:
+                    try:
+                        from datetime import datetime
+                        start_dt = datetime.fromisoformat(started.replace("Z", "+00:00"))
+                        end_dt = datetime.fromisoformat(ended.replace("Z", "+00:00"))
+                        total_latency_ms += (end_dt - start_dt).total_seconds() * 1000
+                    except:
+                        pass
             if call.get("exception"):
                 has_error = True
 
-        # Return summarized calls
+        # Return summarized calls (only root calls for cleaner view)
         call_summaries = [
             {
                 "id": call.get("id"),
                 "op_name": call.get("op_name"),
                 "started_at": call.get("started_at"),
                 "ended_at": call.get("ended_at"),
+                "is_root": call.get("parent_id") is None,
+                "session_id": call.get("summary", {}).get("session_id"),
             }
-            for call in calls
+            for call in session_calls
+            if call.get("parent_id") is None  # Only include root calls in summary
         ]
 
         # Get review status
@@ -166,7 +282,8 @@ async def get_thread_detail(thread_id: str):
             "calls": call_summaries,
             "conversation": conversation,
             "feedback": {},
-            "total_calls": len(calls),
+            "total_calls": len(call_summaries),  # Root calls only
+            "all_calls_count": len(session_calls),  # Including nested
             "metrics": {
                 "total_latency_ms": round(total_latency_ms, 2),
                 "turn_count": len([m for m in conversation if m.get("type") == "user"]),

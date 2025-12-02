@@ -202,7 +202,7 @@ Example: [{{"persona": "frustrated_customer", "scenario": "refund_request", "com
 Return ONLY the JSON array, no other text."""
 
         response = await acompletion(
-            model="gemini/gemini-2.0-flash",
+            model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
             response_format={"type": "json_object"}
         )
@@ -343,7 +343,7 @@ Return ONLY the user message, nothing else. No quotes around it."""
 
         try:
             response = await acompletion(
-                model="gemini/gemini-2.0-flash",
+                model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}]
             )
             

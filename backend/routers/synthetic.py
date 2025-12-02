@@ -590,7 +590,7 @@ async def get_batch(batch_id: str, include_queries: bool = True) -> BatchRespons
         queries = None
         if include_queries:
             cursor.execute("""
-                SELECT * FROM synthetic_queries WHERE batch_id = ? ORDER BY created_at
+                SELECT * FROM synthetic_queries WHERE batch_id = ? ORDER BY id
             """, (batch_id,))
             query_rows = cursor.fetchall()
             

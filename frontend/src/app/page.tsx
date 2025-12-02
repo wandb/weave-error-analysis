@@ -1074,6 +1074,8 @@ ${notesList || "No notes"}`;
       fetchTaxonomy();
     } else if (activeTab === "agents") {
       fetchAgents();
+    } else if (activeTab === "synthetic") {
+      fetchAgents(); // Need agents list for synthetic tab
     }
   }, [activeTab, fetchTaxonomy, fetchAgents]);
 
@@ -1332,8 +1334,8 @@ ${notesList || "No notes"}`;
                   <Shuffle className="w-3 h-3" />
                   Random 20
                 </button>
-              </div>
             </div>
+          </div>
 
           {/* Thread List */}
             <div className="space-y-2 max-h-[calc(100vh-480px)] overflow-y-auto">
@@ -1787,8 +1789,8 @@ ${notesList || "No notes"}`;
                     <div className="flex items-center gap-2 mb-2">
                       <Target className="w-4 h-4 text-accent-plum" />
                       <span className="text-xs font-medium text-accent-plum">AI Suggestion</span>
-                    </div>
-                    
+      </div>
+
                     {noteSuggestion.match_type === "existing" ? (
                       <div>
                 <p className="text-sm text-sand-300">
@@ -1851,8 +1853,8 @@ ${notesList || "No notes"}`;
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-display text-lg font-semibold text-sand-100 flex items-center gap-2">
               <AlertTriangle className="w-5 h-5 text-accent-coral" />
-              Failure Modes
-            </h2>
+            Failure Modes
+          </h2>
             <div className="flex items-center gap-2">
               {taxonomy?.failure_modes.length ? (
                 <button
@@ -1913,8 +1915,8 @@ ${notesList || "No notes"}`;
                           <ChevronDown className="w-4 h-4 text-ink-500" />
                         )}
                       </div>
-                    </div>
-                    
+              </div>
+              
                     {/* Meta info */}
                     <div className="flex items-center gap-4 mt-2 text-xs text-ink-500">
                       <span>Created {formatRelativeTime(mode.created_at)}</span>
@@ -2019,7 +2021,7 @@ ${notesList || "No notes"}`;
           <div className="bg-ink-900 rounded-xl border border-ink-700 p-6 w-full max-w-md">
             <h3 className="font-display text-lg font-semibold text-sand-100 mb-4">
               Create Failure Mode
-            </h3>
+                        </h3>
             
             <div className="space-y-4">
               <div>
@@ -2124,7 +2126,7 @@ ${notesList || "No notes"}`;
               >
                 Register Your First Agent
               </button>
-            </div>
+                      </div>
           ) : (
             <div className="space-y-2">
               {agents.map(agent => (
@@ -2162,7 +2164,7 @@ ${notesList || "No notes"}`;
                             <Circle className="w-3 h-3" />
                           )}
                           {agent.connection_status}
-                        </span>
+                      </span>
                         {agent.testing_dimensions_count > 0 && (
                           <span className="text-ink-400">
                             {agent.testing_dimensions_count} dimensions
@@ -2177,8 +2179,8 @@ ${notesList || "No notes"}`;
             </div>
           )}
         </div>
-      </div>
-
+                    </div>
+                    
       {/* Agent Detail / Form */}
       <div className="col-span-8 space-y-4">
         {showAgentForm ? (
@@ -2215,8 +2217,8 @@ ${notesList || "No notes"}`;
                 />
                 <p className="text-xs text-ink-500 mt-1">
                   The AG-UI compatible endpoint where your agent is hosted
-                </p>
-              </div>
+                        </p>
+                      </div>
 
               <div>
                 <div className="flex items-center justify-between mb-1">
@@ -2238,8 +2240,8 @@ ${notesList || "No notes"}`;
                 <p className="text-xs text-ink-500 mt-1">
                   Document your agent&apos;s purpose, capabilities, tools, and testing dimensions
                 </p>
-              </div>
-
+                    </div>
+                    
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-ink-800">
                 <button onClick={resetAgentForm} className="btn-ghost">
                   Cancel
@@ -2342,7 +2344,7 @@ ${notesList || "No notes"}`;
                   )}
                   <span className={connectionResult.success ? "text-emerald-400" : "text-red-400"}>
                     {connectionResult.success ? "Connection successful" : "Connection failed"}
-                  </span>
+                      </span>
                 </div>
                 {connectionResult.response_time_ms && (
                   <p className="text-sm text-ink-400 mt-1">
@@ -2427,8 +2429,8 @@ ${notesList || "No notes"}`;
                               tc.status === "running" ? "text-amber-400" : "text-emerald-400"
                             }`}>
                               {tc.status === "running" ? "⏳ Running..." : "✓ Complete"}
-                            </span>
-                          </div>
+                      </span>
+                    </div>
                           {Object.keys(tc.tool_args).length > 0 && (
                             <div className="mb-2">
                               <span className="text-xs text-ink-500">Arguments:</span>
@@ -2447,9 +2449,9 @@ ${notesList || "No notes"}`;
                               </pre>
                             </div>
                           )}
-                        </div>
-                      ))}
-                    </div>
+                  </div>
+                ))}
+              </div>
                   </div>
                 )}
                 
@@ -2471,13 +2473,13 @@ ${notesList || "No notes"}`;
                     <div className="text-sm text-ink-400 flex items-center gap-2">
                       <RefreshCw className="w-4 h-4 animate-spin" />
                       Waiting for response...
-                    </div>
-                  ) : (
+            </div>
+          ) : (
                     <p className="text-sm text-ink-500 italic">
                       Send a message to see the agent&apos;s response
                     </p>
                   )}
-                </div>
+            </div>
                 
                 {/* Events Log (collapsible) */}
                 {playgroundEvents.length > 0 && (
@@ -2499,8 +2501,8 @@ ${notesList || "No notes"}`;
                             }`}>{evt.type}</span>
                             {evt.content && (
                               <span className="text-ink-300"> - {evt.content.slice(0, 50)}{evt.content.length > 50 ? "..." : ""}</span>
-                            )}
-                          </div>
+          )}
+        </div>
                         ))}
                       </div>
                     </details>
@@ -2621,169 +2623,15 @@ ${notesList || "No notes"}`;
               </div>
             )}
 
-            {/* Synthetic Data Generation Section */}
-            <div className="border-t border-ink-700 pt-6">
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-medium text-ink-400 flex items-center gap-2">
-                  <Zap className="w-4 h-4 text-accent-amber" />
-                  Synthetic Data Generation
-                </h3>
-                <button
-                  onClick={() => setShowSyntheticPanel(!showSyntheticPanel)}
-                  className="text-xs text-accent-teal hover:text-accent-teal/80"
-                >
-                  {showSyntheticPanel ? "Hide" : "Show"}
-                </button>
-              </div>
-
-              {showSyntheticPanel && (
-                <div className="space-y-4">
-                  {/* Dimensions */}
-                  <div className="bg-ink-800/50 rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm font-medium text-sand-200">Testing Dimensions</span>
-                      <button
-                        onClick={() => importDimensions(selectedAgent.id)}
-                        disabled={loadingDimensions}
-                        className="text-xs btn-secondary py-1 px-2"
-                      >
-                        {loadingDimensions ? "Importing..." : "Import from Agent"}
-                      </button>
-                    </div>
-                    {dimensions.length > 0 ? (
-                      <div className="space-y-2">
-                        {dimensions.map((dim) => (
-                          <div key={dim.id} className="flex items-center gap-2">
-                            <span className="text-sm text-ink-300">{dim.name}:</span>
-                            <span className="text-xs text-ink-400">{dim.values.length} values</span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-sm text-ink-400">No dimensions imported. Click &quot;Import from Agent&quot; to get testing dimensions.</p>
-                    )}
-                  </div>
-
-                  {/* Generate Batch */}
-                  <div className="bg-ink-800/50 rounded-lg p-4">
-                    <span className="text-sm font-medium text-sand-200 block mb-3">Generate Synthetic Batch</span>
-                    <div className="flex gap-3 mb-3">
-                      <div className="flex-1">
-                        <label className="text-xs text-ink-400 block mb-1">Queries</label>
-                        <input
-                          type="number"
-                          value={batchSize}
-                          onChange={(e) => setBatchSize(Number(e.target.value))}
-                          min={1}
-                          max={100}
-                          className="w-full bg-ink-900 border border-ink-700 rounded px-3 py-1.5 text-sm text-sand-200"
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <label className="text-xs text-ink-400 block mb-1">Strategy</label>
-                        <select
-                          value={batchStrategy}
-                          onChange={(e) => setBatchStrategy(e.target.value as "cross_product" | "llm_guided")}
-                          className="w-full bg-ink-900 border border-ink-700 rounded px-3 py-1.5 text-sm text-sand-200"
-                        >
-                          <option value="cross_product">Cross Product</option>
-                          <option value="llm_guided">LLM Guided</option>
-                        </select>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => generateBatch(selectedAgent.id)}
-                      disabled={generatingBatch || dimensions.length === 0}
-                      className="w-full btn-primary py-2"
-                    >
-                      {generatingBatch ? (
-                        <>
-                          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                          Generating...
-                        </>
-                      ) : (
-                        <>
-                          <Zap className="w-4 h-4 mr-2" />
-                          Generate Batch
-                        </>
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Batches List */}
-                  {syntheticBatches.length > 0 && (
-                    <div className="bg-ink-800/50 rounded-lg p-4">
-                      <span className="text-sm font-medium text-sand-200 block mb-3">
-                        Generated Batches ({syntheticBatches.length})
-                      </span>
-                      <div className="space-y-2 max-h-48 overflow-y-auto">
-                        {syntheticBatches.map((batch) => (
-                          <div
-                            key={batch.id}
-                            className={`p-2 rounded cursor-pointer transition-colors ${
-                              selectedBatch?.id === batch.id
-                                ? "bg-accent-teal/20 border border-accent-teal/50"
-                                : "bg-ink-900/50 hover:bg-ink-900"
-                            }`}
-                            onClick={() => fetchBatchDetail(batch.id)}
-                          >
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-sand-200">{batch.name}</span>
-                              <span className="text-xs text-ink-400">{batch.query_count} queries</span>
-                            </div>
-                            <div className="flex items-center gap-2 mt-1">
-                              <span className={`text-xs px-1.5 py-0.5 rounded ${
-                                batch.status === "ready" ? "bg-green-900/50 text-green-400" :
-                                batch.status === "running" ? "bg-amber-900/50 text-amber-400" :
-                                "bg-ink-700 text-ink-400"
-                              }`}>
-                                {batch.status}
-                              </span>
-                              <span className="text-xs text-ink-500">
-                                {formatRelativeTime(batch.created_at)}
-                              </span>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Selected Batch Queries */}
-                  {selectedBatch && selectedBatch.queries && (
-                    <div className="bg-ink-800/50 rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="text-sm font-medium text-sand-200">
-                          {selectedBatch.name} - Queries
-                        </span>
-                        <button
-                          onClick={() => deleteBatch(selectedBatch.id, selectedAgent.id)}
-                          className="text-xs text-red-400 hover:text-red-300"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                      <div className="space-y-2 max-h-64 overflow-y-auto">
-                        {selectedBatch.queries.map((query, idx) => (
-                          <div key={query.id} className="bg-ink-900/50 rounded p-3">
-                            <div className="flex items-start gap-2 mb-2">
-                              <span className="text-xs text-ink-500 font-mono">{idx + 1}</span>
-                              <div className="flex flex-wrap gap-1">
-                                {Object.entries(query.tuple_values).map(([key, val]) => (
-                                  <span key={key} className="text-xs bg-ink-700 text-ink-300 px-1.5 py-0.5 rounded">
-                                    {val}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                            <p className="text-sm text-sand-300 italic">&quot;{query.query_text}&quot;</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
+            {/* Link to Synthetic Tab */}
+            <div className="border-t border-ink-700 pt-4 mt-4">
+              <button
+                onClick={() => setActiveTab("synthetic")}
+                className="flex items-center gap-2 text-sm text-accent-amber hover:text-accent-amber/80"
+              >
+                <Zap className="w-4 h-4" />
+                Go to Synthetic Data Generation →
+              </button>
             </div>
           </div>
         ) : (
@@ -2810,6 +2658,403 @@ ${notesList || "No notes"}`;
       </div>
     </div>
   );
+
+  // ============================================================================
+  // Synthetic Tab Component
+  // ============================================================================
+
+  const SyntheticTab = () => {
+    // State for editing dimensions
+    const [editingDimension, setEditingDimension] = useState<string | null>(null);
+    const [newDimensionName, setNewDimensionName] = useState("");
+    const [newDimensionValues, setNewDimensionValues] = useState("");
+    const [showAddDimension, setShowAddDimension] = useState(false);
+
+    const handleSaveDimension = async (dimName: string, values: string[]) => {
+      if (!selectedAgent) return;
+      try {
+        await fetch(`/api/agents/${selectedAgent.id}/dimensions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: dimName, values })
+        });
+        await fetchDimensions(selectedAgent.id);
+        setEditingDimension(null);
+      } catch (error) {
+        console.error("Error saving dimension:", error);
+      }
+    };
+
+    const handleAddDimension = async () => {
+      if (!selectedAgent || !newDimensionName || !newDimensionValues) return;
+      const values = newDimensionValues.split(",").map(v => v.trim()).filter(Boolean);
+      await handleSaveDimension(newDimensionName, values);
+      setNewDimensionName("");
+      setNewDimensionValues("");
+      setShowAddDimension(false);
+    };
+
+    const handleDeleteDimension = async (dimName: string) => {
+      if (!selectedAgent) return;
+      try {
+        await fetch(`/api/agents/${selectedAgent.id}/dimensions/${dimName}`, {
+          method: "DELETE"
+        });
+        await fetchDimensions(selectedAgent.id);
+      } catch (error) {
+        console.error("Error deleting dimension:", error);
+      }
+    };
+
+    return (
+      <div className="grid grid-cols-12 gap-6">
+        {/* Left Panel: Agent Selection & Dimensions */}
+        <div className="col-span-4 space-y-4">
+          {/* Agent Selection */}
+          <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-5">
+            <h2 className="text-lg font-semibold text-sand-100 mb-4 flex items-center gap-2">
+              <Cpu className="w-5 h-5 text-accent-teal" />
+              Select Agent
+            </h2>
+            {agents.length > 0 ? (
+              <div className="space-y-2">
+                {agents.map((agent) => (
+                  <button
+                    key={agent.id}
+                    onClick={() => {
+                      fetchAgentDetail(agent.id);
+                    }}
+                    className={`w-full text-left p-3 rounded-lg transition-all ${
+                      selectedAgent?.id === agent.id
+                        ? "bg-accent-teal/20 border border-accent-teal/50"
+                        : "bg-ink-800/50 hover:bg-ink-800 border border-transparent"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sand-200 font-medium">{agent.name}</span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded ${
+                        agent.connection_status === "connected"
+                          ? "bg-green-900/50 text-green-400"
+                          : "bg-red-900/50 text-red-400"
+                      }`}>
+                        {agent.connection_status}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-ink-400 text-sm">
+                No agents registered. Go to the Agents tab to register one.
+              </p>
+            )}
+          </div>
+
+          {/* Testing Dimensions */}
+          {selectedAgent && (
+            <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-sand-100 flex items-center gap-2">
+                  <Target className="w-5 h-5 text-accent-plum" />
+                  Testing Dimensions
+                </h2>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => importDimensions(selectedAgent.id)}
+                    disabled={loadingDimensions}
+                    className="text-xs btn-secondary py-1 px-2"
+                    title="Import dimensions from the agent's AGENT_INFO.md file"
+                  >
+                    {loadingDimensions ? "..." : "Import from AGENT_INFO"}
+                  </button>
+                  <button
+                    onClick={() => setShowAddDimension(true)}
+                    className="text-xs btn-primary py-1 px-2"
+                  >
+                    <Plus className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Add new dimension form */}
+              {showAddDimension && (
+                <div className="bg-ink-800 rounded-lg p-3 mb-4 border border-ink-700">
+                  <h4 className="text-sm font-medium text-sand-200 mb-2">Add New Dimension</h4>
+                  <input
+                    type="text"
+                    placeholder="Dimension name (e.g., persona)"
+                    value={newDimensionName}
+                    onChange={(e) => setNewDimensionName(e.target.value)}
+                    className="w-full bg-ink-900 border border-ink-600 rounded px-3 py-2 text-sm text-sand-200 mb-2"
+                  />
+                  <textarea
+                    placeholder="Values (comma-separated, e.g., frustrated_user, happy_user, new_user)"
+                    value={newDimensionValues}
+                    onChange={(e) => setNewDimensionValues(e.target.value)}
+                    rows={3}
+                    className="w-full bg-ink-900 border border-ink-600 rounded px-3 py-2 text-sm text-sand-200 mb-2"
+                  />
+                  <div className="flex gap-2">
+                    <button onClick={handleAddDimension} className="text-xs btn-primary py-1 px-3">
+                      Add
+                    </button>
+                    <button 
+                      onClick={() => {
+                        setShowAddDimension(false);
+                        setNewDimensionName("");
+                        setNewDimensionValues("");
+                      }} 
+                      className="text-xs btn-secondary py-1 px-3"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Dimension List */}
+              {dimensions.length > 0 ? (
+                <div className="space-y-3">
+                  {dimensions.map((dim) => (
+                    <div key={dim.id} className="bg-ink-800/50 rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-sand-200 flex items-center gap-2">
+                          {dim.name}
+                          <span className="text-xs text-ink-400">({dim.values.length})</span>
+                        </span>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => setEditingDimension(editingDimension === dim.id ? null : dim.id)}
+                            className="text-xs text-ink-400 hover:text-sand-200 p-1"
+                          >
+                            <Edit3 className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteDimension(dim.name)}
+                            className="text-xs text-red-400 hover:text-red-300 p-1"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+                      
+                      {editingDimension === dim.id ? (
+                        <div className="mt-2">
+                          <textarea
+                            defaultValue={dim.values.join(", ")}
+                            rows={3}
+                            className="w-full bg-ink-900 border border-ink-600 rounded px-2 py-1 text-xs text-sand-200 mb-2"
+                            onBlur={(e) => {
+                              const newValues = e.target.value.split(",").map(v => v.trim()).filter(Boolean);
+                              handleSaveDimension(dim.name, newValues);
+                            }}
+                          />
+                          <p className="text-xs text-ink-400">Edit values above (comma-separated), then click elsewhere to save</p>
+                        </div>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {dim.values.map((val, j) => (
+                            <span key={j} className="text-xs bg-ink-700 text-ink-300 px-2 py-1 rounded">
+                              {val}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-6 text-ink-400">
+                  <Target className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm mb-2">No dimensions defined yet.</p>
+                  <p className="text-xs">Click &quot;Import from AGENT_INFO&quot; to load from agent, or add manually.</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Middle Panel: Batch Generation & List */}
+        <div className="col-span-4 space-y-4">
+          {selectedAgent ? (
+            <>
+              {/* Generate Batch */}
+              <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-5">
+                <h2 className="text-lg font-semibold text-sand-100 mb-4 flex items-center gap-2">
+                  <Zap className="w-5 h-5 text-accent-amber" />
+                  Generate Synthetic Batch
+                </h2>
+                
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-sm text-ink-400 block mb-1">Number of Queries</label>
+                    <input
+                      type="number"
+                      value={batchSize}
+                      onChange={(e) => setBatchSize(Number(e.target.value))}
+                      min={1}
+                      max={100}
+                      className="w-full bg-ink-800 border border-ink-700 rounded-lg px-4 py-2 text-sand-200"
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="text-sm text-ink-400 block mb-1">Generation Strategy</label>
+                    <select
+                      value={batchStrategy}
+                      onChange={(e) => setBatchStrategy(e.target.value as "cross_product" | "llm_guided")}
+                      className="w-full bg-ink-800 border border-ink-700 rounded-lg px-4 py-2 text-sand-200"
+                    >
+                      <option value="cross_product">Cross Product (Template-based)</option>
+                      <option value="llm_guided">LLM Guided (Requires API Key)</option>
+                    </select>
+                    <p className="text-xs text-ink-500 mt-1">
+                      Cross Product uses templates. LLM Guided uses GPT-4o-mini for realistic queries.
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => generateBatch(selectedAgent.id)}
+                    disabled={generatingBatch || dimensions.length === 0}
+                    className="w-full btn-primary py-3"
+                  >
+                    {generatingBatch ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="w-4 h-4 mr-2" />
+                        Generate {batchSize} Queries
+                      </>
+                    )}
+                  </button>
+
+                  {dimensions.length === 0 && (
+                    <p className="text-xs text-amber-400 text-center">
+                      ⚠️ Define dimensions first to generate queries
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Batches List */}
+              <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-5">
+                <h2 className="text-lg font-semibold text-sand-100 mb-4 flex items-center gap-2">
+                  <ClipboardList className="w-5 h-5 text-accent-coral" />
+                  Generated Batches
+                  {syntheticBatches.length > 0 && (
+                    <span className="text-xs text-ink-400">({syntheticBatches.length})</span>
+                  )}
+                </h2>
+
+                {syntheticBatches.length > 0 ? (
+                  <div className="space-y-2 max-h-[400px] overflow-y-auto">
+                    {syntheticBatches.map((batch) => (
+                      <button
+                        key={batch.id}
+                        onClick={async () => {
+                          await fetchBatchDetail(batch.id);
+                        }}
+                        className={`w-full text-left p-3 rounded-lg transition-all ${
+                          selectedBatch?.id === batch.id
+                            ? "bg-accent-amber/20 border border-accent-amber/50"
+                            : "bg-ink-800/50 hover:bg-ink-800 border border-transparent"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sand-200 font-medium">{batch.name}</span>
+                          <span className="text-xs text-ink-400">{batch.query_count} queries</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-xs px-1.5 py-0.5 rounded ${
+                            batch.status === "ready" ? "bg-green-900/50 text-green-400" :
+                            batch.status === "running" ? "bg-amber-900/50 text-amber-400" :
+                            "bg-ink-700 text-ink-400"
+                          }`}>
+                            {batch.status}
+                          </span>
+                          <span className="text-xs text-ink-500">
+                            {formatRelativeTime(batch.created_at)}
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-ink-400">
+                    <ClipboardList className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No batches generated yet.</p>
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-5">
+              <div className="text-center py-12 text-ink-400">
+                <Cpu className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <h3 className="text-lg font-medium text-sand-200 mb-2">Select an Agent</h3>
+                <p className="text-sm">Choose an agent from the left panel to generate synthetic data.</p>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Right Panel: Query Preview */}
+        <div className="col-span-4">
+          <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-sand-100 flex items-center gap-2">
+                <MessageSquare className="w-5 h-5 text-accent-teal" />
+                Query Preview
+              </h2>
+              {selectedBatch && (
+                <button
+                  onClick={() => {
+                    if (selectedAgent) {
+                      deleteBatch(selectedBatch.id, selectedAgent.id);
+                    }
+                  }}
+                  className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  Delete Batch
+                </button>
+              )}
+            </div>
+
+            {selectedBatch && selectedBatch.queries ? (
+              <div className="space-y-3 max-h-[600px] overflow-y-auto">
+                {selectedBatch.queries.map((query, idx) => (
+                  <div key={query.id} className="bg-ink-800/50 rounded-lg p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-xs bg-ink-700 text-ink-300 px-2 py-1 rounded font-mono">
+                        #{idx + 1}
+                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {Object.entries(query.tuple_values).map(([key, val]) => (
+                          <span key={key} className="text-xs bg-accent-plum/20 text-accent-plum px-2 py-0.5 rounded">
+                            {key}: {val}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <p className="text-sand-300 leading-relaxed">&quot;{query.query_text}&quot;</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12 text-ink-400">
+                <MessageSquare className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                <p className="text-sm">Select a batch to preview its queries.</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   // ============================================================================
   // Main Render
@@ -2861,7 +3106,7 @@ ${notesList || "No notes"}`;
                     </span>
                   )}
                 </button>
-                <button
+                  <button
                   onClick={() => setActiveTab("agents")}
                   className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
                     activeTab === "agents"
@@ -2876,9 +3121,25 @@ ${notesList || "No notes"}`;
                       {agents.length}
                     </span>
                   )}
+                  </button>
+                <button
+                  onClick={() => setActiveTab("synthetic")}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                    activeTab === "synthetic"
+                      ? "bg-accent-amber text-ink-950 shadow-lg shadow-accent-amber/20"
+                      : "text-ink-400 hover:text-sand-200 hover:bg-ink-800"
+                  }`}
+                >
+                  <Zap className="w-4 h-4" />
+                  Synthetic
+                  {syntheticBatches.length > 0 && (
+                    <span className="badge badge-amber text-xs ml-1">
+                      {syntheticBatches.length}
+                    </span>
+                  )}
                 </button>
               </nav>
-            </div>
+              </div>
             
             <div className="flex items-center gap-4">
               {/* Feedback Stats */}
@@ -2905,6 +3166,11 @@ ${notesList || "No notes"}`;
                     fetchTaxonomy();
                   } else if (activeTab === "agents") {
                     fetchAgents();
+                  } else if (activeTab === "synthetic") {
+                    if (selectedAgent) {
+                      fetchDimensions(selectedAgent.id);
+                      fetchBatches(selectedAgent.id);
+                    }
                   }
                 }}
                 className="btn-secondary flex items-center gap-2"
@@ -2921,6 +3187,7 @@ ${notesList || "No notes"}`;
         {activeTab === "sessions" && <SessionsTab />}
         {activeTab === "taxonomy" && <TaxonomyTab />}
         {activeTab === "agents" && <AgentsTab />}
+        {activeTab === "synthetic" && <SyntheticTab />}
       </main>
     </div>
   );

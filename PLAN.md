@@ -539,10 +539,13 @@ async def run_agent(agent_id: str, request: RunRequest):
 - [x] Error handling for disconnected agents - Graceful error states and messages
 
 **Implementation Notes:**
-- Created `AGUIClient` class with health check, streaming run, and sync run methods
+- Created `AGUIClient` class with health check, streaming run, sync run, and `get_agent_info()` methods
 - Backend streams AG-UI events via SSE to frontend
 - Frontend displays real-time text chunks, tool calls with args/results, and error states
 - Playground UI includes input field, send button, tool call cards, response display, and event log
+- Created `agent/AGENT_INFO.md` documenting the TaskFlow Support Agent with testing dimensions
+- Agent server (`agent/agui_server.py`) exposes `/agent-info` and `/agent-info/json` endpoints
+- Backend can fetch AGENT_INFO from remote agents via `GET /api/agents/{id}/agent-info`
 
 ---
 
@@ -605,11 +608,24 @@ class SyntheticGenerator:
 4. Batch management UI
 
 **Deliverables:**
-- [ ] Dimension management endpoints
-- [ ] Tuple generation (cross-product + LLM)
-- [ ] Query generation with two-step process
-- [ ] Batch creation and tracking
-- [ ] Frontend synthetic data UI
+- [x] Dimension management endpoints (`backend/routers/synthetic.py`)
+- [x] Tuple generation (cross-product + LLM-guided)
+- [x] Query generation with two-step process (LLM with template fallback)
+- [x] Batch creation and tracking
+- [x] Frontend synthetic data UI
+
+**Implementation Notes:**
+- Created `SyntheticGenerator` class in `backend/services/synthetic.py`
+- Supports both cross-product and LLM-guided tuple generation
+- Query generation uses LLM with template-based fallback when LLM unavailable
+- Endpoints: `GET/POST /api/agents/{id}/dimensions`, `POST /api/agents/{id}/dimensions/import-from-agent`
+- Batch endpoints: `POST /api/synthetic/batches`, `GET /api/synthetic/batches`, `GET/DELETE /api/synthetic/batches/{id}`
+- Query endpoints: `POST /api/synthetic/tuples`, `POST /api/synthetic/queries`, `POST /api/synthetic/query-single`
+- Frontend integrated into Agent detail view with:
+  - Dimension import from AGENT_INFO
+  - Batch generation controls (count, strategy)
+  - Batch list with status indicators
+  - Query detail view with dimension tags
 
 ---
 

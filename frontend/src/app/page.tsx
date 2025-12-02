@@ -297,6 +297,34 @@ export default function Home() {
     content?: string;
     timestamp: string;
   }>>([]);
+  
+  // Synthetic data state
+  const [dimensions, setDimensions] = useState<Array<{
+    id: string;
+    name: string;
+    values: string[];
+  }>>([]);
+  const [loadingDimensions, setLoadingDimensions] = useState(false);
+  const [syntheticBatches, setSyntheticBatches] = useState<Array<{
+    id: string;
+    name: string;
+    status: string;
+    query_count: number;
+    created_at: string;
+  }>>([]);
+  const [selectedBatch, setSelectedBatch] = useState<{
+    id: string;
+    name: string;
+    queries: Array<{
+      id: string;
+      tuple_values: Record<string, string>;
+      query_text: string;
+    }>;
+  } | null>(null);
+  const [generatingBatch, setGeneratingBatch] = useState(false);
+  const [batchSize, setBatchSize] = useState(20);
+  const [batchStrategy, setBatchStrategy] = useState<"cross_product" | "llm_guided">("cross_product");
+  const [showSyntheticPanel, setShowSyntheticPanel] = useState(false);
 
   // ============================================================================
   // Copy Functions
@@ -555,6 +583,10 @@ ${notesList || "No notes"}`;
       const response = await fetch(`/api/agents/${agentId}`);
       const data = await response.json();
       setSelectedAgent(data);
+      
+      // Also fetch dimensions and batches for synthetic data
+      fetchDimensions(agentId);
+      fetchBatches(agentId);
     } catch (error) {
       console.error("Error fetching agent detail:", error);
     }
@@ -803,6 +835,101 @@ ${notesList || "No notes"}`;
       setPlaygroundError(error instanceof Error ? error.message : "Unknown error");
     } finally {
       setPlaygroundRunning(false);
+    }
+  };
+
+  // ============================================================================
+  // Synthetic Data Functions
+  // ============================================================================
+
+  const fetchDimensions = async (agentId: string) => {
+    setLoadingDimensions(true);
+    try {
+      const response = await fetch(`/api/agents/${agentId}/dimensions`);
+      const data = await response.json();
+      setDimensions(data || []);
+    } catch (error) {
+      console.error("Error fetching dimensions:", error);
+    } finally {
+      setLoadingDimensions(false);
+    }
+  };
+
+  const importDimensions = async (agentId: string) => {
+    setLoadingDimensions(true);
+    try {
+      const response = await fetch(`/api/agents/${agentId}/dimensions/import-from-agent`, {
+        method: "POST"
+      });
+      const data = await response.json();
+      if (data.imported > 0) {
+        setDimensions(data.dimensions || []);
+      }
+      return data;
+    } catch (error) {
+      console.error("Error importing dimensions:", error);
+      throw error;
+    } finally {
+      setLoadingDimensions(false);
+    }
+  };
+
+  const fetchBatches = async (agentId: string) => {
+    try {
+      const response = await fetch(`/api/synthetic/batches?agent_id=${agentId}`);
+      const data = await response.json();
+      setSyntheticBatches(data || []);
+    } catch (error) {
+      console.error("Error fetching batches:", error);
+    }
+  };
+
+  const fetchBatchDetail = async (batchId: string) => {
+    try {
+      const response = await fetch(`/api/synthetic/batches/${batchId}`);
+      const data = await response.json();
+      setSelectedBatch(data);
+    } catch (error) {
+      console.error("Error fetching batch detail:", error);
+    }
+  };
+
+  const generateBatch = async (agentId: string) => {
+    setGeneratingBatch(true);
+    try {
+      const response = await fetch("/api/synthetic/batches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent_id: agentId,
+          name: `Batch ${new Date().toLocaleDateString()}`,
+          count: batchSize,
+          strategy: batchStrategy
+        })
+      });
+      const data = await response.json();
+      if (data.id) {
+        await fetchBatches(agentId);
+        setSelectedBatch(data);
+      }
+      return data;
+    } catch (error) {
+      console.error("Error generating batch:", error);
+      throw error;
+    } finally {
+      setGeneratingBatch(false);
+    }
+  };
+
+  const deleteBatch = async (batchId: string, agentId: string) => {
+    try {
+      await fetch(`/api/synthetic/batches/${batchId}`, { method: "DELETE" });
+      await fetchBatches(agentId);
+      if (selectedBatch?.id === batchId) {
+        setSelectedBatch(null);
+      }
+    } catch (error) {
+      console.error("Error deleting batch:", error);
     }
   };
 
@@ -2484,7 +2611,7 @@ ${notesList || "No notes"}`;
 
             {/* Success Criteria */}
             {selectedAgent.success_criteria.length > 0 && (
-              <div>
+              <div className="mb-6">
                 <h3 className="text-sm font-medium text-ink-400 mb-2">Success Criteria</h3>
                 <ol className="space-y-1 list-decimal list-inside">
                   {selectedAgent.success_criteria.map((crit, i) => (
@@ -2493,6 +2620,171 @@ ${notesList || "No notes"}`;
                 </ol>
               </div>
             )}
+
+            {/* Synthetic Data Generation Section */}
+            <div className="border-t border-ink-700 pt-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-medium text-ink-400 flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-accent-amber" />
+                  Synthetic Data Generation
+                </h3>
+                <button
+                  onClick={() => setShowSyntheticPanel(!showSyntheticPanel)}
+                  className="text-xs text-accent-teal hover:text-accent-teal/80"
+                >
+                  {showSyntheticPanel ? "Hide" : "Show"}
+                </button>
+              </div>
+
+              {showSyntheticPanel && (
+                <div className="space-y-4">
+                  {/* Dimensions */}
+                  <div className="bg-ink-800/50 rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-sm font-medium text-sand-200">Testing Dimensions</span>
+                      <button
+                        onClick={() => importDimensions(selectedAgent.id)}
+                        disabled={loadingDimensions}
+                        className="text-xs btn-secondary py-1 px-2"
+                      >
+                        {loadingDimensions ? "Importing..." : "Import from Agent"}
+                      </button>
+                    </div>
+                    {dimensions.length > 0 ? (
+                      <div className="space-y-2">
+                        {dimensions.map((dim) => (
+                          <div key={dim.id} className="flex items-center gap-2">
+                            <span className="text-sm text-ink-300">{dim.name}:</span>
+                            <span className="text-xs text-ink-400">{dim.values.length} values</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-sm text-ink-400">No dimensions imported. Click &quot;Import from Agent&quot; to get testing dimensions.</p>
+                    )}
+                  </div>
+
+                  {/* Generate Batch */}
+                  <div className="bg-ink-800/50 rounded-lg p-4">
+                    <span className="text-sm font-medium text-sand-200 block mb-3">Generate Synthetic Batch</span>
+                    <div className="flex gap-3 mb-3">
+                      <div className="flex-1">
+                        <label className="text-xs text-ink-400 block mb-1">Queries</label>
+                        <input
+                          type="number"
+                          value={batchSize}
+                          onChange={(e) => setBatchSize(Number(e.target.value))}
+                          min={1}
+                          max={100}
+                          className="w-full bg-ink-900 border border-ink-700 rounded px-3 py-1.5 text-sm text-sand-200"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-xs text-ink-400 block mb-1">Strategy</label>
+                        <select
+                          value={batchStrategy}
+                          onChange={(e) => setBatchStrategy(e.target.value as "cross_product" | "llm_guided")}
+                          className="w-full bg-ink-900 border border-ink-700 rounded px-3 py-1.5 text-sm text-sand-200"
+                        >
+                          <option value="cross_product">Cross Product</option>
+                          <option value="llm_guided">LLM Guided</option>
+                        </select>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => generateBatch(selectedAgent.id)}
+                      disabled={generatingBatch || dimensions.length === 0}
+                      className="w-full btn-primary py-2"
+                    >
+                      {generatingBatch ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="w-4 h-4 mr-2" />
+                          Generate Batch
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Batches List */}
+                  {syntheticBatches.length > 0 && (
+                    <div className="bg-ink-800/50 rounded-lg p-4">
+                      <span className="text-sm font-medium text-sand-200 block mb-3">
+                        Generated Batches ({syntheticBatches.length})
+                      </span>
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {syntheticBatches.map((batch) => (
+                          <div
+                            key={batch.id}
+                            className={`p-2 rounded cursor-pointer transition-colors ${
+                              selectedBatch?.id === batch.id
+                                ? "bg-accent-teal/20 border border-accent-teal/50"
+                                : "bg-ink-900/50 hover:bg-ink-900"
+                            }`}
+                            onClick={() => fetchBatchDetail(batch.id)}
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm text-sand-200">{batch.name}</span>
+                              <span className="text-xs text-ink-400">{batch.query_count} queries</span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1">
+                              <span className={`text-xs px-1.5 py-0.5 rounded ${
+                                batch.status === "ready" ? "bg-green-900/50 text-green-400" :
+                                batch.status === "running" ? "bg-amber-900/50 text-amber-400" :
+                                "bg-ink-700 text-ink-400"
+                              }`}>
+                                {batch.status}
+                              </span>
+                              <span className="text-xs text-ink-500">
+                                {formatRelativeTime(batch.created_at)}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Selected Batch Queries */}
+                  {selectedBatch && selectedBatch.queries && (
+                    <div className="bg-ink-800/50 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="text-sm font-medium text-sand-200">
+                          {selectedBatch.name} - Queries
+                        </span>
+                        <button
+                          onClick={() => deleteBatch(selectedBatch.id, selectedAgent.id)}
+                          className="text-xs text-red-400 hover:text-red-300"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                      <div className="space-y-2 max-h-64 overflow-y-auto">
+                        {selectedBatch.queries.map((query, idx) => (
+                          <div key={query.id} className="bg-ink-900/50 rounded p-3">
+                            <div className="flex items-start gap-2 mb-2">
+                              <span className="text-xs text-ink-500 font-mono">{idx + 1}</span>
+                              <div className="flex flex-wrap gap-1">
+                                {Object.entries(query.tuple_values).map(([key, val]) => (
+                                  <span key={key} className="text-xs bg-ink-700 text-ink-300 px-1.5 py-0.5 rounded">
+                                    {val}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                            <p className="text-sm text-sand-300 italic">&quot;{query.query_text}&quot;</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         ) : (
           <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-5">

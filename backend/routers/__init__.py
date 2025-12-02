@@ -6,6 +6,7 @@ from .feedback import router as feedback_router
 from .categorize import router as categorize_router
 from .taxonomy import router as taxonomy_router
 from .agents import router as agents_router
+from .synthetic import router as synthetic_router
 
 __all__ = [
     "threads_router",
@@ -14,5 +15,6 @@ __all__ = [
     "categorize_router",
     "taxonomy_router",
     "agents_router",
+    "synthetic_router",
 ]
 

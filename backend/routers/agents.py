@@ -491,40 +491,10 @@ async def get_agent_remote_info(agent_id: str):
         raise HTTPException(status_code=502, detail=f"Failed to fetch agent info: {str(e)}")
 
 
-@router.get("/agents/{agent_id}/dimensions")
-async def get_agent_dimensions(agent_id: str):
-    """
-    Get testing dimensions for an agent.
-    """
-    with get_db() as conn:
-        cursor = conn.cursor()
-        
-        # Verify agent exists
-        cursor.execute("SELECT id FROM agents WHERE id = ?", (agent_id,))
-        if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail="Agent not found")
-        
-        # Get dimensions
-        cursor.execute("""
-            SELECT * FROM agent_dimensions WHERE agent_id = ? ORDER BY name
-        """, (agent_id,))
-        rows = cursor.fetchall()
-    
-    dimensions = []
-    for row in rows:
-        dimensions.append({
-            "id": row["id"],
-            "name": row["name"],
-            "values": json.loads(row["dimension_values"]) if row["dimension_values"] else [],
-            "descriptions": json.loads(row["descriptions"]) if row["descriptions"] else None
-        })
-    
-    return {"agent_id": agent_id, "dimensions": dimensions}
-
-
 # =============================================================================
 # Agent Execution Endpoints (AG-UI Protocol)
 # =============================================================================
+# Note: Dimension management endpoints are in routers/synthetic.py
 
 @router.post("/agents/{agent_id}/run")
 async def run_agent(agent_id: str, request: RunAgentRequest):

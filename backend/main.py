@@ -53,6 +53,21 @@ async def root():
     }
 
 
+@app.get("/api/db-stats")
+async def db_stats():
+    """Get database statistics for monitoring."""
+    from database import get_db_stats, optimize_db
+    return get_db_stats()
+
+
+@app.post("/api/db-optimize")
+async def db_optimize():
+    """Trigger database optimization (analyze tables)."""
+    from database import optimize_db
+    optimize_db()
+    return {"status": "optimized"}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

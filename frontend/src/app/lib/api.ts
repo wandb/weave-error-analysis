@@ -11,6 +11,7 @@ import type {
   Dimension,
   SyntheticBatch,
   BatchDetail,
+  AutoReview,
 } from "../types";
 
 const API_BASE = "/api";
@@ -351,5 +352,64 @@ export async function* streamSSE(
       }
     }
   }
+}
+
+// ============================================================================
+// Auto Review API
+// ============================================================================
+
+export interface AutoReviewConfig {
+  model?: string;
+  max_concurrent_llm_calls?: number;
+}
+
+export async function runAutoReview(
+  batchId: string,
+  config: AutoReviewConfig = {}
+): Promise<AutoReview> {
+  const response = await fetch(`${API_BASE}/synthetic/batches/${batchId}/auto-review`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: config.model || "gemini/gemini-2.5-pro",
+      max_concurrent_llm_calls: config.max_concurrent_llm_calls || 10,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to run auto-review");
+  }
+
+  return response.json();
+}
+
+export async function fetchBatchReviews(batchId: string): Promise<AutoReview[]> {
+  const response = await fetch(`${API_BASE}/synthetic/batches/${batchId}/reviews`);
+  return response.json();
+}
+
+export async function fetchLatestReview(batchId: string): Promise<AutoReview | null> {
+  try {
+    const response = await fetch(`${API_BASE}/synthetic/batches/${batchId}/reviews/latest`);
+    if (response.status === 404) {
+      return null;
+    }
+    return response.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function fetchReview(reviewId: string): Promise<AutoReview> {
+  const response = await fetch(`${API_BASE}/synthetic/reviews/${reviewId}`);
+  if (!response.ok) {
+    throw new Error("Review not found");
+  }
+  return response.json();
+}
+
+export async function deleteReview(reviewId: string): Promise<void> {
+  await fetch(`${API_BASE}/synthetic/reviews/${reviewId}`, { method: "DELETE" });
 }
 

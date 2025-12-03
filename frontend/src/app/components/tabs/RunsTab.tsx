@@ -12,11 +12,17 @@ import {
   AlertTriangle,
   ClipboardList,
   Bot,
+  Sparkles,
+  FileText,
+  ChevronDown,
+  ChevronRight,
+  Tag,
+  X,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { formatRelativeTime, calculateETA } from "../../utils/formatters";
 import { Panel, PanelHeader, Badge, StatusBadge, SelectPrompt, ProgressBar } from "../ui";
-import type { ExecutionProgress, BatchDetail } from "../../types";
+import type { ExecutionProgress, BatchDetail, AutoReview } from "../../types";
 import * as api from "../../lib/api";
 
 export function RunsTab() {
@@ -37,6 +43,12 @@ export function RunsTab() {
   // Local execution state
   const [executingBatch, setExecutingBatch] = useState(false);
   const [executionProgress, setExecutionProgress] = useState<ExecutionProgress | null>(null);
+  
+  // Auto-review state
+  const [runningAutoReview, setRunningAutoReview] = useState(false);
+  const [autoReview, setAutoReview] = useState<AutoReview | null>(null);
+  const [showReviewPanel, setShowReviewPanel] = useState(false);
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
 
   const pendingBatches = syntheticBatches.filter((b) => b.status === "ready" || b.status === "pending");
   const completedBatches = syntheticBatches.filter((b) => b.status === "completed" || b.status === "failed");
@@ -103,6 +115,45 @@ export function RunsTab() {
     setFilterBatchId(selectedBatch.id);
     setFilterBatchName(selectedBatch.name);
     setActiveTab("sessions");
+  };
+
+  const runAutoReview = async (batchId: string) => {
+    setRunningAutoReview(true);
+    setAutoReview(null);
+    
+    try {
+      const result = await api.runAutoReview(batchId);
+      setAutoReview(result);
+      setShowReviewPanel(true);
+    } catch (error) {
+      console.error("Error running auto-review:", error);
+    } finally {
+      setRunningAutoReview(false);
+    }
+  };
+
+  const fetchExistingReview = async (batchId: string) => {
+    try {
+      const review = await api.fetchLatestReview(batchId);
+      if (review) {
+        setAutoReview(review);
+        setShowReviewPanel(true);
+      }
+    } catch (error) {
+      console.error("Error fetching review:", error);
+    }
+  };
+
+  const toggleCategory = (categoryName: string) => {
+    setExpandedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(categoryName)) {
+        next.delete(categoryName);
+      } else {
+        next.add(categoryName);
+      }
+      return next;
+    });
   };
 
   return (
@@ -295,8 +346,86 @@ export function RunsTab() {
           </Panel>
         </div>
 
-        {/* Right Panel - Run Details */}
-        <div className="col-span-4">
+        {/* Right Panel - Run Details & Auto Review */}
+        <div className="col-span-4 space-y-4">
+          {/* Auto Review Panel */}
+          {selectedBatch && selectedBatch.status === "completed" && (
+            <Panel>
+              <div className="flex items-center justify-between mb-4">
+                <PanelHeader icon={<Sparkles className="w-5 h-5 text-accent-amber" />} title="AI Review" />
+                {autoReview && (
+                  <button
+                    onClick={() => setShowReviewPanel(!showReviewPanel)}
+                    className="text-xs text-ink-400 hover:text-sand-200"
+                  >
+                    {showReviewPanel ? "Hide" : "Show"} Results
+                  </button>
+                )}
+              </div>
+
+              {!autoReview && !runningAutoReview && (
+                <div className="text-center py-6">
+                  <Sparkles className="w-10 h-10 mx-auto mb-3 text-accent-amber opacity-60" />
+                  <p className="text-sm text-ink-400 mb-4">
+                    Analyze this batch with AI to discover failure patterns and categorize issues.
+                  </p>
+                  <button
+                    onClick={() => runAutoReview(selectedBatch.id)}
+                    className="btn-primary py-2 px-6 flex items-center gap-2 mx-auto"
+                  >
+                    <Sparkles className="w-4 h-4" />
+                    Run Auto Review
+                  </button>
+                </div>
+              )}
+
+              {runningAutoReview && (
+                <div className="text-center py-8">
+                  <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-accent-amber/20 flex items-center justify-center">
+                    <RefreshCw className="w-6 h-6 text-accent-amber animate-spin" />
+                  </div>
+                  <p className="text-sand-200 font-medium mb-2">Analyzing traces...</p>
+                  <p className="text-xs text-ink-500">
+                    This may take a few minutes depending on the number of traces.
+                  </p>
+                </div>
+              )}
+
+              {autoReview && showReviewPanel && (
+                <AutoReviewResults
+                  review={autoReview}
+                  expandedCategories={expandedCategories}
+                  toggleCategory={toggleCategory}
+                  onClose={() => setShowReviewPanel(false)}
+                  onRerun={() => runAutoReview(selectedBatch.id)}
+                />
+              )}
+
+              {autoReview && !showReviewPanel && (
+                <div className="p-3 bg-ink-800/50 rounded-lg border border-ink-700">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-2 h-2 rounded-full ${
+                        autoReview.status === "completed" ? "bg-green-400" : 
+                        autoReview.status === "failed" ? "bg-red-400" : "bg-amber-400"
+                      }`} />
+                      <span className="text-sm text-sand-200">
+                        {autoReview.failure_categories.filter(c => c.count > 0).length} categories found
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => setShowReviewPanel(true)}
+                      className="text-xs text-accent-amber hover:underline"
+                    >
+                      View details →
+                    </button>
+                  </div>
+                </div>
+              )}
+            </Panel>
+          )}
+
+          {/* Run Results Panel */}
           <Panel className="sticky top-24">
             <div className="flex items-center justify-between mb-4">
               <PanelHeader icon={<Eye className="w-5 h-5 text-accent-plum" />} title="Run Results" />
@@ -309,7 +438,7 @@ export function RunsTab() {
             </div>
 
             {selectedBatch && selectedBatch.queries && selectedBatch.queries.length > 0 ? (
-              <div className="space-y-3 max-h-[600px] overflow-y-auto">
+              <div className="space-y-3 max-h-[500px] overflow-y-auto">
                 {selectedBatch.queries.map((query, idx) => (
                   <QueryResultCard key={query.id} query={query} index={idx} total={selectedBatch.queries.length} />
                 ))}
@@ -369,6 +498,184 @@ function QueryResultCard({
       {query.error_message && (
         <div className="p-2 bg-red-900/20 rounded border border-red-900/30 mt-2">
           <p className="text-xs text-red-300">{query.error_message}</p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
+// Auto Review Results Component
+// =============================================================================
+
+function AutoReviewResults({
+  review,
+  expandedCategories,
+  toggleCategory,
+  onClose,
+  onRerun,
+}: {
+  review: AutoReview;
+  expandedCategories: Set<string>;
+  toggleCategory: (name: string) => void;
+  onClose: () => void;
+  onRerun: () => void;
+}) {
+  const [showReport, setShowReport] = useState(false);
+  
+  // Sort categories by count
+  const sortedCategories = [...review.failure_categories]
+    .filter(c => c.count > 0)
+    .sort((a, b) => b.count - a.count);
+  
+  // Calculate percentages
+  const total = review.classifications.length;
+
+  return (
+    <div className="space-y-4">
+      {/* Header with actions */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <StatusBadge status={review.status} />
+          <span className="text-xs text-ink-500">
+            {total} traces analyzed
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowReport(!showReport)}
+            className="text-xs text-ink-400 hover:text-sand-200 flex items-center gap-1"
+          >
+            <FileText className="w-3 h-3" />
+            {showReport ? "Hide" : "Show"} Report
+          </button>
+          <button
+            onClick={onRerun}
+            className="text-xs text-accent-amber hover:underline flex items-center gap-1"
+          >
+            <RefreshCw className="w-3 h-3" />
+            Re-run
+          </button>
+        </div>
+      </div>
+
+      {/* Failure Categories */}
+      {sortedCategories.length > 0 ? (
+        <div className="space-y-2">
+          <h4 className="text-xs font-medium text-ink-400 uppercase tracking-wide">
+            Failure Categories
+          </h4>
+          {sortedCategories.map((category) => {
+            const percentage = total > 0 ? (category.count / total * 100).toFixed(1) : 0;
+            const isExpanded = expandedCategories.has(category.name);
+            const categoryTraces = review.classifications.filter(
+              c => c.failure_category === category.name
+            );
+
+            return (
+              <div key={category.name} className="border border-ink-700 rounded-lg overflow-hidden">
+                {/* Category Header */}
+                <button
+                  onClick={() => toggleCategory(category.name)}
+                  className="w-full p-3 bg-ink-800/50 hover:bg-ink-800 flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-3">
+                    {isExpanded ? (
+                      <ChevronDown className="w-4 h-4 text-ink-500" />
+                    ) : (
+                      <ChevronRight className="w-4 h-4 text-ink-500" />
+                    )}
+                    <div className="text-left">
+                      <span className="text-sm font-medium text-sand-200">
+                        {category.name.replace(/_/g, " ")}
+                      </span>
+                      <p className="text-xs text-ink-500 mt-0.5 line-clamp-1">
+                        {category.definition}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="amber" className="text-xs">
+                      {category.count} ({percentage}%)
+                    </Badge>
+                  </div>
+                </button>
+
+                {/* Category Details */}
+                {isExpanded && (
+                  <div className="p-3 border-t border-ink-700 bg-ink-900/30 space-y-3">
+                    {category.notes && (
+                      <p className="text-xs text-ink-400">{category.notes}</p>
+                    )}
+                    
+                    {/* Traces in this category */}
+                    <div className="space-y-2">
+                      {categoryTraces.slice(0, 5).map((trace, idx) => (
+                        <div
+                          key={trace.trace_id}
+                          className="p-2 bg-ink-800/50 rounded border border-ink-700"
+                        >
+                          <div className="flex items-center gap-2 mb-1">
+                            <Tag className="w-3 h-3 text-ink-500" />
+                            <span className="text-xs text-ink-500">Trace {idx + 1}</span>
+                          </div>
+                          {trace.query_text && (
+                            <p className="text-xs text-sand-300 mb-1 line-clamp-2">
+                              &quot;{trace.query_text}&quot;
+                            </p>
+                          )}
+                          <p className="text-xs text-ink-400">
+                            {trace.categorization_reason}
+                          </p>
+                        </div>
+                      ))}
+                      {categoryTraces.length > 5 && (
+                        <p className="text-xs text-ink-500 text-center">
+                          +{categoryTraces.length - 5} more traces
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="text-center py-4 text-ink-400">
+          <CheckCircle2 className="w-8 h-8 mx-auto mb-2 opacity-50" />
+          <p className="text-sm">No failure categories identified.</p>
+        </div>
+      )}
+
+      {/* Markdown Report */}
+      {showReport && review.report_markdown && (
+        <div className="mt-4 p-4 bg-ink-900/50 rounded-lg border border-ink-700 max-h-96 overflow-y-auto">
+          <div className="flex items-center justify-between mb-3">
+            <h4 className="text-sm font-medium text-sand-200">Full Report</h4>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(review.report_markdown || "");
+              }}
+              className="text-xs text-accent-teal hover:underline"
+            >
+              Copy to clipboard
+            </button>
+          </div>
+          <pre className="text-xs text-sand-400 whitespace-pre-wrap font-mono">
+            {review.report_markdown}
+          </pre>
+        </div>
+      )}
+
+      {/* Error message */}
+      {review.error_message && (
+        <div className="p-3 bg-red-900/20 rounded-lg border border-red-900/30">
+          <div className="flex items-center gap-2 mb-1">
+            <AlertTriangle className="w-4 h-4 text-red-400" />
+            <span className="text-sm text-red-300">Review Error</span>
+          </div>
+          <p className="text-xs text-red-400">{review.error_message}</p>
         </div>
       )}
     </div>

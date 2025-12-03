@@ -247,6 +247,43 @@ export interface PlaygroundEvent {
 }
 
 // ============================================================================
+// Auto Review Types
+// ============================================================================
+
+export interface FailureCategory {
+  name: string;
+  definition: string;
+  notes?: string;
+  count: number;
+  trace_ids: string[];
+}
+
+export interface ReviewedTrace {
+  trace_id: string;
+  query_id?: string;
+  query_text?: string;
+  response_text?: string;
+  failure_category: string;
+  categorization_reason: string;
+  thinking?: string;
+}
+
+export interface AutoReview {
+  id: string;
+  batch_id: string;
+  agent_id: string;
+  status: "pending" | "running" | "completed" | "failed";
+  model_used: string;
+  failure_categories: FailureCategory[];
+  classifications: ReviewedTrace[];
+  report_markdown?: string;
+  total_traces: number;
+  created_at: string;
+  completed_at?: string;
+  error_message?: string;
+}
+
+// ============================================================================
 // Tab Types
 // ============================================================================
 

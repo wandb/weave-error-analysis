@@ -3,9 +3,12 @@ Configuration for the Error Analysis Backend.
 """
 
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from parent directory (project root)
+env_path = Path(__file__).parent.parent / ".env"
+load_dotenv(env_path)
 
 # W&B / Weave Configuration
 WANDB_API_KEY = os.getenv("WANDB_API_KEY")

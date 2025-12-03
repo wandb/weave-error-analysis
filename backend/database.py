@@ -324,6 +324,41 @@ def init_db():
                 ON synthetic_queries(thread_id)
             """)
             
+            # =====================================================================
+            # Phase 5: Auto Review Tables
+            # =====================================================================
+            
+            # Auto reviews table - stores automated review results
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS auto_reviews (
+                    id TEXT PRIMARY KEY,
+                    batch_id TEXT NOT NULL,
+                    agent_id TEXT NOT NULL,
+                    status TEXT DEFAULT 'pending',
+                    model_used TEXT,
+                    failure_categories JSON,
+                    classifications JSON,
+                    report_markdown TEXT,
+                    error_message TEXT,
+                    created_at TEXT NOT NULL,
+                    completed_at TEXT,
+                    FOREIGN KEY (batch_id) REFERENCES synthetic_batches(id) ON DELETE CASCADE,
+                    FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
+                )
+            """)
+            
+            # Index for querying reviews by batch
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_auto_reviews_batch 
+                ON auto_reviews(batch_id)
+            """)
+            
+            # Index for querying reviews by agent
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_auto_reviews_agent 
+                ON auto_reviews(agent_id)
+            """)
+            
             conn.commit()
             _initialized = True
             
@@ -380,7 +415,7 @@ def get_db_stats() -> dict:
     tables = [
         "failure_modes", "notes", "saturation_log", "reviewed_threads",
         "agents", "agent_dimensions", "agent_versions", 
-        "synthetic_batches", "synthetic_queries"
+        "synthetic_batches", "synthetic_queries", "auto_reviews"
     ]
     
     for table in tables:

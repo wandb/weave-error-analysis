@@ -1057,10 +1057,21 @@ class AutoReviewer:
 4. Confidence indicators
 
 **Deliverables:**
-- [ ] FAILS library integration
-- [ ] AGENT_INFO context builder
-- [ ] Auto-review endpoint
-- [ ] Results display UI
+- [x] FAILS library integration (`backend/services/auto_reviewer.py`)
+- [x] AGENT_INFO context builder (`AutoReviewer._build_user_context()`)
+- [x] Auto-review endpoints (`POST /api/synthetic/batches/{id}/auto-review`, `GET /api/synthetic/batches/{id}/reviews`)
+- [x] Results display UI (Auto Review panel in RunsTab)
+
+**Implementation Notes:**
+- Created `AutoReviewer` class that integrates with the FAILS categorization pipeline
+- The reviewer builds context from AGENT_INFO (purpose, capabilities, limitations, success criteria) to help the LLM understand agent behavior
+- Converts batch execution traces to FAILS-compatible format with inputs, outputs, and scores
+- Runs the full FAILS pipeline: draft categorization → clustering → final classification
+- Stores results in `auto_reviews` table with failure categories and per-trace classifications
+- Generates markdown report summarizing findings
+- Frontend shows "Run Auto Review" button on completed batches
+- Results display collapsible failure categories with trace counts and example traces
+- Full markdown report can be viewed and copied to clipboard
 
 ---
 

@@ -1035,3 +1035,208 @@ async def execute_synthetic_batch_sync(batch_id: str, request: ExecuteBatchReque
     else:
         return {"status": "error", "message": "Execution produced no results"}
 
+
+# =============================================================================
+# Phase 5: Automated Review Endpoints
+# =============================================================================
+
+from services.auto_reviewer import (
+    AutoReviewer,
+    AutoReviewResult,
+    AutoReviewStatus,
+    get_auto_review,
+    get_batch_reviews,
+    get_latest_batch_review,
+    delete_auto_review,
+    run_auto_review,
+)
+
+
+class AutoReviewRequest(BaseModel):
+    """Request to run an automated review."""
+    model: str = "openai/gpt-4o-mini"
+    max_concurrent_llm_calls: int = 10
+
+
+class AutoReviewResponse(BaseModel):
+    """Response containing review results."""
+    id: str
+    batch_id: str
+    agent_id: str
+    status: str
+    model_used: str
+    failure_categories: List[Dict[str, Any]]
+    classifications: List[Dict[str, Any]]
+    report_markdown: Optional[str] = None
+    total_traces: int
+    created_at: str
+    completed_at: Optional[str] = None
+    error_message: Optional[str] = None
+
+
+@router.post("/synthetic/batches/{batch_id}/auto-review")
+async def run_batch_auto_review(batch_id: str, request: AutoReviewRequest = None) -> AutoReviewResponse:
+    """
+    Trigger automated review of a completed batch.
+    
+    This uses the FAILS pipeline to analyze batch traces and categorize
+    potential issues or patterns. The review uses AGENT_INFO context
+    to understand what the agent should be doing.
+    
+    Args:
+        batch_id: The batch to review
+        request: Review configuration (model, concurrency)
+        
+    Returns:
+        AutoReviewResponse with failure categories and classifications
+    """
+    if request is None:
+        request = AutoReviewRequest()
+    
+    # Get batch and verify it's completed
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT sb.*, a.id as agent_id
+            FROM synthetic_batches sb
+            JOIN agents a ON sb.agent_id = a.id
+            WHERE sb.id = ?
+        """, (batch_id,))
+        row = cursor.fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Batch not found")
+        
+        if row["status"] not in ("completed", "ready"):
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Batch must be completed to run auto-review. Current status: {row['status']}"
+            )
+        
+        agent_id = row["agent_id"]
+    
+    try:
+        # Run the automated review
+        result = await run_auto_review(
+            agent_id=agent_id,
+            batch_id=batch_id,
+            model=request.model,
+            max_concurrent_llm_calls=request.max_concurrent_llm_calls
+        )
+        
+        return AutoReviewResponse(
+            id=result.id,
+            batch_id=result.batch_id,
+            agent_id=result.agent_id,
+            status=result.status.value,
+            model_used=result.model_used,
+            failure_categories=[fc.model_dump() for fc in result.failure_categories],
+            classifications=[c.model_dump() for c in result.classifications],
+            report_markdown=result.report_markdown,
+            total_traces=result.total_traces,
+            created_at=result.created_at,
+            completed_at=result.completed_at,
+            error_message=result.error_message
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Auto-review failed: {str(e)}")
+
+
+@router.get("/synthetic/batches/{batch_id}/reviews")
+async def list_batch_reviews(batch_id: str) -> List[AutoReviewResponse]:
+    """
+    Get all auto-reviews for a batch.
+    
+    Returns reviews in reverse chronological order (newest first).
+    """
+    # Verify batch exists
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM synthetic_batches WHERE id = ?", (batch_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Batch not found")
+    
+    reviews = get_batch_reviews(batch_id)
+    
+    return [
+        AutoReviewResponse(
+            id=r["id"],
+            batch_id=r["batch_id"],
+            agent_id=r["agent_id"],
+            status=r["status"],
+            model_used=r.get("model_used", "unknown"),
+            failure_categories=r.get("failure_categories", []),
+            classifications=r.get("classifications", []),
+            report_markdown=r.get("report_markdown"),
+            total_traces=len(r.get("classifications", [])),
+            created_at=r["created_at"],
+            completed_at=r.get("completed_at"),
+            error_message=r.get("error_message")
+        )
+        for r in reviews
+    ]
+
+
+@router.get("/synthetic/batches/{batch_id}/reviews/latest")
+async def get_latest_review(batch_id: str) -> AutoReviewResponse:
+    """
+    Get the most recent auto-review for a batch.
+    """
+    review = get_latest_batch_review(batch_id)
+    
+    if not review:
+        raise HTTPException(status_code=404, detail="No reviews found for this batch")
+    
+    return AutoReviewResponse(
+        id=review["id"],
+        batch_id=review["batch_id"],
+        agent_id=review["agent_id"],
+        status=review["status"],
+        model_used=review.get("model_used", "unknown"),
+        failure_categories=review.get("failure_categories", []),
+        classifications=review.get("classifications", []),
+        report_markdown=review.get("report_markdown"),
+        total_traces=len(review.get("classifications", [])),
+        created_at=review["created_at"],
+        completed_at=review.get("completed_at"),
+        error_message=review.get("error_message")
+    )
+
+
+@router.get("/synthetic/reviews/{review_id}")
+async def get_review_by_id(review_id: str) -> AutoReviewResponse:
+    """
+    Get a specific auto-review by ID.
+    """
+    review = get_auto_review(review_id)
+    
+    if not review:
+        raise HTTPException(status_code=404, detail="Review not found")
+    
+    return AutoReviewResponse(
+        id=review["id"],
+        batch_id=review["batch_id"],
+        agent_id=review["agent_id"],
+        status=review["status"],
+        model_used=review.get("model_used", "unknown"),
+        failure_categories=review.get("failure_categories", []),
+        classifications=review.get("classifications", []),
+        report_markdown=review.get("report_markdown"),
+        total_traces=len(review.get("classifications", [])),
+        created_at=review["created_at"],
+        completed_at=review.get("completed_at"),
+        error_message=review.get("error_message")
+    )
+
+
+@router.delete("/synthetic/reviews/{review_id}")
+async def delete_review(review_id: str):
+    """
+    Delete an auto-review.
+    """
+    if not delete_auto_review(review_id):
+        raise HTTPException(status_code=404, detail="Review not found")
+    
+    return {"status": "deleted", "review_id": review_id}
+

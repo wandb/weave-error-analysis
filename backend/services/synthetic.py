@@ -11,7 +11,7 @@ import json
 import uuid
 import itertools
 import random
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, AsyncGenerator
 from datetime import datetime
 from pydantic import BaseModel
 
@@ -444,6 +444,111 @@ Return ONLY the user message, nothing else. No quotes around it."""
             created_at=now,
             queries=queries
         )
+
+    async def generate_batch_streaming(
+        self,
+        n: int = 20,
+        name: Optional[str] = None,
+        strategy: str = "llm_guided",
+        focus_areas: Optional[List[str]] = None
+    ) -> AsyncGenerator[Dict, None]:
+        """
+        Generate a batch of synthetic queries with streaming progress.
+        
+        Yields progress events as queries are generated, allowing real-time UI updates.
+        
+        Yields:
+            Dict events:
+                - {"type": "batch_started", "batch_id": str, "name": str, "total": int}
+                - {"type": "tuple_generated", "index": int, "total": int, "tuple": dict}
+                - {"type": "query_generated", "index": int, "total": int, "query": dict}
+                - {"type": "batch_complete", "batch_id": str, "query_count": int}
+        """
+        import asyncio
+        
+        batch_id = f"batch_{uuid.uuid4().hex[:12]}"
+        now = datetime.utcnow().isoformat()
+        
+        if not name:
+            name = f"Batch {now[:10]}"
+        
+        # Emit batch started event
+        yield {
+            "type": "batch_started",
+            "batch_id": batch_id,
+            "name": name,
+            "total": n,
+            "timestamp": now
+        }
+        
+        # Generate tuples first (relatively fast)
+        if strategy == "llm_guided":
+            tuples = await self.generate_tuples_llm_guided(n, focus_areas)
+        else:
+            tuples = self.generate_tuples_cross_product(max_tuples=n)
+        
+        total = len(tuples)
+        
+        # Emit tuple generation complete
+        yield {
+            "type": "tuples_generated",
+            "count": total,
+            "tuples": [{"id": t.id, "values": t.values} for t in tuples]
+        }
+        
+        # Generate queries one by one with progress
+        queries = []
+        
+        for i, t in enumerate(tuples):
+            try:
+                query_text = await self.tuple_to_query(t)
+                query = SyntheticQuery(
+                    id=f"query_{uuid.uuid4().hex[:12]}",
+                    tuple_id=t.id,
+                    dimension_values=t.values,
+                    query_text=query_text,
+                    batch_id=batch_id,
+                    created_at=now
+                )
+                queries.append(query)
+                
+                # Emit query generated event
+                yield {
+                    "type": "query_generated",
+                    "index": i,
+                    "completed": i + 1,
+                    "total": total,
+                    "progress_percent": round(((i + 1) / total) * 100, 1),
+                    "query": {
+                        "id": query.id,
+                        "tuple_values": query.dimension_values,
+                        "query_text": query.query_text
+                    }
+                }
+            except Exception as e:
+                # Emit error but continue
+                yield {
+                    "type": "query_error",
+                    "index": i,
+                    "error": str(e),
+                    "tuple": t.values
+                }
+        
+        # Emit batch complete event
+        yield {
+            "type": "batch_complete",
+            "batch_id": batch_id,
+            "name": name,
+            "query_count": len(queries),
+            "queries": [
+                {
+                    "id": q.id,
+                    "tuple_values": q.dimension_values,
+                    "query_text": q.query_text
+                }
+                for q in queries
+            ]
+        }
 
 
 # Utility functions for dimension manipulation

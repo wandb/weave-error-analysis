@@ -695,10 +695,299 @@ CREATE TABLE batch_queries (
 4. Trace linking display
 
 **Deliverables:**
-- [ ] Batch execution service
-- [ ] Trace-to-batch linking
-- [ ] Execution progress API
-- [ ] Frontend execution UI
+- [x] Batch execution service (`backend/services/batch_executor.py`)
+- [x] Trace-to-batch linking (trace_id stored in synthetic_queries)
+- [x] Execution progress API (`POST /api/synthetic/batches/{id}/execute`, `GET /api/synthetic/batches/{id}/status`)
+- [x] Frontend execution UI (run button, progress bar, execution status per query)
+
+**Implementation Notes:**
+- Created `BatchExecutor` class that orchestrates running synthetic queries through agents via AG-UI
+- Execution streams progress via SSE to frontend for real-time updates
+- Each query's execution status, response, and trace_id are stored in the database
+- Frontend shows "Run Batch" button for pending batches, progress bar during execution
+- Query preview shows execution status badges (success/error), response text, and trace links
+- Added reset functionality to re-run all or only failed queries
+
+---
+
+### Phase 4.1: UX Improvement & Consolidation
+**Goal**: Improve user experience by separating concerns and reducing duplication.
+
+**Current UX Problems:**
+1. **Mixed Responsibilities**: Synthetic tab handles data generation, execution, AND reviewing
+2. **Duplicate Views**: Query Preview with responses is similar to Sessions conversation view
+3. **No Clear Progress**: Batch execution needs better progress indication
+4. **Disconnected Workflow**: Hard to connect synthetic runs to note-taking in Sessions
+
+**Proposed Tab Structure:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         IMPROVED TAB STRUCTURE                               │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  [Sessions]     [Taxonomy]     [Agents]     [Synthetic]     [Runs]          │
+│      │              │             │              │             │             │
+│      │              │             │              │             │             │
+│      ▼              ▼             ▼              ▼             ▼             │
+│  Review &       Failure       Agent         Data          Batch             │
+│  Notes          Modes         Registry      Generation    Execution         │
+│                                                                              │
+│  • All traces   • Categories  • Connections • Dimensions  • Run batches     │
+│  • Add notes    • Saturation  • Playground  • Generate    • Progress bar    │
+│  • Feedback     • Export      • AGENT_INFO  • Edit/Delete • Results         │
+│  • Mark review  • Copy        • Test        • Batches     • Re-run failed   │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key UX Changes:**
+
+1. **Synthetic Tab** - Pure Data Generation:
+   ```
+   ┌─────────────────────────────────────────────────────────────────────────┐
+   │                    SYNTHETIC TAB (Data Building Only)                   │
+   ├─────────────────────────────────────────────────────────────────────────┤
+   │                                                                          │
+   │  ┌─────────────────┐  ┌────────────────────┐  ┌──────────────────────┐  │
+   │  │  Select Agent   │  │ Generate Batch     │  │   Query Preview      │  │
+   │  │                 │  │                    │  │                      │  │
+   │  │  • Agent list   │  │  • Dimensions      │  │  • View queries      │  │
+   │  │  • Connection   │  │  • Count/Strategy  │  │  • Edit queries      │  │
+   │  │    status       │  │  • Generate button │  │  • Delete queries    │  │
+   │  │                 │  │                    │  │  • Select all        │  │
+   │  │                 │  │  Generated Batches │  │                      │  │
+   │  │                 │  │  • List (no run)   │  │  NO execution        │  │
+   │  │                 │  │  • Quick actions   │  │  NO responses        │  │
+   │  └─────────────────┘  └────────────────────┘  └──────────────────────┘  │
+   │                                                                          │
+   └─────────────────────────────────────────────────────────────────────────┘
+   ```
+
+2. **NEW Runs Tab** - Batch Execution:
+   ```
+   ┌─────────────────────────────────────────────────────────────────────────┐
+   │                    RUNS TAB (Execution & Monitoring)                    │
+   ├─────────────────────────────────────────────────────────────────────────┤
+   │                                                                          │
+   │  ┌─────────────────────────────────────────────────────────────────────┐│
+   │  │                    Pending Runs                                      ││
+   │  │  ┌─────────────────────────────────────────────────────────────┐    ││
+   │  │  │ Batch 12/3/2025  │ 20 queries │ ready │ [▶ Run] [⟳ Re-gen] │    ││
+   │  │  └─────────────────────────────────────────────────────────────┘    ││
+   │  └─────────────────────────────────────────────────────────────────────┘│
+   │                                                                          │
+   │  ┌─────────────────────────────────────────────────────────────────────┐│
+   │  │                    Active Execution                                  ││
+   │  │  ┌─────────────────────────────────────────────────────────────┐    ││
+   │  │  │ 🔄 Executing: Batch 12/2/2025                               │    ││
+   │  │  │ ▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░░░ 45%  (9/20)                 │    ││
+   │  │  │ ✓ 8 success  ✗ 1 failed  ⏱ ~2 min remaining                │    ││
+   │  │  │                                                             │    ││
+   │  │  │ Current: "I've been using your service..."                  │    ││
+   │  │  └─────────────────────────────────────────────────────────────┘    ││
+   │  └─────────────────────────────────────────────────────────────────────┘│
+   │                                                                          │
+   │  ┌─────────────────────────────────────────────────────────────────────┐│
+   │  │                    Completed Runs                                    ││
+   │  │  ┌─────────────────────────────────────────────────────────────┐    ││
+   │  │  │ Batch 12/1/2025 │ 18/20 success │ completed │ [📝 Review]  │    ││
+   │  │  │ Batch 11/30/25  │ 15/15 success │ completed │ [📝 Review]  │    ││
+   │  │  └─────────────────────────────────────────────────────────────┘    ││
+   │  └─────────────────────────────────────────────────────────────────────┘│
+   │                                                                          │
+   └─────────────────────────────────────────────────────────────────────────┘
+   ```
+
+3. **Enhanced Sessions Tab** - Unified Review:
+   - After batch execution, traces appear in Sessions automatically (via Weave)
+   - Sessions can filter by batch_id to show batch-specific traces
+   - Note-taking and feedback work as before
+   - Link to Taxonomy for categorization
+
+**Implementation Changes:**
+
+**Frontend:**
+1. Create new "Runs" tab component
+2. Move execution controls from Synthetic to Runs
+3. Remove response display from Synthetic Query Preview
+4. Add prominent progress bar to Runs tab
+5. Add "View in Sessions" link from completed runs
+
+**Backend:**
+1. Add `GET /api/batches?status=pending|running|completed` for Runs tab
+2. Add batch_id filter to Sessions/threads endpoint
+3. Ensure trace_id linking enables Sessions → Batch correlation
+
+**Data Flow:**
+```
+Synthetic (Create) → Runs (Execute) → Sessions (Review) → Taxonomy (Categorize)
+        │                  │                  │                    │
+        │                  │                  │                    │
+        ▼                  ▼                  ▼                    ▼
+   Batches DB         Progress SSE      Weave Traces        Failure Modes
+```
+
+**Deliverables:**
+- [x] Create Runs tab with pending/active/completed sections
+- [x] Add prominent progress bar with ETA during execution
+- [x] Move execution controls from Synthetic to Runs
+- [x] Remove response display from Synthetic Query Preview
+- [x] Add "View in Sessions" navigation from completed runs
+- [ ] Add batch filter to Sessions tab (deferred to Phase 5)
+
+**Implementation Notes:**
+- Created new "Runs" tab with coral theme color
+- Runs tab shows: Select Agent, Pending Runs, Completed Runs, Run Results panels
+- Active execution shows large progress bar with current query, success/failure counts
+- Synthetic tab now shows "Go to Runs →" link for pending batches
+- Query Preview in Synthetic shows only query text (no responses/execution status)
+- Run Results panel shows query with response, error, and trace ID
+
+---
+
+### Phase 4.2: Streaming Progress & Async Optimization
+**Goal**: Improve feedback during long-running operations with streaming progress and async-first execution.
+
+**Current UX Problems:**
+1. **No Generation Progress**: When generating synthetic queries, only a spinning emoji is shown
+2. **Batch Loading**: Query preview area waits until all queries are generated before showing any
+3. **No Execution Progress**: When running batches, progress isn't visible until completion
+4. **Sync Blocking**: Operations that could be async are blocking the UI
+5. **Disconnected Batch-Session Link**: "View in Sessions" doesn't filter to the batch
+
+**Key Improvements:**
+
+1. **Streaming Synthetic Data Generation:**
+   ```
+   ┌─────────────────────────────────────────────────────────────────────────┐
+   │                    GENERATION PROGRESS                                   │
+   ├─────────────────────────────────────────────────────────────────────────┤
+   │                                                                          │
+   │  Generating 20 queries...                                                │
+   │  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░░░ 45%  (9/20)                            │
+   │                                                                          │
+   │  ✓ Generated: "I've been using your service for a while..."             │
+   │  ✓ Generated: "What's the pricing for enterprise?"                       │
+   │  ⏳ Generating next query...                                              │
+   │                                                                          │
+   └─────────────────────────────────────────────────────────────────────────┘
+   ```
+
+2. **Real-time Query Preview Population:**
+   - As each query is generated, immediately add it to the preview
+   - User sees queries appearing one by one
+   - Can start reviewing while generation continues
+
+3. **Batch Execution Progress:**
+   ```
+   ┌─────────────────────────────────────────────────────────────────────────┐
+   │                    EXECUTION PROGRESS                                    │
+   ├─────────────────────────────────────────────────────────────────────────┤
+   │                                                                          │
+   │  🔄 Running batch against TaskFlow Support Agent                         │
+   │  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░░░░░░░░░░░░░░░ 45%  (9/20)                            │
+   │                                                                          │
+   │  ✓ 8 success  ✗ 1 failed  ⏱ ~2 min remaining                            │
+   │                                                                          │
+   │  Current: "I'm frustrated with your billing..."                          │
+   │  Last Response: "I understand your frustration. Let me help..."         │
+   │                                                                          │
+   └─────────────────────────────────────────────────────────────────────────┘
+   ```
+
+4. **Batch-Filtered Sessions:**
+   - "View in Sessions" passes batch_id as filter parameter
+   - Sessions tab shows: "Filtered by: Batch 12/3/2025 [Clear Filter]"
+   - Only traces linked to that batch are displayed
+
+**Backend Changes:**
+
+1. **Streaming Generation Endpoint:**
+   ```python
+   # POST /api/synthetic/batches/generate-stream
+   # Returns SSE stream of generation progress
+   
+   async def generate_batch_stream(request: GenerateBatchRequest):
+       async def event_generator():
+           for i, query in enumerate(generate_queries(request)):
+               yield f"data: {json.dumps({
+                   'type': 'query_generated',
+                   'query': query.dict(),
+                   'progress': (i + 1) / request.count,
+                   'completed': i + 1,
+                   'total': request.count
+               })}\n\n"
+           yield f"data: {json.dumps({'type': 'complete', 'batch_id': batch_id})}\n\n"
+       
+       return StreamingResponse(event_generator(), media_type="text/event-stream")
+   ```
+
+2. **Streaming Execution Endpoint (already exists, enhance):**
+   - Add current query text to progress events
+   - Add last response snippet to progress events
+   - Add ETA calculation based on average query time
+
+3. **Batch Filter for Sessions:**
+   ```python
+   # GET /api/threads?batch_id=xxx
+   # Filter threads by linked batch
+   ```
+
+**Frontend Changes:**
+
+1. **SyntheticTab - Generation Progress:**
+   - Add progress bar component
+   - Stream queries into preview as they're generated
+   - Show generation status with current query count
+
+2. **RunsTab - Execution Progress:**
+   - Enhanced progress bar with ETA
+   - Show current query being processed
+   - Show last response snippet
+   - Real-time success/failure counts
+
+3. **Sessions - Batch Filter:**
+   - Accept `batch_id` URL parameter or state
+   - Show filter indicator when batch filter active
+   - "Clear Filter" button to remove
+
+**Async-First Architecture:**
+```python
+# Agent execution with async preference
+async def execute_query(agent_client, query):
+    try:
+        # Try async first
+        result = await agent_client.run_async(query)
+    except NotImplementedError:
+        # Fallback to sync in thread pool
+        result = await asyncio.to_thread(agent_client.run_sync, query)
+    return result
+```
+
+**Optimizations:**
+1. **Parallel Query Generation**: Generate multiple tuples concurrently
+2. **Connection Pooling**: Reuse agent connections across queries
+3. **Batch Database Writes**: Buffer and batch-insert queries
+4. **Incremental UI Updates**: Use React's `useTransition` for non-blocking updates
+
+**Deliverables:**
+- [x] Streaming generation endpoint with SSE progress (`POST /api/synthetic/batches/generate-stream`)
+- [x] Real-time query preview population during generation
+- [x] Enhanced execution progress with ETA and current query
+- [x] Batch filter for Sessions tab (`GET /api/threads?batch_id=xxx`)
+- [ ] Async-first execution with sync fallback (deferred)
+- [ ] Performance optimizations (parallel generation, connection pooling) (deferred)
+
+**Implementation Notes:**
+- Backend: Created `generate_batch_streaming()` async generator in `SyntheticGenerator`
+- Backend: Added `/api/synthetic/batches/generate-stream` SSE endpoint
+- Backend: Added `batch_id` filter parameter to `/api/threads` endpoint
+- Frontend: `generateBatch()` now uses streaming, updates `selectedBatch.queries` in real-time
+- Frontend: Progress bar shows during generation with completed/total count
+- Frontend: "View in Sessions" button sets batch filter and switches to Sessions tab
+- Frontend: Sessions tab shows batch filter indicator with "Clear Filter" button
+- Frontend: Execution progress shows ETA based on average query time
 
 ---
 

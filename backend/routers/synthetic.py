@@ -13,6 +13,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from database import get_db
@@ -66,6 +67,10 @@ class QueryResponse(BaseModel):
     id: str
     tuple_values: Dict[str, str]
     query_text: str
+    execution_status: Optional[str] = None
+    response_text: Optional[str] = None
+    trace_id: Optional[str] = None
+    error_message: Optional[str] = None
 
 
 class BatchCreateRequest(BaseModel):
@@ -545,6 +550,100 @@ async def create_batch(request: BatchCreateRequest) -> BatchResponse:
     )
 
 
+@router.post("/synthetic/batches/generate-stream")
+async def create_batch_streaming(request: BatchCreateRequest):
+    """
+    Create a new synthetic query batch with streaming progress.
+    
+    Returns an SSE stream of generation events, allowing the frontend to show
+    real-time progress and populate queries as they're generated.
+    
+    Events:
+    - batch_started: Generation has begun
+    - tuples_generated: All tuples are ready
+    - query_generated: A single query has been generated
+    - query_error: A query failed to generate
+    - batch_complete: All queries are done
+    """
+    from services.synthetic import SyntheticGenerator
+    
+    agent_info = await get_agent_info_for_generation(request.agent_id)
+    
+    if not agent_info.testing_dimensions:
+        raise HTTPException(
+            status_code=400,
+            detail="No testing dimensions defined. Import from AGENT_INFO first."
+        )
+    
+    generator = SyntheticGenerator(agent_info)
+    
+    async def event_stream():
+        batch_id = None
+        queries = []
+        
+        try:
+            async for event in generator.generate_batch_streaming(
+                n=request.count,
+                name=request.name,
+                strategy=request.strategy,
+                focus_areas=request.focus_areas
+            ):
+                if event["type"] == "batch_started":
+                    batch_id = event["batch_id"]
+                
+                elif event["type"] == "query_generated":
+                    # Track queries for database save
+                    queries.append(event["query"])
+                
+                elif event["type"] == "batch_complete":
+                    # Save everything to database
+                    with get_db() as conn:
+                        cursor = conn.cursor()
+                        
+                        # Save batch
+                        cursor.execute("""
+                            INSERT INTO synthetic_batches (id, agent_id, name, status, query_count, generation_strategy, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            event["batch_id"],
+                            request.agent_id,
+                            event["name"],
+                            "ready",
+                            event["query_count"],
+                            request.strategy,
+                            now_iso()
+                        ))
+                        
+                        # Save queries
+                        for query in event["queries"]:
+                            cursor.execute("""
+                                INSERT INTO synthetic_queries (id, batch_id, dimension_tuple, query_text, execution_status)
+                                VALUES (?, ?, ?, ?, ?)
+                            """, (
+                                query["id"],
+                                event["batch_id"],
+                                json.dumps(query["tuple_values"]),
+                                query["query_text"],
+                                "pending"
+                            ))
+                
+                # Yield event as SSE
+                yield f"data: {json.dumps(event)}\n\n"
+        
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
 @router.get("/synthetic/batches")
 async def list_batches(agent_id: Optional[str] = None) -> List[BatchResponse]:
     """List all synthetic batches, optionally filtered by agent."""
@@ -598,7 +697,11 @@ async def get_batch(batch_id: str, include_queries: bool = True) -> BatchRespons
                 QueryResponse(
                     id=row["id"],
                     tuple_values=json.loads(row["dimension_tuple"]) if row["dimension_tuple"] else {},
-                    query_text=row["query_text"]
+                    query_text=row["query_text"],
+                    execution_status=row["execution_status"],
+                    response_text=row["response_text"],
+                    trace_id=row["trace_id"],
+                    error_message=row["error_message"]
                 )
                 for row in query_rows
             ]
@@ -763,4 +866,172 @@ async def delete_queries_bulk(request: BulkDeleteRequest):
             """, (batch_id, batch_id))
     
     return {"status": "deleted", "deleted_count": deleted_count, "batch_ids": batch_ids}
+
+
+# =============================================================================
+# Phase 4: Batch Execution Endpoints
+# =============================================================================
+
+from fastapi.responses import StreamingResponse
+from services.batch_executor import (
+    BatchExecutor,
+    execute_batch,
+    get_batch_execution_status,
+    get_batch_traces,
+    reset_batch_queries
+)
+
+
+class ExecuteBatchRequest(BaseModel):
+    timeout_per_query: float = 60.0
+
+
+@router.post("/synthetic/batches/{batch_id}/execute")
+async def execute_synthetic_batch(batch_id: str, request: ExecuteBatchRequest = None):
+    """
+    Execute a batch of synthetic queries against the connected agent.
+    
+    This endpoint streams progress updates via Server-Sent Events (SSE).
+    """
+    if request is None:
+        request = ExecuteBatchRequest()
+    
+    # Get batch and agent info
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT sb.*, a.endpoint_url
+            FROM synthetic_batches sb
+            JOIN agents a ON sb.agent_id = a.id
+            WHERE sb.id = ?
+        """, (batch_id,))
+        row = cursor.fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Batch not found")
+        
+        batch_data = dict(row)
+    
+    agent_endpoint = batch_data["endpoint_url"]
+    
+    async def event_generator():
+        """Generate SSE events for batch execution progress."""
+        try:
+            async for progress in execute_batch(
+                agent_endpoint=agent_endpoint,
+                batch_id=batch_id,
+                timeout_per_query=request.timeout_per_query
+            ):
+                yield f"data: {progress.model_dump_json()}\n\n"
+        except Exception as e:
+            error_data = json.dumps({
+                "batch_id": batch_id,
+                "status": "error",
+                "error": str(e)
+            })
+            yield f"data: {error_data}\n\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"  # Disable nginx buffering
+        }
+    )
+
+
+@router.get("/synthetic/batches/{batch_id}/status")
+async def get_batch_status(batch_id: str):
+    """
+    Get the current execution status of a batch.
+    
+    Returns detailed status including per-query results.
+    """
+    status = get_batch_execution_status(batch_id)
+    
+    if "error" in status:
+        raise HTTPException(status_code=404, detail=status["error"])
+    
+    return status
+
+
+@router.get("/synthetic/batches/{batch_id}/traces")
+async def get_batch_traces_endpoint(batch_id: str):
+    """
+    Get all traces linked to a batch.
+    
+    Returns queries that have been executed with their trace IDs.
+    """
+    traces = get_batch_traces(batch_id)
+    return {"batch_id": batch_id, "traces": traces, "count": len(traces)}
+
+
+@router.post("/synthetic/batches/{batch_id}/reset")
+async def reset_batch(batch_id: str, only_failed: bool = False):
+    """
+    Reset batch queries to allow re-execution.
+    
+    Args:
+        only_failed: If true, only reset failed queries. Otherwise reset all.
+    """
+    # Verify batch exists
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM synthetic_batches WHERE id = ?", (batch_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Batch not found")
+    
+    reset_batch_queries(batch_id, only_failed=only_failed)
+    
+    return {
+        "status": "reset",
+        "batch_id": batch_id,
+        "only_failed": only_failed
+    }
+
+
+@router.post("/synthetic/batches/{batch_id}/execute-sync")
+async def execute_synthetic_batch_sync(batch_id: str, request: ExecuteBatchRequest = None):
+    """
+    Execute a batch synchronously (non-streaming).
+    
+    Returns final status when execution is complete.
+    Useful for programmatic access or testing.
+    """
+    if request is None:
+        request = ExecuteBatchRequest()
+    
+    # Get batch and agent info
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT sb.*, a.endpoint_url
+            FROM synthetic_batches sb
+            JOIN agents a ON sb.agent_id = a.id
+            WHERE sb.id = ?
+        """, (batch_id,))
+        row = cursor.fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Batch not found")
+        
+        batch_data = dict(row)
+    
+    agent_endpoint = batch_data["endpoint_url"]
+    
+    # Execute and collect final result
+    final_progress = None
+    async for progress in execute_batch(
+        agent_endpoint=agent_endpoint,
+        batch_id=batch_id,
+        timeout_per_query=request.timeout_per_query
+    ):
+        final_progress = progress
+    
+    if final_progress:
+        return final_progress.model_dump()
+    else:
+        return {"status": "error", "message": "Execution produced no results"}
 

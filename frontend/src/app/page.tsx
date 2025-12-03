@@ -216,7 +216,7 @@ interface AISuggestion {
   };
 }
 
-type TabType = "sessions" | "taxonomy" | "agents";
+type TabType = "sessions" | "taxonomy" | "agents" | "synthetic" | "runs";
 
 // ============================================================================
 // Main Component
@@ -239,6 +239,8 @@ export default function Home() {
   const [filterMinTurns, setFilterMinTurns] = useState<number | null>(null);
   const [filterReviewed, setFilterReviewed] = useState<boolean | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [filterBatchId, setFilterBatchId] = useState<string | null>(null);
+  const [filterBatchName, setFilterBatchName] = useState<string | null>(null);
   
   // Annotation state
   const [annotationProgress, setAnnotationProgress] = useState<AnnotationProgress | null>(null);
@@ -315,19 +317,45 @@ export default function Home() {
   const [selectedBatch, setSelectedBatch] = useState<{
     id: string;
     name: string;
+    status?: string;
     queries: Array<{
       id: string;
       tuple_values: Record<string, string>;
       query_text: string;
+      execution_status?: string;
+      response_text?: string;
+      trace_id?: string;
+      error_message?: string;
     }>;
   } | null>(null);
   const [generatingBatch, setGeneratingBatch] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState<{
+    total: number;
+    completed: number;
+    percent: number;
+    currentQuery?: string;
+  } | null>(null);
   const [batchSize, setBatchSize] = useState(20);
   const [selectedQueryIds, setSelectedQueryIds] = useState<Set<string>>(new Set());
   const [editingQueryId, setEditingQueryId] = useState<string | null>(null);
   const [editingQueryText, setEditingQueryText] = useState("");
   const [batchStrategy, setBatchStrategy] = useState<"cross_product" | "llm_guided">("cross_product");
   const [showSyntheticPanel, setShowSyntheticPanel] = useState(false);
+  
+  // Batch execution state
+  const [executingBatch, setExecutingBatch] = useState(false);
+  const [executionProgress, setExecutionProgress] = useState<{
+    batch_id: string;
+    status: string;
+    total_queries: number;
+    completed_queries: number;
+    success_count: number;
+    failure_count: number;
+    progress_percent: number;
+    current_query_text?: string;
+    start_time?: number;  // For ETA calculation
+    last_response?: string;  // Last agent response snippet
+  } | null>(null);
 
   // ============================================================================
   // Copy Functions
@@ -424,6 +452,9 @@ ${notesList || "No notes"}`;
       if (filterReviewed !== null) {
         params.append("reviewed", filterReviewed.toString());
       }
+      if (filterBatchId !== null) {
+        params.append("batch_id", filterBatchId);
+      }
       
       const response = await fetch(`/api/threads?${params}`);
       const data = await response.json();
@@ -433,7 +464,7 @@ ${notesList || "No notes"}`;
     } finally {
       setLoading(false);
     }
-  }, [sortBy, sortDirection, filterMinTurns, filterReviewed]);
+  }, [sortBy, sortDirection, filterMinTurns, filterReviewed, filterBatchId]);
 
   const fetchRandomSample = async (size: number = 20) => {
     setLoading(true);
@@ -899,8 +930,21 @@ ${notesList || "No notes"}`;
 
   const generateBatch = async (agentId: string) => {
     setGeneratingBatch(true);
+    setGenerationProgress({ total: batchSize, completed: 0, percent: 0 });
+    
+    // Initialize an empty batch for streaming queries into
+    const streamingBatch: {
+      id: string;
+      name: string;
+      queries: Array<{ id: string; tuple_values: Record<string, string>; query_text: string }>;
+    } = {
+      id: "",
+      name: `Batch ${new Date().toLocaleDateString()}`,
+      queries: []
+    };
+    
     try {
-      const response = await fetch("/api/synthetic/batches", {
+      const response = await fetch("/api/synthetic/batches/generate-stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -910,17 +954,84 @@ ${notesList || "No notes"}`;
           strategy: batchStrategy
         })
       });
-      const data = await response.json();
-      if (data.id) {
-        await fetchBatches(agentId);
-        setSelectedBatch(data);
+      
+      if (!response.ok) {
+        throw new Error("Failed to generate batch");
       }
-      return data;
+      
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("No response body");
+      
+      const decoder = new TextDecoder();
+      let buffer = "";
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const event = JSON.parse(line.slice(6));
+              
+              if (event.type === "batch_started") {
+                streamingBatch.id = event.batch_id;
+                streamingBatch.name = event.name;
+                setSelectedBatch({
+                  id: event.batch_id,
+                  name: event.name,
+                  queries: []
+                });
+              }
+              
+              else if (event.type === "query_generated") {
+                // Add query to streaming batch
+                streamingBatch.queries.push(event.query);
+                
+                // Update progress
+                setGenerationProgress({
+                  total: event.total,
+                  completed: event.completed,
+                  percent: event.progress_percent,
+                  currentQuery: event.query.query_text.slice(0, 50) + "..."
+                });
+                
+                // Update selected batch with new query
+                setSelectedBatch(prev => prev ? {
+                  ...prev,
+                  queries: [...(prev.queries || []), event.query]
+                } : null);
+              }
+              
+              else if (event.type === "batch_complete") {
+                // Final update
+                await fetchBatches(agentId);
+                setSelectedBatch({
+                  id: event.batch_id,
+                  name: event.name,
+                  queries: event.queries
+                });
+              }
+              
+              else if (event.type === "error") {
+                console.error("Generation error:", event.message);
+              }
+            } catch (e) {
+              console.error("Error parsing SSE event:", e);
+            }
+          }
+        }
+      }
     } catch (error) {
       console.error("Error generating batch:", error);
       throw error;
     } finally {
       setGeneratingBatch(false);
+      setGenerationProgress(null);
     }
   };
 
@@ -933,6 +1044,72 @@ ${notesList || "No notes"}`;
       }
     } catch (error) {
       console.error("Error deleting batch:", error);
+    }
+  };
+
+  const executeBatch = async (batchId: string, agentId: string) => {
+    setExecutingBatch(true);
+    const startTime = Date.now();
+    setExecutionProgress(null);
+    
+    try {
+      const response = await fetch(`/api/synthetic/batches/${batchId}/execute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timeout_per_query: 60.0 })
+      });
+      
+      if (!response.body) {
+        throw new Error("No response body");
+      }
+      
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        const text = decoder.decode(value);
+        const lines = text.split("\n");
+        
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              // Add start time for ETA calculation
+              setExecutionProgress({
+                ...data,
+                start_time: startTime
+              });
+              
+              // If completed, refresh the batch data
+              if (data.status === "completed" || data.status === "failed" || data.status === "cancelled") {
+                await fetchBatches(agentId);
+                await fetchBatchDetail(batchId);
+              }
+            } catch {
+              // Ignore parse errors for incomplete chunks
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error("Error executing batch:", error);
+    } finally {
+      setExecutingBatch(false);
+    }
+  };
+
+  const resetBatch = async (batchId: string, agentId: string, onlyFailed: boolean = false) => {
+    try {
+      await fetch(`/api/synthetic/batches/${batchId}/reset?only_failed=${onlyFailed}`, {
+        method: "POST"
+      });
+      await fetchBatches(agentId);
+      await fetchBatchDetail(batchId);
+    } catch (error) {
+      console.error("Error resetting batch:", error);
     }
   };
 
@@ -1077,8 +1254,8 @@ ${notesList || "No notes"}`;
       fetchTaxonomy();
     } else if (activeTab === "agents") {
       fetchAgents();
-    } else if (activeTab === "synthetic") {
-      fetchAgents(); // Need agents list for synthetic tab
+    } else if (activeTab === "synthetic" || activeTab === "runs") {
+      fetchAgents(); // Need agents list for synthetic and runs tabs
     }
   }, [activeTab, fetchTaxonomy, fetchAgents]);
 
@@ -1225,6 +1402,28 @@ ${notesList || "No notes"}`;
 
   const SessionsTab = () => (
     <div className="space-y-4">
+      {/* Batch Filter Indicator */}
+      {filterBatchId && (
+        <div className="bg-accent-coral/10 border border-accent-coral/30 rounded-xl p-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-accent-coral" />
+            <span className="text-sm text-sand-200">
+              Filtered by batch: <strong className="text-accent-coral">{filterBatchName || filterBatchId}</strong>
+            </span>
+          </div>
+          <button
+            onClick={() => {
+              setFilterBatchId(null);
+              setFilterBatchName(null);
+            }}
+            className="text-xs text-ink-400 hover:text-sand-200 flex items-center gap-1"
+          >
+            <X className="w-3 h-3" />
+            Clear Filter
+          </button>
+        </div>
+      )}
+      
       {/* Annotation Progress Bar */}
       {annotationProgress && (
         <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-4">
@@ -2540,11 +2739,11 @@ ${notesList || "No notes"}`;
             </div>
 
             {/* Capabilities */}
-            {selectedAgent.capabilities.length > 0 && (
+            {selectedAgent.capabilities?.length > 0 && (
               <div className="mb-6">
                 <h3 className="text-sm font-medium text-ink-400 mb-2">Capabilities</h3>
                 <ul className="space-y-1">
-                  {selectedAgent.capabilities.map((cap, i) => (
+                  {selectedAgent.capabilities?.map((cap, i) => (
                     <li key={i} className="flex items-start gap-2 text-sm text-sand-300">
                       <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
                       {cap}
@@ -2555,11 +2754,11 @@ ${notesList || "No notes"}`;
             )}
 
             {/* Limitations */}
-            {selectedAgent.limitations.length > 0 && (
+            {selectedAgent.limitations?.length > 0 && (
               <div className="mb-6">
                 <h3 className="text-sm font-medium text-ink-400 mb-2">Limitations</h3>
                 <ul className="space-y-1">
-                  {selectedAgent.limitations.map((lim, i) => (
+                  {selectedAgent.limitations?.map((lim, i) => (
                     <li key={i} className="flex items-start gap-2 text-sm text-sand-300">
                       <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
                       {lim}
@@ -2570,11 +2769,11 @@ ${notesList || "No notes"}`;
             )}
 
             {/* Tools */}
-            {selectedAgent.tools.length > 0 && (
+            {selectedAgent.tools?.length > 0 && (
               <div className="mb-6">
-                <h3 className="text-sm font-medium text-ink-400 mb-2">Tools ({selectedAgent.tools.length})</h3>
+                <h3 className="text-sm font-medium text-ink-400 mb-2">Tools ({selectedAgent.tools?.length})</h3>
                 <div className="space-y-2">
-                  {selectedAgent.tools.map((tool, i) => (
+                  {selectedAgent.tools?.map((tool, i) => (
                     <div key={i} className="bg-ink-800/50 rounded-lg p-3">
                       <div className="flex items-center gap-2 mb-1">
                         <Wrench className="w-4 h-4 text-accent-plum" />
@@ -2588,21 +2787,21 @@ ${notesList || "No notes"}`;
             )}
 
             {/* Testing Dimensions */}
-            {selectedAgent.testing_dimensions.length > 0 && (
+            {selectedAgent.testing_dimensions?.length > 0 && (
               <div className="mb-6">
                 <h3 className="text-sm font-medium text-ink-400 mb-2">
-                  Testing Dimensions ({selectedAgent.testing_dimensions.length})
+                  Testing Dimensions ({selectedAgent.testing_dimensions?.length})
                 </h3>
                 <div className="space-y-3">
-                  {selectedAgent.testing_dimensions.map((dim, i) => (
+                  {selectedAgent.testing_dimensions?.map((dim, i) => (
                     <div key={i} className="bg-ink-800/50 rounded-lg p-3">
                       <div className="flex items-center gap-2 mb-2">
                         <Target className="w-4 h-4 text-accent-teal" />
                         <span className="font-medium text-sand-200">{dim.name}</span>
-                        <span className="text-xs text-ink-400">({dim.values.length} values)</span>
+                        <span className="text-xs text-ink-400">({dim.values?.length || 0} values)</span>
                       </div>
                       <div className="flex flex-wrap gap-1">
-                        {dim.values.map((val, j) => (
+                        {dim.values?.map((val, j) => (
                           <span key={j} className="badge badge-plum text-xs">
                             {val}
                           </span>
@@ -2615,11 +2814,11 @@ ${notesList || "No notes"}`;
             )}
 
             {/* Success Criteria */}
-            {selectedAgent.success_criteria.length > 0 && (
+            {selectedAgent.success_criteria?.length > 0 && (
               <div className="mb-6">
                 <h3 className="text-sm font-medium text-ink-400 mb-2">Success Criteria</h3>
                 <ol className="space-y-1 list-decimal list-inside">
-                  {selectedAgent.success_criteria.map((crit, i) => (
+                  {selectedAgent.success_criteria?.map((crit, i) => (
                     <li key={i} className="text-sm text-sand-300">{crit}</li>
                   ))}
                 </ol>
@@ -2823,7 +3022,7 @@ ${notesList || "No notes"}`;
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-sm font-medium text-sand-200 flex items-center gap-2">
                           {dim.name}
-                          <span className="text-xs text-ink-400">({dim.values.length})</span>
+                          <span className="text-xs text-ink-400">({dim.values?.length || 0})</span>
                         </span>
                         <div className="flex gap-1">
                           <button
@@ -2856,7 +3055,7 @@ ${notesList || "No notes"}`;
                         </div>
                       ) : (
                         <div className="flex flex-wrap gap-1">
-                          {dim.values.map((val, j) => (
+                          {dim.values?.map((val, j) => (
                             <span key={j} className="text-xs bg-ink-700 text-ink-300 px-2 py-1 rounded">
                               {val}
                             </span>
@@ -2916,6 +3115,34 @@ ${notesList || "No notes"}`;
                     </p>
                   </div>
 
+                  {/* Generation Progress */}
+                  {generatingBatch && generationProgress && (
+                    <div className="mb-4 p-4 bg-ink-800/50 rounded-lg border border-accent-amber/30">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-sand-200">
+                          Generating Queries
+                        </span>
+                        <span className="text-xs text-accent-amber">
+                          {generationProgress.completed} / {generationProgress.total}
+                        </span>
+                      </div>
+                      
+                      {/* Progress bar */}
+                      <div className="w-full bg-ink-700 rounded-full h-2 mb-2">
+                        <div
+                          className="bg-gradient-to-r from-accent-amber to-accent-gold h-2 rounded-full transition-all duration-300"
+                          style={{ width: `${generationProgress.percent}%` }}
+                        />
+                      </div>
+                      
+                      {generationProgress.currentQuery && (
+                        <p className="text-xs text-ink-400 truncate">
+                          Latest: &quot;{generationProgress.currentQuery}&quot;
+                        </p>
+                      )}
+                    </div>
+                  )}
+
                   <button
                     onClick={() => generateBatch(selectedAgent.id)}
                     disabled={generatingBatch || dimensions.length === 0}
@@ -2924,7 +3151,7 @@ ${notesList || "No notes"}`;
                     {generatingBatch ? (
                       <>
                         <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span>Generating...</span>
+                        <span>Generating {generationProgress?.completed || 0}/{batchSize}...</span>
                       </>
                     ) : (
                       <>
@@ -2955,40 +3182,79 @@ ${notesList || "No notes"}`;
                 {syntheticBatches.length > 0 ? (
                   <div className="space-y-2 max-h-[400px] overflow-y-auto">
                     {syntheticBatches.map((batch) => (
-                      <button
+                      <div
                         key={batch.id}
-                        onClick={async () => {
-                          await fetchBatchDetail(batch.id);
-                        }}
-                        className={`w-full text-left p-3 rounded-lg transition-all ${
+                        className={`p-3 rounded-lg transition-all ${
                           selectedBatch?.id === batch.id
                             ? "bg-accent-amber/20 border border-accent-amber/50"
                             : "bg-ink-800/50 hover:bg-ink-800 border border-transparent"
                         }`}
                       >
-                        <div className="flex items-center justify-between mb-1">
-                          <span className="text-sand-200 font-medium">{batch.name}</span>
-                          <span className="text-xs text-ink-400">{batch.query_count} queries</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-xs px-1.5 py-0.5 rounded ${
-                            batch.status === "ready" ? "bg-green-900/50 text-green-400" :
-                            batch.status === "running" ? "bg-amber-900/50 text-amber-400" :
-                            "bg-ink-700 text-ink-400"
-                          }`}>
-                            {batch.status}
-                          </span>
-                          <span className="text-xs text-ink-500">
-                            {formatRelativeTime(batch.created_at)}
-                          </span>
-                        </div>
-                      </button>
+                        <button
+                          onClick={async () => {
+                            await fetchBatchDetail(batch.id);
+                          }}
+                          className="w-full text-left"
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-sand-200 font-medium">{batch.name}</span>
+                            <span className="text-xs text-ink-400">{batch.query_count} queries</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-xs px-1.5 py-0.5 rounded ${
+                              batch.status === "completed" ? "bg-green-900/50 text-green-400" :
+                              batch.status === "running" ? "bg-amber-900/50 text-amber-400 animate-pulse" :
+                              batch.status === "ready" ? "bg-blue-900/50 text-blue-400" :
+                              batch.status === "failed" ? "bg-red-900/50 text-red-400" :
+                              "bg-ink-700 text-ink-400"
+                            }`}>
+                              {batch.status}
+                            </span>
+                            <span className="text-xs text-ink-500">
+                              {formatRelativeTime(batch.created_at)}
+                            </span>
+                          </div>
+                        </button>
+                        
+                        {/* Quick actions for selected batch */}
+                        {selectedBatch?.id === batch.id && (batch.status === "ready" || batch.status === "pending") && (
+                          <div className="mt-3 pt-3 border-t border-ink-700 flex items-center justify-between">
+                            <span className="text-xs text-ink-500">Ready to run</span>
+                            <button
+                              onClick={() => setActiveTab("runs")}
+                              className="text-xs text-accent-coral hover:underline flex items-center gap-1"
+                            >
+                              <Play className="w-3 h-3" />
+                              Go to Runs →
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     ))}
                   </div>
                 ) : (
                   <div className="text-center py-8 text-ink-400">
                     <ClipboardList className="w-8 h-8 mx-auto mb-2 opacity-50" />
                     <p className="text-sm">No batches generated yet.</p>
+                  </div>
+                )}
+                
+                {/* Execution Progress */}
+                {/* Show link to Runs tab if execution is happening */}
+                {executingBatch && (
+                  <div className="mt-4 p-4 bg-accent-coral/10 rounded-lg border border-accent-coral/30">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <RefreshCw className="w-4 h-4 text-accent-coral animate-spin" />
+                        <span className="text-sm text-sand-200">Batch execution in progress...</span>
+                      </div>
+                      <button
+                        onClick={() => setActiveTab("runs")}
+                        className="text-xs text-accent-coral hover:underline flex items-center gap-1"
+                      >
+                        View Progress →
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -3119,7 +3385,7 @@ ${notesList || "No notes"}`;
                       />
                       
                       <div className="flex-1">
-                        {/* Header with index and tags */}
+                        {/* Header with index and dimension tags */}
                         <div className="flex items-center gap-2 mb-2 flex-wrap">
                           <span className="text-xs text-ink-500 font-medium">
                             {idx + 1} of {selectedBatch.queries.length}
@@ -3223,6 +3489,364 @@ ${notesList || "No notes"}`;
   };
 
   // ============================================================================
+  // Runs Tab - Batch Execution & Monitoring
+  // ============================================================================
+
+  const RunsTab = () => {
+    // Categorize batches by status
+    const pendingBatches = syntheticBatches.filter(b => b.status === "ready" || b.status === "pending");
+    const completedBatches = syntheticBatches.filter(b => b.status === "completed" || b.status === "failed");
+    
+    return (
+      <div className="max-w-[1600px] mx-auto px-6 py-6">
+        <div className="grid grid-cols-12 gap-6">
+          
+          {/* Left Panel - Agent Selection */}
+          <div className="col-span-3 space-y-4">
+            <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-5">
+              <h2 className="text-lg font-semibold text-sand-100 mb-4 flex items-center gap-2">
+                <Cpu className="w-5 h-5 text-accent-teal" />
+                Select Agent
+              </h2>
+              
+              {agents.length > 0 ? (
+                <div className="space-y-2">
+                  {agents.map((agent) => (
+                    <button
+                      key={agent.id}
+                      onClick={async () => {
+                        setSelectedAgent(agent);
+                        await fetchBatches(agent.id);
+                      }}
+                      className={`w-full text-left p-3 rounded-lg transition-all ${
+                        selectedAgent?.id === agent.id
+                          ? "bg-accent-teal/20 border border-accent-teal/50"
+                          : "bg-ink-800/50 hover:bg-ink-800 border border-transparent"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-sand-200 font-medium">{agent.name}</span>
+                        <span className={`text-xs px-1.5 py-0.5 rounded ${
+                          agent.connection_status === "connected"
+                            ? "bg-green-900/50 text-green-400"
+                            : "bg-red-900/50 text-red-400"
+                        }`}>
+                          {agent.connection_status}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-ink-400">
+                  <Cpu className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No agents registered.</p>
+                  <button
+                    onClick={() => setActiveTab("agents")}
+                    className="mt-2 text-xs text-accent-teal hover:underline"
+                  >
+                    Register an agent →
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          {/* Middle Panel - Batch Execution */}
+          <div className="col-span-5 space-y-4">
+            
+            {/* Active Execution */}
+            {executingBatch && executionProgress && (
+              <div className="bg-gradient-to-r from-accent-teal/10 to-accent-plum/10 rounded-xl border border-accent-teal/30 p-6">
+                <div className="flex items-center gap-3 mb-4">
+                  <div className="w-10 h-10 rounded-full bg-accent-teal/20 flex items-center justify-center">
+                    <RefreshCw className="w-5 h-5 text-accent-teal animate-spin" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-sand-100">Executing Batch</h3>
+                    <p className="text-sm text-ink-400">{selectedBatch?.name || "Running..."}</p>
+                  </div>
+                </div>
+                
+                {/* Progress Bar */}
+                <div className="mb-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-sand-200">
+                      Query {executionProgress.completed_queries} of {executionProgress.total_queries}
+                    </span>
+                    <span className="text-sm text-accent-teal font-medium">
+                      {Math.round(executionProgress.progress_percent)}%
+                    </span>
+                  </div>
+                  <div className="w-full bg-ink-800 rounded-full h-3">
+                    <div
+                      className="bg-gradient-to-r from-accent-teal to-accent-plum h-3 rounded-full transition-all duration-500"
+                      style={{ width: `${executionProgress.progress_percent}%` }}
+                    />
+                  </div>
+                </div>
+                
+                {/* Stats with ETA */}
+                <div className="flex items-center gap-6 text-sm">
+                  <div className="flex items-center gap-2 text-green-400">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>{executionProgress.success_count} success</span>
+                  </div>
+                  <div className="flex items-center gap-2 text-red-400">
+                    <AlertTriangle className="w-4 h-4" />
+                    <span>{executionProgress.failure_count} failed</span>
+                  </div>
+                  {/* ETA calculation */}
+                  {executionProgress.start_time && executionProgress.completed_queries > 0 && executionProgress.completed_queries < executionProgress.total_queries && (
+                    <div className="flex items-center gap-2 text-ink-400">
+                      <Clock className="w-4 h-4" />
+                      <span>
+                        ~{Math.ceil(
+                          ((Date.now() - executionProgress.start_time) / executionProgress.completed_queries) * 
+                          (executionProgress.total_queries - executionProgress.completed_queries) / 1000
+                        )}s remaining
+                      </span>
+                    </div>
+                  )}
+                </div>
+                
+                {/* Current Query */}
+                {executionProgress.current_query_text && (
+                  <div className="mt-4 p-3 bg-ink-900/50 rounded-lg">
+                    <p className="text-xs text-ink-500 mb-1">Currently processing:</p>
+                    <p className="text-sm text-sand-300 italic">
+                      &quot;{executionProgress.current_query_text}&quot;
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* Pending Runs */}
+            <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-5">
+              <h2 className="text-lg font-semibold text-sand-100 mb-4 flex items-center gap-2">
+                <Clock className="w-5 h-5 text-accent-amber" />
+                Pending Runs
+                {pendingBatches.length > 0 && (
+                  <span className="text-xs text-ink-400">({pendingBatches.length})</span>
+                )}
+              </h2>
+              
+              {selectedAgent ? (
+                pendingBatches.length > 0 ? (
+                  <div className="space-y-3">
+                    {pendingBatches.map((batch) => (
+                      <div
+                        key={batch.id}
+                        className="p-4 bg-ink-800/50 rounded-lg border border-ink-700 hover:border-ink-600 transition-all"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-sand-200 font-medium">{batch.name}</span>
+                          <span className="text-xs bg-amber-900/50 text-amber-400 px-2 py-0.5 rounded">
+                            {batch.query_count} queries
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs text-ink-500">
+                            Created {formatRelativeTime(batch.created_at)}
+                          </span>
+                          <button
+                            onClick={() => {
+                              setSelectedBatch({ id: batch.id, name: batch.name, queries: [] });
+                              executeBatch(batch.id, selectedAgent.id);
+                            }}
+                            disabled={executingBatch}
+                            className="btn-primary py-1.5 px-4 text-sm flex items-center gap-2"
+                          >
+                            <Play className="w-4 h-4" />
+                            Run
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-ink-400">
+                    <CheckCircle2 className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                    <p className="text-sm">No pending batches.</p>
+                    <button
+                      onClick={() => setActiveTab("synthetic")}
+                      className="mt-2 text-xs text-accent-amber hover:underline"
+                    >
+                      Generate synthetic data →
+                    </button>
+                  </div>
+                )
+              ) : (
+                <div className="text-center py-8 text-ink-400">
+                  <Cpu className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">Select an agent to view runs.</p>
+                </div>
+              )}
+            </div>
+            
+            {/* Completed Runs */}
+            <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-5">
+              <h2 className="text-lg font-semibold text-sand-100 mb-4 flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-green-400" />
+                Completed Runs
+                {completedBatches.length > 0 && (
+                  <span className="text-xs text-ink-400">({completedBatches.length})</span>
+                )}
+              </h2>
+              
+              {selectedAgent && completedBatches.length > 0 ? (
+                <div className="space-y-3">
+                  {completedBatches.map((batch) => (
+                    <div
+                      key={batch.id}
+                      className={`p-4 rounded-lg border transition-all cursor-pointer ${
+                        selectedBatch?.id === batch.id
+                          ? "bg-accent-teal/10 border-accent-teal/30"
+                          : "bg-ink-800/50 border-ink-700 hover:border-ink-600"
+                      }`}
+                      onClick={() => fetchBatchDetail(batch.id)}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sand-200 font-medium">{batch.name}</span>
+                        <span className={`text-xs px-2 py-0.5 rounded ${
+                          batch.status === "completed" 
+                            ? "bg-green-900/50 text-green-400"
+                            : "bg-red-900/50 text-red-400"
+                        }`}>
+                          {batch.status}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-ink-500">
+                          {batch.query_count} queries • {formatRelativeTime(batch.created_at)}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              resetBatch(batch.id, selectedAgent.id, false);
+                            }}
+                            className="text-xs text-ink-400 hover:text-sand-200 flex items-center gap-1"
+                          >
+                            <RefreshCw className="w-3 h-3" />
+                            Re-run
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8 text-ink-400">
+                  <ClipboardList className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No completed runs yet.</p>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          {/* Right Panel - Run Details */}
+          <div className="col-span-4">
+            <div className="bg-ink-900/50 rounded-xl border border-ink-800 p-5 sticky top-24">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-sand-100 flex items-center gap-2">
+                  <Eye className="w-5 h-5 text-accent-plum" />
+                  Run Results
+                </h2>
+                {selectedBatch && (
+                  <button
+                    onClick={() => {
+                      // Set batch filter and switch to sessions
+                      setFilterBatchId(selectedBatch.id);
+                      setFilterBatchName(selectedBatch.name);
+                      setActiveTab("sessions");
+                    }}
+                    className="text-xs text-accent-teal hover:underline flex items-center gap-1"
+                  >
+                    <ExternalLink className="w-3 h-3" />
+                    View in Sessions
+                  </button>
+                )}
+              </div>
+              
+              {selectedBatch && selectedBatch.queries && selectedBatch.queries.length > 0 ? (
+                <div className="space-y-3 max-h-[600px] overflow-y-auto">
+                  {selectedBatch.queries.map((query, idx) => (
+                    <div
+                      key={query.id}
+                      className={`p-3 rounded-lg border ${
+                        query.execution_status === "success"
+                          ? "bg-green-900/10 border-green-900/30"
+                          : query.execution_status === "error"
+                          ? "bg-red-900/10 border-red-900/30"
+                          : "bg-ink-800/50 border-ink-700"
+                      }`}
+                    >
+                      {/* Header */}
+                      <div className="flex items-center gap-2 mb-2 flex-wrap">
+                        <span className="text-xs text-ink-500">{idx + 1}/{selectedBatch.queries.length}</span>
+                        {query.execution_status && (
+                          <span className={`text-xs px-1.5 py-0.5 rounded flex items-center gap-1 ${
+                            query.execution_status === "success"
+                              ? "bg-green-900/50 text-green-400"
+                              : query.execution_status === "error"
+                              ? "bg-red-900/50 text-red-400"
+                              : "bg-ink-700 text-ink-400"
+                          }`}>
+                            {query.execution_status === "success" && <CheckCircle2 className="w-3 h-3" />}
+                            {query.execution_status === "error" && <AlertTriangle className="w-3 h-3" />}
+                            {query.execution_status}
+                          </span>
+                        )}
+                        {Object.entries(query.tuple_values || {}).slice(0, 2).map(([key, val]) => (
+                          <span key={key} className="text-xs bg-accent-plum/20 text-accent-plum px-1.5 py-0.5 rounded">
+                            {val}
+                          </span>
+                        ))}
+                      </div>
+                      
+                      {/* Query */}
+                      <p className="text-sm text-sand-300 mb-2">
+                        "{query.query_text.slice(0, 100)}{query.query_text.length > 100 ? '...' : ''}"
+                      </p>
+                      
+                      {/* Response */}
+                      {query.response_text && (
+                        <div className="p-2 bg-ink-900/50 rounded border border-ink-700">
+                          <div className="flex items-center gap-1 mb-1">
+                            <Bot className="w-3 h-3 text-accent-teal" />
+                            <span className="text-xs text-ink-500">Response</span>
+                          </div>
+                          <p className="text-xs text-sand-400 line-clamp-3">
+                            {query.response_text.slice(0, 200)}{query.response_text.length > 200 ? '...' : ''}
+                          </p>
+                        </div>
+                      )}
+                      
+                      {/* Error */}
+                      {query.error_message && (
+                        <div className="p-2 bg-red-900/20 rounded border border-red-900/30 mt-2">
+                          <p className="text-xs text-red-300">{query.error_message}</p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-12 text-ink-400">
+                  <Eye className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">Select a completed run to view results.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ============================================================================
   // Main Render
   // ============================================================================
 
@@ -3304,6 +3928,20 @@ ${notesList || "No notes"}`;
                     </span>
                   )}
                 </button>
+                <button
+                  onClick={() => setActiveTab("runs")}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
+                    activeTab === "runs"
+                      ? "bg-accent-coral text-white shadow-lg shadow-accent-coral/20"
+                      : "text-ink-400 hover:text-sand-200 hover:bg-ink-800"
+                  }`}
+                >
+                  <Play className="w-4 h-4" />
+                  Runs
+                  {executingBatch && (
+                    <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+                  )}
+                </button>
               </nav>
               </div>
             
@@ -3332,7 +3970,7 @@ ${notesList || "No notes"}`;
                     fetchTaxonomy();
                   } else if (activeTab === "agents") {
                     fetchAgents();
-                  } else if (activeTab === "synthetic") {
+                  } else if (activeTab === "synthetic" || activeTab === "runs") {
                     if (selectedAgent) {
                       fetchDimensions(selectedAgent.id);
                       fetchBatches(selectedAgent.id);
@@ -3354,6 +3992,7 @@ ${notesList || "No notes"}`;
         {activeTab === "taxonomy" && <TaxonomyTab />}
         {activeTab === "agents" && <AgentsTab />}
         {activeTab === "synthetic" && <SyntheticTab />}
+        {activeTab === "runs" && <RunsTab />}
       </main>
     </div>
   );

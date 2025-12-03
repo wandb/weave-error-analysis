@@ -20,7 +20,8 @@ import os
 import json
 import uuid
 import asyncio
-from datetime import datetime
+import warnings
+import logging
 from typing import Optional, AsyncGenerator
 
 from pathlib import Path
@@ -29,6 +30,12 @@ from fastapi.responses import StreamingResponse, PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
+
+# Suppress the ADK app name mismatch warning (it's just a warning, not a real issue)
+warnings.filterwarnings("ignore", message="App name mismatch detected")
+
+# Suppress OpenTelemetry context detachment errors that occur on generator cleanup
+logging.getLogger("opentelemetry").setLevel(logging.ERROR)
 
 # Path to AGENT_INFO.md
 AGENT_DIR = Path(__file__).parent
@@ -77,6 +84,9 @@ def create_event(event_type: str, **kwargs) -> str:
 async def run_agent_stream(message: str, thread_id: Optional[str] = None) -> AsyncGenerator[str, None]:
     """
     Run the agent and stream AG-UI events.
+    
+    Handles OpenTelemetry context cleanup gracefully to avoid "Failed to detach context" errors
+    that occur when async generators are not fully consumed.
     """
     # Generate IDs
     run_id = f"run_{uuid.uuid4().hex[:12]}"
@@ -87,6 +97,8 @@ async def run_agent_stream(message: str, thread_id: Optional[str] = None) -> Asy
     
     # Emit RUN_STARTED
     yield create_event("RUN_STARTED", runId=run_id, threadId=thread_id)
+    
+    agent_gen = None  # Track the generator so we can close it properly
     
     try:
         # Get or create session
@@ -120,14 +132,17 @@ async def run_agent_stream(message: str, thread_id: Optional[str] = None) -> Asy
         tool_calls = []
         response_text = ""
         
-        async for event in runner.run_async(
+        # Create the generator
+        agent_gen = runner.run_async(
             user_id=user_id,
             session_id=session_id,
             new_message=types.Content(
                 role="user",
                 parts=[types.Part(text=message)]
             ),
-        ):
+        )
+        
+        async for event in agent_gen:
             # Check for tool calls
             if hasattr(event, 'actions') and event.actions:
                 for action in event.actions:
@@ -187,6 +202,9 @@ async def run_agent_stream(message: str, thread_id: Optional[str] = None) -> Asy
                             )
                             await asyncio.sleep(0.02)  # Small delay for streaming effect
         
+        # Generator completed naturally - mark as None so cleanup doesn't try to close it
+        agent_gen = None
+        
         # Emit TEXT_MESSAGE_END
         yield create_event("TEXT_MESSAGE_END", messageId=message_id)
         
@@ -198,6 +216,10 @@ async def run_agent_stream(message: str, thread_id: Optional[str] = None) -> Asy
             traceId=run_id
         )
         
+    except GeneratorExit:
+        # Client disconnected - this is expected, suppress the error
+        pass
+        
     except Exception as e:
         # Emit RUN_ERROR
         yield create_event(
@@ -205,6 +227,15 @@ async def run_agent_stream(message: str, thread_id: Optional[str] = None) -> Asy
             runId=run_id,
             message=str(e)
         )
+    
+    finally:
+        # Properly close the agent generator to avoid OTEL context issues
+        if agent_gen is not None:
+            try:
+                await agent_gen.aclose()
+            except Exception:
+                # Suppress any errors during cleanup
+                pass
 
 
 @app.get("/health")

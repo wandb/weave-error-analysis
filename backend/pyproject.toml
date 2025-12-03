@@ -1,0 +1,28 @@
+[project]
+name = "weave-error-analysis-backend"
+version = "0.1.0"
+description = "Backend for Weave Error Analysis application"
+readme = "../README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
+    "weave>=0.51.0",
+    "litellm>=1.50.0",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.0.0",
+    "httpx>=0.27.0",
+    # FAILS library for automated failure categorization
+    # Install via: uv pip install git+https://github.com/wandb/fails.git
+    # Note: The fails pyproject.toml must include subpackages for this to work
+    # See fails/pyproject.toml: [tool.setuptools.packages.find] include = ["fails", "fails.*"]
+    "fails @ git+https://github.com/wandb/fails.git",
+]
+
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["services", "routers"]
+

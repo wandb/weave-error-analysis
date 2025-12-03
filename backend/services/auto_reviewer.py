@@ -9,26 +9,44 @@ Key functionality:
 2. Convert batch execution traces to FAILS-compatible format
 3. Run the FAILS categorization pipeline
 4. Store and return review results
+
+FAILS Integration Notes:
+------------------------
+The FAILS library (https://github.com/wandb/fails) provides a 3-step pipeline for
+categorizing evaluation failures:
+
+1. Draft Categorization (Open Coding): Each trace is analyzed individually to identify
+   potential failure categories. This is inspired by qualitative research "open coding".
+
+2. Clustering & Review: The draft categories from all traces are clustered into a
+   canonical set of failure categories (max 7 categories).
+
+3. Final Classification: Each trace is classified into exactly one of the canonical
+   categories.
+
+The pipeline expects trace data in this format:
+{
+    "id": str,           # Trace/query ID
+    "inputs": dict,      # Input data (e.g., {"query": "...", "dimensions": {...}})
+    "output": dict,      # Output data (e.g., {"response": "..."})
+    "scores": dict       # Evaluation scores/metadata
+}
+
+See fails/CLAUDE.md for detailed documentation on the pipeline and API usage.
 """
 
 import asyncio
 import json
 import os
-import sys
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 from enum import Enum
 
-# Add the fails directory to path for importing
-FAILS_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "fails"))
-if FAILS_PATH not in sys.path:
-    sys.path.insert(0, FAILS_PATH)
-
 from database import get_db, generate_id, now_iso
 
 # Import FAILS pipeline components
-# We define local types to avoid import errors when FAILS is not available
+# FAILS is installed via: pip install git+https://github.com/wandb/fails.git
 FAILS_AVAILABLE = False
 
 try:
@@ -40,7 +58,8 @@ try:
     )
     FAILS_AVAILABLE = True
 except ImportError as e:
-    print(f"Warning: FAILS library not available: {e}")
+    print(f"Warning: FAILS library not available. Install with: pip install git+https://github.com/wandb/fails.git")
+    print(f"Import error: {e}")
     # Define stub types for when FAILS is not available
     FAILSCategory = None
     FAILSClassificationResult = None

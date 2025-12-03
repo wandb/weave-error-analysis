@@ -323,6 +323,9 @@ export default function Home() {
   } | null>(null);
   const [generatingBatch, setGeneratingBatch] = useState(false);
   const [batchSize, setBatchSize] = useState(20);
+  const [selectedQueryIds, setSelectedQueryIds] = useState<Set<string>>(new Set());
+  const [editingQueryId, setEditingQueryId] = useState<string | null>(null);
+  const [editingQueryText, setEditingQueryText] = useState("");
   const [batchStrategy, setBatchStrategy] = useState<"cross_product" | "llm_guided">("cross_product");
   const [showSyntheticPanel, setShowSyntheticPanel] = useState(false);
 
@@ -2916,17 +2919,17 @@ ${notesList || "No notes"}`;
                   <button
                     onClick={() => generateBatch(selectedAgent.id)}
                     disabled={generatingBatch || dimensions.length === 0}
-                    className="w-full btn-primary py-3"
+                    className="w-full btn-primary py-3 flex items-center justify-center gap-2"
                   >
                     {generatingBatch ? (
                       <>
-                        <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                        Generating...
+                        <RefreshCw className="w-4 h-4 animate-spin" />
+                        <span>Generating...</span>
                       </>
                     ) : (
                       <>
-                        <Zap className="w-4 h-4 mr-2" />
-                        Generate {batchSize} Queries
+                        <Zap className="w-4 h-4" />
+                        <span>Generate {batchSize} Queries</span>
                       </>
                     )}
                   </button>
@@ -3026,21 +3029,184 @@ ${notesList || "No notes"}`;
 
             {selectedBatch && selectedBatch.queries ? (
               <div className="space-y-3 max-h-[600px] overflow-y-auto">
+                {/* Select All / Selection Info */}
+                <div className="flex items-center justify-between bg-ink-800/30 rounded-lg p-2 sticky top-0 z-10">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedQueryIds.size === selectedBatch.queries.length && selectedBatch.queries.length > 0}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedQueryIds(new Set(selectedBatch.queries.map(q => q.id)));
+                        } else {
+                          setSelectedQueryIds(new Set());
+                        }
+                      }}
+                      className="w-4 h-4 rounded border-ink-600 bg-ink-800 text-accent-teal focus:ring-accent-teal"
+                    />
+                    <span className="text-sm text-ink-300">Select All</span>
+                  </label>
+                  <div className="flex items-center gap-3">
+                    {selectedQueryIds.size > 0 && (
+                      <>
+                        <span className="text-xs text-accent-teal">
+                          {selectedQueryIds.size} selected
+                        </span>
+                        <button
+                          onClick={async () => {
+                            // Delete selected queries from backend
+                            const queryIds = Array.from(selectedQueryIds);
+                            try {
+                              const response = await fetch("/api/synthetic/queries/bulk-delete", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ query_ids: queryIds }),
+                              });
+                              
+                              if (response.ok) {
+                                // Update local state
+                                setSelectedBatch(prev => prev ? {
+                                  ...prev,
+                                  queries: prev.queries.filter(q => !selectedQueryIds.has(q.id))
+                                } : null);
+                                setSelectedQueryIds(new Set());
+                                
+                                // Refresh batches to update counts
+                                if (selectedAgent) {
+                                  fetchBatches(selectedAgent.id);
+                                }
+                              } else {
+                                console.error("Failed to delete queries");
+                              }
+                            } catch (error) {
+                              console.error("Error deleting queries:", error);
+                            }
+                          }}
+                          className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1 bg-red-900/20 px-2 py-1 rounded hover:bg-red-900/40 transition-colors"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          Delete Selected
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
                 {selectedBatch.queries.map((query, idx) => (
-                  <div key={query.id} className="bg-ink-800/50 rounded-lg p-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-xs bg-ink-700 text-ink-300 px-2 py-1 rounded font-mono">
-                        #{idx + 1}
-                      </span>
-                      <div className="flex flex-wrap gap-1">
-                        {Object.entries(query.tuple_values).map(([key, val]) => (
-                          <span key={key} className="text-xs bg-accent-plum/20 text-accent-plum px-2 py-0.5 rounded">
-                            {key}: {val}
+                  <div 
+                    key={query.id} 
+                    className={`rounded-lg p-4 transition-all ${
+                      selectedQueryIds.has(query.id) 
+                        ? "bg-accent-teal/10 border border-accent-teal/30" 
+                        : "bg-ink-800/50 border border-transparent"
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      {/* Checkbox */}
+                      <input
+                        type="checkbox"
+                        checked={selectedQueryIds.has(query.id)}
+                        onChange={(e) => {
+                          const newSet = new Set(selectedQueryIds);
+                          if (e.target.checked) {
+                            newSet.add(query.id);
+                          } else {
+                            newSet.delete(query.id);
+                          }
+                          setSelectedQueryIds(newSet);
+                        }}
+                        className="w-4 h-4 mt-1 rounded border-ink-600 bg-ink-800 text-accent-teal focus:ring-accent-teal"
+                      />
+                      
+                      <div className="flex-1">
+                        {/* Header with index and tags */}
+                        <div className="flex items-center gap-2 mb-2 flex-wrap">
+                          <span className="text-xs text-ink-500 font-medium">
+                            {idx + 1} of {selectedBatch.queries.length}
                           </span>
-                        ))}
+                          <span className="text-ink-600">•</span>
+                          {Object.entries(query.tuple_values).map(([key, val]) => (
+                            <span key={key} className="text-xs bg-accent-plum/20 text-accent-plum px-2 py-0.5 rounded">
+                              {val}
+                            </span>
+                          ))}
+                        </div>
+                        
+                        {/* Query Text (editable) */}
+                        {editingQueryId === query.id ? (
+                          <div className="space-y-2">
+                            <textarea
+                              key={`edit-${query.id}`}
+                              defaultValue={query.query_text}
+                              id={`textarea-${query.id}`}
+                              rows={3}
+                              autoFocus
+                              className="w-full bg-ink-900 border border-ink-600 rounded-lg px-3 py-2 text-sand-200 text-sm focus:border-accent-teal focus:ring-1 focus:ring-accent-teal"
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                onClick={async () => {
+                                  // Get value from textarea
+                                  const textarea = document.getElementById(`textarea-${query.id}`) as HTMLTextAreaElement;
+                                  const newText = textarea?.value || query.query_text;
+                                  
+                                  // Persist to backend
+                                  try {
+                                    const response = await fetch(`/api/synthetic/queries/${query.id}`, {
+                                      method: "PUT",
+                                      headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify({ query_text: newText }),
+                                    });
+                                    
+                                    if (response.ok) {
+                                      // Update local state
+                                      setSelectedBatch(prev => prev ? {
+                                        ...prev,
+                                        queries: prev.queries.map(q => 
+                                          q.id === query.id ? { ...q, query_text: newText } : q
+                                        )
+                                      } : null);
+                                      setEditingQueryId(null);
+                                    } else {
+                                      console.error("Failed to update query");
+                                    }
+                                  } catch (error) {
+                                    console.error("Error updating query:", error);
+                                  }
+                                }}
+                                className="text-xs btn-primary py-1 px-3"
+                              >
+                                Save
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setEditingQueryId(null);
+                                  setEditingQueryText("");
+                                }}
+                                className="text-xs btn-secondary py-1 px-3"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div 
+                            className="group cursor-pointer"
+                            onClick={() => {
+                              setEditingQueryId(query.id);
+                              setEditingQueryText(query.query_text);
+                            }}
+                          >
+                            <p className="text-sand-300 leading-relaxed">
+                              &quot;{query.query_text}&quot;
+                            </p>
+                            <span className="text-xs text-ink-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                              Click to edit
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
-                    <p className="text-sand-300 leading-relaxed">&quot;{query.query_text}&quot;</p>
                   </div>
                 ))}
               </div>
@@ -3126,7 +3292,7 @@ ${notesList || "No notes"}`;
                   onClick={() => setActiveTab("synthetic")}
                   className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
                     activeTab === "synthetic"
-                      ? "bg-accent-amber text-ink-950 shadow-lg shadow-accent-amber/20"
+                      ? "bg-accent-amber text-white shadow-lg shadow-accent-amber/20"
                       : "text-ink-400 hover:text-sand-200 hover:bg-ink-800"
                   }`}
                 >

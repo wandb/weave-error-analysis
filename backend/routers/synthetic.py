@@ -678,3 +678,89 @@ async def regenerate_query(batch_id: str, query_id: str) -> QueryResponse:
         query_text=new_query_text
     )
 
+
+class UpdateQueryRequest(BaseModel):
+    query_text: str
+
+
+@router.put("/synthetic/queries/{query_id}")
+async def update_query(query_id: str, request: UpdateQueryRequest):
+    """Update a query's text."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE synthetic_queries SET query_text = ? WHERE id = ?
+        """, (request.query_text, query_id))
+        
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Query not found")
+    
+    return {"status": "updated", "query_id": query_id, "query_text": request.query_text}
+
+
+@router.delete("/synthetic/queries/{query_id}")
+async def delete_query(query_id: str):
+    """Delete a single query from a batch."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        # Get batch_id first to update count
+        cursor.execute("SELECT batch_id FROM synthetic_queries WHERE id = ?", (query_id,))
+        row = cursor.fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Query not found")
+        
+        batch_id = row["batch_id"]
+        
+        # Delete the query
+        cursor.execute("DELETE FROM synthetic_queries WHERE id = ?", (query_id,))
+        
+        # Update the batch query count
+        cursor.execute("""
+            UPDATE synthetic_batches 
+            SET query_count = (SELECT COUNT(*) FROM synthetic_queries WHERE batch_id = ?)
+            WHERE id = ?
+        """, (batch_id, batch_id))
+    
+    return {"status": "deleted", "query_id": query_id, "batch_id": batch_id}
+
+
+class BulkDeleteRequest(BaseModel):
+    query_ids: list[str]
+
+
+@router.post("/synthetic/queries/bulk-delete")
+async def delete_queries_bulk(request: BulkDeleteRequest):
+    """Delete multiple queries from a batch."""
+    query_ids = request.query_ids
+    if not query_ids:
+        raise HTTPException(status_code=400, detail="No query IDs provided")
+    
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        # Get affected batch IDs
+        placeholders = ",".join("?" * len(query_ids))
+        cursor.execute(f"""
+            SELECT DISTINCT batch_id FROM synthetic_queries WHERE id IN ({placeholders})
+        """, query_ids)
+        batch_rows = cursor.fetchall()
+        batch_ids = [row["batch_id"] for row in batch_rows]
+        
+        # Delete the queries
+        cursor.execute(f"""
+            DELETE FROM synthetic_queries WHERE id IN ({placeholders})
+        """, query_ids)
+        deleted_count = cursor.rowcount
+        
+        # Update batch query counts
+        for batch_id in batch_ids:
+            cursor.execute("""
+                UPDATE synthetic_batches 
+                SET query_count = (SELECT COUNT(*) FROM synthetic_queries WHERE batch_id = ?)
+                WHERE id = ?
+            """, (batch_id, batch_id))
+    
+    return {"status": "deleted", "deleted_count": deleted_count, "batch_ids": batch_ids}
+

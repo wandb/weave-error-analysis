@@ -128,16 +128,16 @@ async def get_threads(
             if is_root:
                 session["turn_count"] += 1
         
-        # If batch_id filter is provided, get the linked trace_ids
-        batch_trace_ids = None
+        # If batch_id filter is provided, get the linked thread_ids
+        batch_thread_ids = None
         if batch_id:
             with get_db() as conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT trace_id FROM synthetic_queries 
-                    WHERE batch_id = ? AND trace_id IS NOT NULL
+                    SELECT thread_id FROM synthetic_queries 
+                    WHERE batch_id = ? AND thread_id IS NOT NULL
                 """, (batch_id,))
-                batch_trace_ids = set(row[0] for row in cursor.fetchall())
+                batch_thread_ids = set(row[0] for row in cursor.fetchall())
         
         # Convert to list format - only include sessions with session_xxx format (real sessions)
         threads = []
@@ -152,10 +152,10 @@ async def get_threads(
             if not is_real_session:
                 continue
             
-            # If batch filter is active, only include sessions with matching trace_ids
-            if batch_trace_ids is not None:
-                session_trace_ids = {call.get("trace_id") for call in session_data["calls"]}
-                if not session_trace_ids.intersection(batch_trace_ids):
+            # If batch filter is active, only include sessions with matching thread_ids
+            if batch_thread_ids is not None:
+                # Check if this session_id matches any batch thread_id
+                if session_id not in batch_thread_ids:
                     continue
                 
             threads.append({

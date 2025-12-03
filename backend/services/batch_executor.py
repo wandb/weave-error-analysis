@@ -34,6 +34,7 @@ class QueryExecutionResult(BaseModel):
     response_text: Optional[str] = None
     tool_calls: List[Dict[str, Any]] = []
     trace_id: Optional[str] = None
+    thread_id: Optional[str] = None
     error_message: Optional[str] = None
     started_at: str
     completed_at: Optional[str] = None
@@ -249,7 +250,8 @@ class BatchExecutor:
                     ExecutionStatus.SUCCESS,
                     completed_at=completed_at,
                     response_text=result.get("response", ""),
-                    trace_id=result.get("trace_id")
+                    trace_id=result.get("trace_id"),
+                    thread_id=result.get("thread_id")
                 )
                 return QueryExecutionResult(
                     query_id=query_id,
@@ -257,6 +259,7 @@ class BatchExecutor:
                     response_text=result.get("response", ""),
                     tool_calls=result.get("tool_calls", []),
                     trace_id=result.get("trace_id"),
+                    thread_id=result.get("thread_id"),
                     started_at=started_at,
                     completed_at=completed_at,
                     duration_ms=duration_ms
@@ -337,6 +340,7 @@ class BatchExecutor:
         completed_at: Optional[str] = None,
         response_text: Optional[str] = None,
         trace_id: Optional[str] = None,
+        thread_id: Optional[str] = None,
         error_message: Optional[str] = None
     ):
         """Update a query's execution status in the database."""
@@ -361,6 +365,10 @@ class BatchExecutor:
             if trace_id is not None:
                 updates.append("trace_id = ?")
                 params.append(trace_id)
+            
+            if thread_id is not None:
+                updates.append("thread_id = ?")
+                params.append(thread_id)
             
             if error_message is not None:
                 updates.append("error_message = ?")
@@ -537,6 +545,7 @@ def reset_batch_queries(batch_id: str, only_failed: bool = False):
                 SET execution_status = 'pending',
                     response_text = NULL,
                     trace_id = NULL,
+                    thread_id = NULL,
                     error_message = NULL,
                     started_at = NULL,
                     completed_at = NULL
@@ -548,6 +557,7 @@ def reset_batch_queries(batch_id: str, only_failed: bool = False):
                 SET execution_status = 'pending',
                     response_text = NULL,
                     trace_id = NULL,
+                    thread_id = NULL,
                     error_message = NULL,
                     started_at = NULL,
                     completed_at = NULL

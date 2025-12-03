@@ -184,6 +184,7 @@ def init_db():
                 dimension_tuple JSON,
                 query_text TEXT NOT NULL,
                 trace_id TEXT,
+                thread_id TEXT,
                 execution_status TEXT DEFAULT 'pending',
                 response_text TEXT,
                 error_message TEXT,
@@ -225,6 +226,18 @@ def init_db():
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_synthetic_queries_batch 
             ON synthetic_queries(batch_id)
+        """)
+        
+        # Migration: Add thread_id column if it doesn't exist (for existing databases)
+        cursor.execute("PRAGMA table_info(synthetic_queries)")
+        columns = [col[1] for col in cursor.fetchall()]
+        if "thread_id" not in columns:
+            cursor.execute("ALTER TABLE synthetic_queries ADD COLUMN thread_id TEXT")
+        
+        # Create index on thread_id (after ensuring the column exists)
+        cursor.execute("""
+            CREATE INDEX IF NOT EXISTS idx_synthetic_queries_thread 
+            ON synthetic_queries(thread_id)
         """)
 
 

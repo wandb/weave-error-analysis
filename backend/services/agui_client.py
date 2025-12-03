@@ -34,6 +34,7 @@ class AGUIEvent(BaseModel):
     tool_result: Optional[Any] = None
     call_id: Optional[str] = None
     trace_id: Optional[str] = None
+    thread_id: Optional[str] = None
     error: Optional[str] = None
     raw: Optional[Dict[str, Any]] = None
     timestamp: str = ""
@@ -294,6 +295,7 @@ class AGUIClient:
             return AGUIEvent(
                 type="complete",
                 trace_id=data.get("traceId") or data.get("trace_id"),
+                thread_id=data.get("threadId") or data.get("thread_id"),
                 raw=data
             )
         
@@ -385,12 +387,13 @@ class AGUIClient:
         Useful for batch operations where streaming isn't needed.
         
         Returns:
-            Dict with 'response', 'tool_calls', 'trace_id', and 'error' keys
+            Dict with 'response', 'tool_calls', 'trace_id', 'thread_id', and 'error' keys
         """
         response_text = ""
         tool_calls = []
         current_tool = {}
         trace_id = None
+        result_thread_id = None
         error = None
         
         async for event in self.run(message, thread_id, context):
@@ -413,6 +416,7 @@ class AGUIClient:
                     current_tool = {}
             elif event.type == "complete":
                 trace_id = event.trace_id
+                result_thread_id = event.thread_id
             elif event.type == "error":
                 error = event.error
         
@@ -420,6 +424,7 @@ class AGUIClient:
             "response": response_text,
             "tool_calls": tool_calls,
             "trace_id": trace_id,
+            "thread_id": result_thread_id,
             "error": error
         }
 

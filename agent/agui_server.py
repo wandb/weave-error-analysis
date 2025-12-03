@@ -209,10 +209,11 @@ async def run_agent_stream(message: str, thread_id: Optional[str] = None) -> Asy
         yield create_event("TEXT_MESSAGE_END", messageId=message_id)
         
         # Emit RUN_FINISHED
+        # Return session_id as threadId since that's what Weave uses for grouping
         yield create_event(
             "RUN_FINISHED",
             runId=run_id,
-            threadId=thread_id,
+            threadId=session_id,  # Use Weave session_id for filtering
             traceId=run_id
         )
         

@@ -388,8 +388,8 @@ def generate_id() -> str:
 
 
 def now_iso() -> str:
-    """Get current timestamp in ISO format."""
-    return datetime.utcnow().isoformat()
+    """Get current timestamp in ISO format with UTC timezone marker."""
+    return datetime.utcnow().isoformat() + "Z"
 
 
 def optimize_db():

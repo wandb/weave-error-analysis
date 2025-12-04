@@ -98,7 +98,7 @@ class BatchResponse(BaseModel):
 # =============================================================================
 
 def now_iso() -> str:
-    return datetime.utcnow().isoformat()
+    return datetime.utcnow().isoformat() + "Z"
 
 
 async def get_agent_info_for_generation(agent_id: str):

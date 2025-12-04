@@ -114,7 +114,12 @@ export function SyntheticTab() {
     const batchName = `Batch ${new Date().toLocaleDateString()} #${batchId}`;
 
     try {
-      const response = await fetch("/api/synthetic/batches/generate-stream", {
+      // Use direct backend URL for SSE streaming to bypass Next.js proxy buffering
+      const backendUrl = typeof window !== 'undefined' 
+        ? `http://${window.location.hostname}:8000` 
+        : 'http://localhost:8000';
+      
+      const response = await fetch(`${backendUrl}/api/synthetic/batches/generate-stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -149,6 +154,20 @@ export function SyntheticTab() {
               const event = JSON.parse(line.slice(6));
               if (event.type === "batch_started") {
                 setSelectedBatch({ id: event.batch_id, name: event.name, queries: [] });
+                // Show initial progress with "preparing" state
+                setGenProgress({
+                  total: event.total,
+                  completed: 0,
+                  percent: 0,
+                  currentQuery: "Preparing test cases...",
+                });
+              } else if (event.type === "tuples_generated") {
+                // Update to show we're starting query generation
+                setGenProgress((prev) => prev ? {
+                  ...prev,
+                  total: event.count,
+                  currentQuery: "Generating queries...",
+                } : null);
               } else if (event.type === "query_generated") {
                 setGenProgress({
                   total: event.total,
@@ -316,13 +335,32 @@ export function SyntheticTab() {
           <div className="flex items-center gap-2">
             <Hash className="w-4 h-4" style={{ color: '#8F949E' }} />
             <input
-              type="number"
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
               value={batchSize}
-              onChange={(e) => setBatchSize(Math.max(1, Math.min(100, Number(e.target.value))))}
+              onChange={(e) => {
+                const val = e.target.value;
+                // Allow empty string while typing
+                if (val === '') {
+                  setBatchSize('' as unknown as number);
+                  return;
+                }
+                // Only allow numeric input
+                if (/^\d+$/.test(val)) {
+                  const num = parseInt(val, 10);
+                  setBatchSize(Math.min(100, num));
+                }
+              }}
+              onBlur={(e) => {
+                // On blur, ensure valid value (minimum 1)
+                const val = e.target.value;
+                if (val === '' || parseInt(val, 10) < 1) {
+                  setBatchSize(1);
+                }
+              }}
               className="w-16 px-2 py-1.5 rounded text-sm text-center"
               style={{ backgroundColor: '#171A1F', border: '1px solid #333333', color: '#FDFDFD' }}
-              min={1}
-              max={100}
             />
             <span className="text-xs" style={{ color: '#8F949E' }}>queries</span>
           </div>
@@ -431,18 +469,32 @@ export function SyntheticTab() {
           style={{ backgroundColor: 'rgba(252, 188, 50, 0.1)', border: '1px solid rgba(252, 188, 50, 0.3)' }}
         >
           <div className="flex items-center justify-between mb-2">
-            <span className="font-medium" style={{ color: '#FDFDFD' }}>Generating queries...</span>
+            <span className="font-medium" style={{ color: '#FDFDFD' }}>
+              {genProgress.percent === 0 ? 'Preparing...' : 'Generating queries...'}
+            </span>
             <span className="text-sm" style={{ color: '#FCBC32' }}>{genProgress.completed} / {genProgress.total}</span>
           </div>
-          <div className="w-full rounded-full h-2 mb-2" style={{ backgroundColor: '#333333' }}>
-            <div
-              className="h-2 rounded-full transition-all duration-300"
-              style={{ width: `${genProgress.percent}%`, backgroundColor: '#FCBC32' }}
-            />
+          <div className="w-full rounded-full h-2 mb-2 overflow-hidden" style={{ backgroundColor: '#333333' }}>
+            {genProgress.percent === 0 ? (
+              // Indeterminate progress animation
+              <div 
+                className="h-2 rounded-full animate-pulse"
+                style={{ 
+                  width: '30%', 
+                  backgroundColor: '#FCBC32',
+                  animation: 'indeterminate 1.5s ease-in-out infinite'
+                }}
+              />
+            ) : (
+              <div
+                className="h-2 rounded-full transition-all duration-300"
+                style={{ width: `${genProgress.percent}%`, backgroundColor: '#FCBC32' }}
+              />
+            )}
           </div>
           {genProgress.currentQuery && (
             <p className="text-xs truncate" style={{ color: '#8F949E' }}>
-              Latest: "{genProgress.currentQuery}"
+              {genProgress.percent === 0 ? genProgress.currentQuery : `Latest: "${genProgress.currentQuery}"`}
             </p>
           )}
         </div>

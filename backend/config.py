@@ -71,9 +71,6 @@ WEAVE_API_BASE = "https://trace.wandb.ai"
 # LLM Configuration
 CATEGORIZATION_MODEL = os.getenv("CATEGORIZATION_MODEL", "gpt-4o-mini")
 
-# CORS Origins
-CORS_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-]
+# CORS Origins - Allow all for development to support SSE streaming direct to backend
+CORS_ORIGINS = ["*"]
 

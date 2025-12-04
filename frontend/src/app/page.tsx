@@ -178,7 +178,7 @@ function TabNavigation({
     },
     {
       id: "synthetic" as const,
-      label: "Synthetic",
+      label: "Data",
       icon: Zap,
       step: 2,
       badge: syntheticBatches.length > 0 ? syntheticBatches.length : null,

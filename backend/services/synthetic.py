@@ -113,7 +113,7 @@ class SyntheticGenerator:
         
         # Convert to DimensionTuple objects
         tuples = []
-        now = datetime.utcnow().isoformat()
+        now = datetime.utcnow().isoformat() + "Z"
         
         for combo in all_combinations:
             values_dict = {dim_names[i]: combo[i] for i in range(len(dim_names))}
@@ -225,7 +225,7 @@ Return ONLY the JSON array, no other text."""
                         break
             
             tuples = []
-            now = datetime.utcnow().isoformat()
+            now = datetime.utcnow().isoformat() + "Z"
             
             for combo in data:
                 if isinstance(combo, dict):
@@ -385,7 +385,7 @@ Return ONLY the user message, nothing else. No quotes around it."""
         import asyncio
         
         queries = []
-        now = datetime.utcnow().isoformat()
+        now = datetime.utcnow().isoformat() + "Z"
         
         # Generate queries concurrently with rate limiting
         semaphore = asyncio.Semaphore(5)  # Max 5 concurrent LLM calls
@@ -429,7 +429,7 @@ Return ONLY the user message, nothing else. No quotes around it."""
             SyntheticBatch with generated queries
         """
         batch_id = f"batch_{uuid.uuid4().hex[:12]}"
-        now = datetime.utcnow().isoformat()
+        now = datetime.utcnow().isoformat() + "Z"
         
         if not name:
             name = f"Batch {now[:10]}"
@@ -475,7 +475,7 @@ Return ONLY the user message, nothing else. No quotes around it."""
         import asyncio
         
         batch_id = f"batch_{uuid.uuid4().hex[:12]}"
-        now = datetime.utcnow().isoformat()
+        now = datetime.utcnow().isoformat() + "Z"
         
         if not name:
             name = f"Batch {now[:10]}"
@@ -488,6 +488,8 @@ Return ONLY the user message, nothing else. No quotes around it."""
             "total": n,
             "timestamp": now
         }
+        # Allow event loop to flush
+        await asyncio.sleep(0)
         
         # Generate tuples first (relatively fast)
         if strategy == "llm_guided":
@@ -503,6 +505,8 @@ Return ONLY the user message, nothing else. No quotes around it."""
             "count": total,
             "tuples": [{"id": t.id, "values": t.values} for t in tuples]
         }
+        # Allow event loop to flush
+        await asyncio.sleep(0)
         
         # Generate queries one by one with progress
         queries = []
@@ -533,6 +537,8 @@ Return ONLY the user message, nothing else. No quotes around it."""
                         "query_text": query.query_text
                     }
                 }
+                # Allow event loop to flush after each query
+                await asyncio.sleep(0)
             except Exception as e:
                 # Emit error but continue
                 yield {
@@ -541,6 +547,7 @@ Return ONLY the user message, nothing else. No quotes around it."""
                     "error": str(e),
                     "tuple": t.values
                 }
+                await asyncio.sleep(0)
         
         # Emit batch complete event
         yield {

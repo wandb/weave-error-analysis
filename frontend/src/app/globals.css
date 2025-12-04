@@ -171,6 +171,16 @@ input::placeholder, textarea::placeholder {
   animation: shimmer 1.5s infinite linear;
 }
 
+/* Indeterminate progress bar animation */
+@keyframes indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
 /* Code block styling */
 .code-block {
   @apply font-mono text-sm rounded-md p-4 overflow-x-auto;

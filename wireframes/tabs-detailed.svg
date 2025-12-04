@@ -1,0 +1,384 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1200" height="2000" viewBox="0 0 1200 2000" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .bg { fill: #14171c; }
+      .panel { fill: #1e2229; stroke: #3a4251; stroke-width: 1; rx: 12; }
+      .panel-inner { fill: #2a2f38; stroke: #3a4251; stroke-width: 1; rx: 8; }
+      .text-primary { fill: #f3ede4; font-family: system-ui, sans-serif; }
+      .text-secondary { fill: #8593a9; font-family: system-ui, sans-serif; }
+      .text-muted { fill: #66768f; font-family: system-ui, sans-serif; }
+      .accent-coral { fill: #e07356; }
+      .accent-teal { fill: #4a9c94; }
+      .accent-gold { fill: #d4a84b; }
+      .accent-plum { fill: #8b5a8b; }
+      .btn-primary { fill: #e07356; rx: 6; }
+      .btn-secondary { fill: #3a4251; rx: 6; }
+      .badge { rx: 10; }
+      .badge-coral { fill: rgba(224, 115, 86, 0.2); }
+      .badge-teal { fill: rgba(74, 156, 148, 0.2); }
+      .badge-gold { fill: rgba(212, 168, 75, 0.2); }
+      .badge-plum { fill: rgba(139, 90, 139, 0.2); }
+      .badge-amber { fill: rgba(245, 158, 11, 0.2); }
+      .progress-bg { fill: #3a4251; rx: 4; }
+      .progress-fill { rx: 4; }
+      .divider { stroke: #3a4251; stroke-width: 1; }
+      .title { font-size: 18px; font-weight: 600; }
+      .subtitle { font-size: 14px; }
+      .label { font-size: 12px; }
+      .small { font-size: 10px; }
+    </style>
+  </defs>
+  
+  <!-- Background -->
+  <rect class="bg" width="1200" height="2000"/>
+  
+  <!-- ======================= -->
+  <!-- TAB 4: SYNTHETIC -->
+  <!-- ======================= -->
+  <text x="50" y="40" class="text-primary title">Tab 4: Synthetic Data Generation (4 + 4 + 4 grid)</text>
+  
+  <!-- Left Column - Agent Selection + Dimensions -->
+  <rect x="50" y="60" width="350" height="550" class="panel"/>
+  <text x="70" y="90" class="text-primary" font-size="14" font-weight="500">🖥️ Select Agent</text>
+  
+  <!-- Agent selection -->
+  <rect x="70" y="110" width="310" height="50" rx="8" fill="rgba(74,156,148,0.1)" stroke="rgba(74,156,148,0.5)"/>
+  <text x="90" y="135" class="text-primary small">Customer Support Agent</text>
+  <text x="90" y="150" class="accent-teal" font-size="9">🟢 connected</text>
+  
+  <rect x="70" y="170" width="310" height="50" class="panel-inner"/>
+  <text x="90" y="195" class="text-primary small">Research Assistant</text>
+  <text x="90" y="210" class="accent-coral" font-size="9">🔴 error</text>
+  
+  <!-- Testing Dimensions section -->
+  <line x1="70" y1="240" x2="360" y2="240" class="divider"/>
+  <text x="70" y="270" class="text-primary" font-size="14" font-weight="500">🎯 Testing Dimensions</text>
+  <rect x="280" y="255" width="60" height="20" class="btn-secondary"/>
+  <text x="290" y="269" class="text-muted" font-size="8">Import</text>
+  <rect x="345" y="255" width="25" height="20" class="btn-primary"/>
+  <text x="353" y="269" class="text-primary" font-size="10">+</text>
+  
+  <!-- Dimension cards -->
+  <rect x="70" y="290" width="310" height="100" class="panel-inner"/>
+  <text x="90" y="315" class="text-primary small" font-weight="500">customer_mood</text>
+  <text x="200" y="315" class="text-muted" font-size="9">(5 values)</text>
+  <text x="320" y="315" class="text-muted" font-size="9">✏️ 🗑️</text>
+  <rect x="90" y="325" width="45" height="18" rx="4" fill="#3a4251"/>
+  <text x="97" y="338" class="text-muted" font-size="8">angry</text>
+  <rect x="140" y="325" width="55" height="18" rx="4" fill="#3a4251"/>
+  <text x="147" y="338" class="text-muted" font-size="8">confused</text>
+  <rect x="200" y="325" width="45" height="18" rx="4" fill="#3a4251"/>
+  <text x="207" y="338" class="text-muted" font-size="8">happy</text>
+  <rect x="250" y="325" width="45" height="18" rx="4" fill="#3a4251"/>
+  <text x="257" y="338" class="text-muted" font-size="8">urgent</text>
+  <rect x="90" y="350" width="55" height="18" rx="4" fill="#3a4251"/>
+  <text x="97" y="363" class="text-muted" font-size="8">frustrated</text>
+  
+  <rect x="70" y="400" width="310" height="80" class="panel-inner"/>
+  <text x="90" y="425" class="text-primary small" font-weight="500">request_type</text>
+  <text x="195" y="425" class="text-muted" font-size="9">(4 values)</text>
+  <rect x="90" y="435" width="45" height="18" rx="4" fill="#3a4251"/>
+  <text x="97" y="448" class="text-muted" font-size="8">refund</text>
+  <rect x="140" y="435" width="45" height="18" rx="4" fill="#3a4251"/>
+  <text x="147" y="448" class="text-muted" font-size="8">status</text>
+  <rect x="190" y="435" width="60" height="18" rx="4" fill="#3a4251"/>
+  <text x="197" y="448" class="text-muted" font-size="8">complaint</text>
+  <rect x="255" y="435" width="55" height="18" rx="4" fill="#3a4251"/>
+  <text x="262" y="448" class="text-muted" font-size="8">question</text>
+  
+  <!-- Add dimension form -->
+  <rect x="70" y="500" width="310" height="90" class="panel-inner" stroke="#d4a84b" stroke-opacity="0.3"/>
+  <text x="90" y="520" class="accent-gold small">Add New Dimension</text>
+  <rect x="90" y="530" width="270" height="22" rx="4" fill="#14171c" stroke="#3a4251"/>
+  <text x="100" y="545" class="text-muted" font-size="9">Dimension name</text>
+  <rect x="90" y="555" width="270" height="22" rx="4" fill="#14171c" stroke="#3a4251"/>
+  <text x="100" y="570" class="text-muted" font-size="9">Values (comma-separated)</text>
+  
+  <!-- Middle Column - Batch Generation -->
+  <rect x="420" y="60" width="350" height="550" class="panel"/>
+  <text x="440" y="90" class="text-primary" font-size="14" font-weight="500">⚡ Generate Synthetic Batch</text>
+  
+  <!-- Form -->
+  <text x="440" y="120" class="text-muted small">Number of Queries</text>
+  <rect x="440" y="130" width="310" height="35" class="panel-inner"/>
+  <text x="460" y="152" class="text-primary small">20</text>
+  
+  <text x="440" y="185" class="text-muted small">Generation Strategy</text>
+  <rect x="440" y="195" width="310" height="35" class="panel-inner"/>
+  <text x="460" y="217" class="text-primary small">Cross Product (Template-based) ▾</text>
+  
+  <!-- Progress (when generating) -->
+  <rect x="440" y="250" width="310" height="70" rx="8" fill="rgba(212,168,75,0.1)" stroke="rgba(212,168,75,0.3)"/>
+  <text x="460" y="275" class="text-primary small">Generating Queries</text>
+  <text x="700" y="275" class="accent-gold" font-size="9">12 / 20</text>
+  <rect x="460" y="285" width="270" height="8" class="progress-bg"/>
+  <rect x="460" y="285" width="162" height="8" rx="4" class="accent-gold"/>
+  <text x="460" y="310" class="text-muted" font-size="9">Latest: "What's my order status..."</text>
+  
+  <!-- Generate button -->
+  <rect x="440" y="340" width="310" height="40" class="btn-primary"/>
+  <text x="530" y="365" class="text-primary small">⚡ Generate 20 Queries</text>
+  
+  <!-- Generated Batches -->
+  <line x1="440" y1="400" x2="750" y2="400" class="divider"/>
+  <text x="440" y="430" class="text-primary" font-size="14" font-weight="500">📋 Generated Batches</text>
+  <text x="620" y="430" class="text-muted" font-size="9">(2)</text>
+  
+  <rect x="440" y="450" width="310" height="70" rx="8" fill="rgba(212,168,75,0.1)" stroke="rgba(212,168,75,0.5)"/>
+  <text x="460" y="475" class="text-primary small">Batch Dec 4</text>
+  <text x="700" y="475" class="text-muted" font-size="9">20 queries</text>
+  <rect x="460" y="485" width="40" height="16" rx="4" fill="rgba(59,130,246,0.3)"/>
+  <text x="468" y="497" fill="#60a5fa" font-size="8">ready</text>
+  <text x="510" y="497" class="text-muted" font-size="9">2h ago</text>
+  <text x="620" y="505" class="accent-coral" font-size="9">▶ Go to Runs →</text>
+  
+  <rect x="440" y="530" width="310" height="55" class="panel-inner"/>
+  <text x="460" y="555" class="text-primary small">Batch Dec 3</text>
+  <text x="700" y="555" class="text-muted" font-size="9">15 queries</text>
+  <rect x="460" y="565" width="60" height="16" rx="4" fill="rgba(74,156,148,0.3)"/>
+  <text x="468" y="577" class="accent-teal" font-size="8">completed</text>
+  
+  <!-- Right Column - Query Preview -->
+  <rect x="790" y="60" width="360" height="550" class="panel"/>
+  <text x="810" y="90" class="text-primary" font-size="14" font-weight="500">💬 Query Preview</text>
+  <text x="1070" y="90" class="accent-coral" font-size="9">🗑️ Delete Batch</text>
+  
+  <!-- Select all -->
+  <rect x="810" y="110" width="320" height="30" rx="6" fill="rgba(42,47,56,0.5)"/>
+  <text x="830" y="130" class="text-muted small">☐ Select All</text>
+  <rect x="1030" y="115" width="90" height="20" rx="4" fill="rgba(224,115,86,0.1)"/>
+  <text x="1040" y="129" class="accent-coral" font-size="8">🗑️ Delete (3)</text>
+  
+  <!-- Query cards -->
+  <rect x="810" y="150" width="320" height="90" class="panel-inner"/>
+  <text x="830" y="170" class="text-muted" font-size="9">☐ 1 of 20</text>
+  <rect x="880" y="160" width="40" height="14" rx="7" class="badge-plum"/>
+  <text x="888" y="170" class="accent-plum" font-size="8">angry</text>
+  <rect x="925" y="160" width="40" height="14" rx="7" class="badge-plum"/>
+  <text x="933" y="170" class="accent-plum" font-size="8">refund</text>
+  <text x="830" y="200" class="text-secondary small">"I want my money back! This product</text>
+  <text x="830" y="215" class="text-secondary small">is completely broken and useless."</text>
+  <text x="830" y="232" class="text-muted" font-size="8">(click to edit)</text>
+  
+  <rect x="810" y="250" width="320" height="90" rx="8" fill="rgba(74,156,148,0.05)" stroke="rgba(74,156,148,0.3)"/>
+  <text x="830" y="270" class="text-muted" font-size="9">☑ 2 of 20 (selected)</text>
+  <rect x="920" y="260" width="55" height="14" rx="7" class="badge-plum"/>
+  <text x="928" y="270" class="accent-plum" font-size="8">confused</text>
+  <rect x="980" y="260" width="40" height="14" rx="7" class="badge-plum"/>
+  <text x="988" y="270" class="accent-plum" font-size="8">status</text>
+  <text x="830" y="300" class="text-secondary small">"Where is my order? I'm very</text>
+  <text x="830" y="315" class="text-secondary small">confused about the shipping status."</text>
+  
+  <rect x="810" y="350" width="320" height="110" class="panel-inner"/>
+  <text x="830" y="370" class="text-muted" font-size="9">☐ 3 of 20</text>
+  <text x="830" y="390" class="accent-gold small">Editing:</text>
+  <rect x="830" y="400" width="280" height="35" rx="4" fill="#14171c" stroke="#d4a84b"/>
+  <text x="840" y="422" class="text-secondary" font-size="9">Edit query text here...</text>
+  <rect x="830" y="442" width="45" height="20" class="btn-primary"/>
+  <text x="840" y="456" class="text-primary" font-size="8">Save</text>
+  <rect x="885" y="442" width="50" height="20" class="btn-secondary"/>
+  <text x="893" y="456" class="text-muted" font-size="8">Cancel</text>
+  
+  <rect x="810" y="470" width="320" height="70" class="panel-inner"/>
+  <text x="830" y="490" class="text-muted" font-size="9">☐ 4 of 20</text>
+  <rect x="880" y="480" width="45" height="14" rx="7" class="badge-plum"/>
+  <text x="888" y="490" class="accent-plum" font-size="8">happy</text>
+  <rect x="930" y="480" width="55" height="14" rx="7" class="badge-plum"/>
+  <text x="938" y="490" class="accent-plum" font-size="8">question</text>
+  <text x="830" y="520" class="text-secondary small">"Hi! I love your service. Can you</text>
+  <text x="830" y="535" class="text-secondary small">tell me about your return policy?"</text>
+  
+  <!-- ======================= -->
+  <!-- TAB 5: RUNS -->
+  <!-- ======================= -->
+  <text x="50" y="660" class="text-primary title">Tab 5: Runs (3 + 5 + 4 grid)</text>
+  
+  <!-- Left Column - Agent Selection -->
+  <rect x="50" y="680" width="250" height="350" class="panel"/>
+  <text x="70" y="710" class="text-primary" font-size="14" font-weight="500">🖥️ Select Agent</text>
+  
+  <rect x="70" y="730" width="210" height="50" rx="8" fill="rgba(74,156,148,0.1)" stroke="rgba(74,156,148,0.5)"/>
+  <text x="90" y="755" class="text-primary small">Customer Support</text>
+  <text x="90" y="770" class="accent-teal" font-size="9">🟢 connected</text>
+  
+  <rect x="70" y="790" width="210" height="50" class="panel-inner"/>
+  <text x="90" y="815" class="text-primary small">Research Assistant</text>
+  <text x="90" y="830" class="accent-coral" font-size="9">🔴 error</text>
+  
+  <!-- Middle Column - Execution -->
+  <rect x="320" y="680" width="450" height="350" class="panel"/>
+  
+  <!-- Active execution -->
+  <rect x="340" y="700" width="410" height="100" rx="10">
+    <animate attributeName="fill" values="rgba(74,156,148,0.1);rgba(139,90,139,0.1)" dur="2s" repeatCount="indefinite"/>
+  </rect>
+  <rect x="340" y="700" width="410" height="100" rx="10" fill="none" stroke="rgba(74,156,148,0.3)"/>
+  <circle cx="370" cy="740" r="18" fill="rgba(74,156,148,0.2)"/>
+  <text x="365" y="745" class="accent-teal small">🔄</text>
+  <text x="400" y="730" class="text-primary" font-size="14" font-weight="500">Executing Batch</text>
+  <text x="400" y="750" class="text-muted small">"Batch Dec 4"</text>
+  <text x="360" y="775" class="text-muted" font-size="9">Query 12 of 20</text>
+  <text x="700" y="775" class="text-muted" font-size="9">60%</text>
+  <rect x="360" y="782" width="370" height="8" class="progress-bg"/>
+  <rect x="360" y="782" width="222" height="8" rx="4">
+    <animate attributeName="fill" values="#4a9c94;#8b5a8b" dur="2s" repeatCount="indefinite"/>
+  </rect>
+  
+  <!-- Pending Runs -->
+  <text x="340" y="830" class="text-primary" font-size="12" font-weight="500">⏰ Pending Runs (2)</text>
+  
+  <rect x="340" y="850" width="410" height="55" class="panel-inner"/>
+  <text x="360" y="875" class="text-primary small">Batch Dec 4</text>
+  <rect x="460" y="863" width="60" height="16" rx="8" class="badge-amber"/>
+  <text x="470" y="875" class="accent-gold" font-size="8">20 queries</text>
+  <text x="360" y="893" class="text-muted" font-size="9">Created 2h ago</text>
+  <rect x="660" y="865" width="60" height="25" class="btn-primary"/>
+  <text x="675" y="882" class="text-primary" font-size="9">▶ Run</text>
+  
+  <!-- Completed Runs -->
+  <text x="340" y="940" class="text-primary" font-size="12" font-weight="500">✅ Completed Runs (3)</text>
+  
+  <rect x="340" y="960" width="410" height="50" rx="8" fill="rgba(74,156,148,0.05)" stroke="rgba(74,156,148,0.3)"/>
+  <text x="360" y="985" class="text-primary small">Batch Dec 2 (selected)</text>
+  <rect x="480" y="973" width="60" height="16" rx="4" fill="rgba(74,156,148,0.3)"/>
+  <text x="488" y="985" class="accent-teal" font-size="8">completed</text>
+  <text x="650" y="985" class="text-muted" font-size="9">🔄 Re-run</text>
+  
+  <!-- Right Column - AI Review + Results -->
+  <rect x="790" y="680" width="360" height="350" class="panel"/>
+  
+  <!-- AI Review -->
+  <text x="810" y="710" class="text-primary" font-size="14" font-weight="500">✨ AI Review</text>
+  
+  <rect x="810" y="730" width="320" height="80" class="panel-inner"/>
+  <text x="900" y="760" class="accent-gold" text-anchor="middle">✨</text>
+  <text x="900" y="780" class="text-muted small" text-anchor="middle">Analyze this batch with AI</text>
+  <text x="900" y="795" class="text-muted" font-size="9" text-anchor="middle">to discover failure patterns</text>
+  
+  <rect x="870" y="820" width="140" height="30" class="btn-primary"/>
+  <text x="895" y="840" class="text-primary small">✨ Run Auto Review</text>
+  
+  <!-- Review Results (when complete) -->
+  <text x="810" y="875" class="text-muted small">FAILURE CATEGORIES:</text>
+  
+  <rect x="810" y="890" width="320" height="50" class="panel-inner"/>
+  <text x="830" y="910" class="text-muted" font-size="9">▸</text>
+  <text x="845" y="910" class="text-primary small">Hallucination</text>
+  <rect x="945" y="900" width="55" height="16" rx="8" class="badge-amber"/>
+  <text x="955" y="912" class="accent-gold" font-size="8">(5) 25%</text>
+  <text x="845" y="930" class="text-muted" font-size="9">Agent generates false information</text>
+  
+  <rect x="810" y="950" width="320" height="40" class="panel-inner"/>
+  <text x="830" y="975" class="text-muted" font-size="9">▸</text>
+  <text x="845" y="975" class="text-primary small">Tool Errors</text>
+  <rect x="925" y="965" width="55" height="16" rx="8" class="badge-amber"/>
+  <text x="935" y="977" class="accent-gold" font-size="8">(3) 15%</text>
+  
+  <!-- ======================= -->
+  <!-- TAB 6: SETTINGS -->
+  <!-- ======================= -->
+  <text x="50" y="1080" class="text-primary title">Tab 6: Settings</text>
+  
+  <!-- Header -->
+  <rect x="50" y="1100" width="1100" height="60" class="panel"/>
+  <text x="70" y="1130" class="text-primary" font-size="16" font-weight="600">Settings</text>
+  <text x="70" y="1148" class="text-muted small">Configure LLM and Weave connections for the application</text>
+  <rect x="900" y="1115" width="80" height="25" rx="10" class="badge-gold"/>
+  <text x="910" y="1132" class="accent-gold" font-size="9">⚠️ Unsaved</text>
+  <rect x="1000" y="1112" width="120" height="30" class="btn-primary"/>
+  <text x="1020" y="1132" class="text-primary small">💾 Save Settings</text>
+  
+  <!-- Status Cards -->
+  <rect x="50" y="1180" width="540" height="80" rx="10" fill="rgba(74,156,148,0.1)" stroke="rgba(74,156,148,0.3)"/>
+  <text x="80" y="1210" class="accent-teal small">✅</text>
+  <text x="100" y="1210" class="text-primary small" font-weight="500">LLM Configuration</text>
+  <text x="100" y="1230" class="text-muted small">Model: gpt-4o-mini</text>
+  <text x="520" y="1220" class="text-secondary" font-size="9">[Test]</text>
+  <rect x="100" y="1240" width="400" height="18" rx="4" fill="rgba(74,156,148,0.2)"/>
+  <text x="115" y="1253" class="accent-teal" font-size="9">✅ Connected successfully</text>
+  
+  <rect x="610" y="1180" width="540" height="80" rx="10" fill="rgba(74,156,148,0.1)" stroke="rgba(74,156,148,0.3)"/>
+  <text x="640" y="1210" class="accent-teal small">✅</text>
+  <text x="660" y="1210" class="text-primary small" font-weight="500">Weave Configuration</text>
+  <text x="660" y="1230" class="text-muted small">Project: error-analysis-demo</text>
+  <text x="1080" y="1220" class="text-secondary" font-size="9">[Test]</text>
+  
+  <!-- Settings Groups -->
+  <rect x="50" y="1280" width="540" height="280" class="panel"/>
+  <text x="70" y="1310" class="text-primary" font-size="14" font-weight="500">🤖 LLM Settings</text>
+  <text x="70" y="1330" class="text-muted small">Configure the language model</text>
+  
+  <text x="70" y="1360" class="text-muted small">Provider</text>
+  <rect x="70" y="1370" width="500" height="35" class="panel-inner"/>
+  <text x="90" y="1393" class="text-primary small">openai</text>
+  
+  <text x="70" y="1420" class="text-muted small">Model</text>
+  <rect x="70" y="1430" width="500" height="35" class="panel-inner"/>
+  <text x="90" y="1453" class="text-primary small">gpt-4o-mini</text>
+  
+  <text x="70" y="1480" class="text-muted small">API Key</text>
+  <text x="130" y="1480" class="accent-teal" font-size="9">(stored) ✅</text>
+  <rect x="70" y="1490" width="500" height="35" class="panel-inner"/>
+  <text x="90" y="1513" class="text-muted small">Enter new value to update</text>
+  <text x="540" y="1513" class="text-muted small">👁️</text>
+  
+  <!-- Weave Settings -->
+  <rect x="610" y="1280" width="540" height="280" class="panel"/>
+  <text x="630" y="1310" class="text-primary" font-size="14" font-weight="500">🗄️ Weave Settings</text>
+  <text x="630" y="1330" class="text-muted small">Configure Weave connection</text>
+  
+  <text x="630" y="1360" class="text-muted small">W&amp;B API Key</text>
+  <text x="720" y="1360" class="accent-teal" font-size="9">(stored) ✅</text>
+  <rect x="630" y="1370" width="500" height="35" class="panel-inner"/>
+  <text x="650" y="1393" class="text-muted small">Enter new value to update</text>
+  <text x="1100" y="1393" class="text-muted small">👁️</text>
+  
+  <text x="630" y="1420" class="text-muted small">Entity</text>
+  <rect x="630" y="1430" width="500" height="35" class="panel-inner"/>
+  <text x="650" y="1453" class="text-primary small">ayut</text>
+  
+  <text x="630" y="1480" class="text-muted small">Project</text>
+  <rect x="630" y="1490" width="500" height="35" class="panel-inner"/>
+  <text x="650" y="1513" class="text-primary small">error-analysis-demo</text>
+  
+  <!-- Help Panel -->
+  <rect x="50" y="1580" width="1100" height="100" class="panel"/>
+  <text x="70" y="1610" class="text-primary" font-size="14" font-weight="500">🔑 Getting API Keys</text>
+  
+  <text x="70" y="1640" class="text-primary small" font-weight="500">LLM API Keys</text>
+  <text x="70" y="1660" class="text-muted small">OpenAI: platform.openai.com/api-keys</text>
+  <text x="70" y="1675" class="text-muted small">Anthropic: console.anthropic.com</text>
+  
+  <text x="500" y="1640" class="text-primary small" font-weight="500">W&amp;B / Weave</text>
+  <text x="500" y="1660" class="text-muted small">API Key: wandb.ai/authorize</text>
+  <text x="500" y="1675" class="text-muted small">Entity: Your username or team name</text>
+  
+  <!-- ======================= -->
+  <!-- MODAL EXAMPLE -->
+  <!-- ======================= -->
+  <text x="50" y="1730" class="text-primary title">Modal Component Example</text>
+  
+  <!-- Modal overlay -->
+  <rect x="50" y="1750" width="500" height="220" fill="rgba(0,0,0,0.5)" rx="12"/>
+  
+  <!-- Modal content -->
+  <rect x="100" y="1780" width="400" height="170" class="panel"/>
+  <text x="120" y="1810" class="text-primary" font-size="14" font-weight="500">Create Failure Mode</text>
+  
+  <text x="120" y="1840" class="text-muted small">Name</text>
+  <rect x="120" y="1850" width="360" height="28" class="panel-inner"/>
+  <text x="135" y="1868" class="text-muted" font-size="9">e.g., Hallucination</text>
+  
+  <text x="120" y="1895" class="text-muted small">Severity</text>
+  <rect x="120" y="1905" width="360" height="28" class="panel-inner"/>
+  <text x="135" y="1923" class="text-primary small">Medium ▾</text>
+  
+  <line x1="120" y1="1935" x2="480" y2="1935" class="divider"/>
+  <rect x="350" y="1940" width="55" height="25" rx="4" fill="transparent"/>
+  <text x="362" y="1957" class="text-secondary small">Cancel</text>
+  <rect x="415" y="1940" width="60" height="25" class="btn-primary"/>
+  <text x="430" y="1957" class="text-primary small">Create</text>
+  
+</svg>
+

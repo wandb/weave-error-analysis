@@ -44,3 +44,4 @@ build/
 *.db-wal
 *.db-shm
 
+wireframes/

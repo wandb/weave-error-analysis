@@ -140,7 +140,8 @@ export function useApp() {
 
 export function AppProvider({ children }: { children: ReactNode }) {
   // Navigation
-  const [activeTab, setActiveTab] = useState<TabType>("sessions");
+  // Start with Agents tab - first step in the workflow
+  const [activeTab, setActiveTab] = useState<TabType>("agents");
 
   // Sessions state
   const [threads, setThreads] = useState<Thread[]>([]);

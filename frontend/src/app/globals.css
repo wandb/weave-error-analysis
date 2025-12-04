@@ -1,147 +1,206 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:wght@400;500;600;700&family=Source+Sans+3:wght@300;400;500;600;700&display=swap');
+/* W&B Brand Typography - Source Serif 4 + Source Sans 3 */
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Source+Sans+3:wght@300;400;500;600&family=Source+Serif+4:wght@400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================================
+   W&B Brand Design System
+   Primary: Moon-900 (#171A1F), Gold-450 (#FCBC32), Moon-50 (#FDFDFD)
+   Secondary: Teal-450 (#10BFCC), Moon-450 (#8F949E)
+   ============================================================================ */
+
 :root {
-  --color-bg: #14171c;
-  --color-surface: #1e2229;
+  /* W&B Primary Colors */
+  --color-moon-900: #171A1F;
+  --color-moon-800: #252830;
+  --color-moon-700: #333333;
+  --color-moon-450: #8F949E;
+  --color-moon-50: #FDFDFD;
+  --color-gold: #FCBC32;
+  --color-teal: #10BFCC;
+  
+  /* Semantic mappings */
+  --color-bg: var(--color-moon-900);
+  --color-surface: var(--color-moon-800);
   --color-surface-elevated: #2a2f38;
-  --color-border: #3a4251;
-  --color-text: #f3ede4;
-  --color-text-muted: #8593a9;
-  --color-accent-primary: #e07356;
-  --color-accent-secondary: #4a9c94;
-  --color-success: #4a9c94;
-  --color-error: #e07356;
-  --color-warning: #d4a84b;
+  --color-border: #333333;
+  --color-text: var(--color-moon-50);
+  --color-text-muted: var(--color-moon-450);
+  --color-accent-primary: var(--color-gold);
+  --color-accent-secondary: var(--color-teal);
+  --color-success: var(--color-teal);
+  --color-warning: var(--color-gold);
 }
 
 body {
   background: var(--color-bg);
   color: var(--color-text);
-  font-family: 'Source Sans 3', system-ui, sans-serif;
+  font-family: 'Source Sans 3', 'Source Sans Pro', Calibri, sans-serif;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom scrollbar */
+/* W&B Typography - Headlines use Source Serif 4 */
+h1, h2, h3, .font-display {
+  font-family: 'Source Serif 4', 'Source Serif Pro', 'Times New Roman', serif;
+  font-weight: 400;
+}
+
+/* Custom scrollbar - Minimal */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--color-surface);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 4px;
+  background: var(--color-moon-450);
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-muted);
-}
-
-/* Subtle grid pattern background */
-.bg-grid-pattern {
-  background-image: 
-    linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-  background-size: 24px 24px;
+  background: var(--color-gold);
 }
 
 /* Card hover effects */
 .trace-card {
-  @apply transition-all duration-200 border border-ink-800 bg-ink-900/50 backdrop-blur-sm;
+  @apply transition-all duration-200 border bg-opacity-30;
+  border-color: #252830;
+  background-color: rgba(37, 40, 48, 0.3);
 }
 
 .trace-card:hover {
-  @apply border-ink-700 bg-ink-900/80 shadow-lg shadow-black/20;
+  background-color: rgba(37, 40, 48, 0.6);
+  border-color: #333333;
   transform: translateY(-1px);
 }
 
-/* Status indicators */
+/* Status indicators - Using W&B colors */
 .status-success {
-  @apply bg-accent-teal/20 text-accent-teal border border-accent-teal/30;
+  background: rgba(16, 191, 204, 0.15);
+  color: #10BFCC;
+  border: 1px solid rgba(16, 191, 204, 0.3);
 }
 
 .status-error {
-  @apply bg-accent-coral/20 text-accent-coral border border-accent-coral/30;
+  background: rgba(239, 68, 68, 0.15);
+  color: #EF4444;
+  border: 1px solid rgba(239, 68, 68, 0.3);
 }
 
 .status-pending {
-  @apply bg-accent-gold/20 text-accent-gold border border-accent-gold/30;
+  background: rgba(252, 188, 50, 0.15);
+  color: #FCBC32;
+  border: 1px solid rgba(252, 188, 50, 0.3);
 }
 
-/* Input styles */
+/* Input styles - Clean, minimal */
 input, textarea, select {
-  @apply bg-ink-900 border border-ink-700 text-sand-200 rounded-lg px-4 py-2;
-  @apply focus:outline-none focus:ring-2 focus:ring-accent-coral/50 focus:border-accent-coral;
-  @apply placeholder:text-ink-500;
+  @apply rounded-md px-3 py-2;
+  @apply focus:outline-none focus:ring-2;
+  background-color: #252830;
+  border: 1px solid #333333;
+  color: #FDFDFD;
   max-width: 100%;
   box-sizing: border-box;
+  font-family: 'Source Sans 3', sans-serif;
 }
 
-/* Button styles */
+input:focus, textarea:focus, select:focus {
+  border-color: #FCBC32;
+  box-shadow: 0 0 0 2px rgba(252, 188, 50, 0.4);
+}
+
+input::placeholder, textarea::placeholder {
+  color: #8F949E;
+}
+
+/* Button styles - W&B Brand
+   Note: Buttons use ALL CAPS per W&B guidelines */
 .btn-primary {
-  @apply bg-accent-coral text-white font-medium px-4 py-2 rounded-lg;
-  @apply hover:bg-accent-coral/90 transition-colors duration-200;
-  @apply focus:outline-none focus:ring-2 focus:ring-accent-coral/50;
+  @apply font-medium px-4 py-2 rounded-md;
+  @apply hover:brightness-110 transition-all duration-200;
+  @apply focus:outline-none focus:ring-2;
+  @apply uppercase text-sm tracking-wide;
+  background-color: #FCBC32;
+  color: #171A1F;
+}
+
+.btn-primary:focus {
+  box-shadow: 0 0 0 2px rgba(252, 188, 50, 0.5);
 }
 
 .btn-secondary {
-  @apply bg-ink-800 text-sand-200 font-medium px-4 py-2 rounded-lg border border-ink-700;
-  @apply hover:bg-ink-700 hover:border-ink-600 transition-colors duration-200;
-  @apply focus:outline-none focus:ring-2 focus:ring-ink-500/50;
+  @apply font-medium px-4 py-2 rounded-md transition-colors duration-200;
+  @apply focus:outline-none focus:ring-2;
+  background-color: #252830;
+  color: #FDFDFD;
+  border: 1px solid #333333;
+}
+
+.btn-secondary:hover {
+  background-color: #333333;
+  border-color: #4A4A4A;
 }
 
 .btn-ghost {
-  @apply text-ink-400 font-medium px-3 py-1.5 rounded-lg;
-  @apply hover:bg-ink-800 hover:text-sand-200 transition-colors duration-200;
+  @apply font-medium px-3 py-1.5 rounded-md transition-colors duration-200;
+  color: #8F949E;
+}
+
+.btn-ghost:hover {
+  background-color: #252830;
+  color: #FDFDFD;
 }
 
 /* Animations */
 @keyframes shimmer {
-  0% {
-    background-position: -1000px 0;
-  }
-  100% {
-    background-position: 1000px 0;
-  }
+  0% { background-position: -1000px 0; }
+  100% { background-position: 1000px 0; }
 }
 
 .shimmer {
   background: linear-gradient(90deg, var(--color-surface) 0%, var(--color-surface-elevated) 50%, var(--color-surface) 100%);
   background-size: 1000px 100%;
-  animation: shimmer 2s infinite linear;
+  animation: shimmer 1.5s infinite linear;
 }
 
 /* Code block styling */
 .code-block {
-  @apply font-mono text-sm bg-ink-950 rounded-lg p-4 overflow-x-auto;
-  @apply border border-ink-800;
+  @apply font-mono text-sm rounded-md p-4 overflow-x-auto;
+  background-color: #171A1F;
+  border: 1px solid #252830;
 }
 
-/* Badge styles */
+/* Badge styles - Refined for W&B */
 .badge {
-  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  @apply inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium;
 }
 
 .badge-coral {
-  @apply bg-accent-coral/20 text-accent-coral;
+  background: rgba(252, 188, 50, 0.15);
+  color: #FCBC32;
 }
 
 .badge-teal {
-  @apply bg-accent-teal/20 text-accent-teal;
+  background: rgba(16, 191, 204, 0.15);
+  color: #10BFCC;
 }
 
 .badge-gold {
-  @apply bg-accent-gold/20 text-accent-gold;
+  background: rgba(252, 188, 50, 0.15);
+  color: #FCBC32;
 }
 
 .badge-plum {
-  @apply bg-accent-plum/20 text-accent-plum;
+  background: rgba(143, 148, 158, 0.15);
+  color: #8F949E;
 }
 
 /* Fade in animation */
@@ -157,13 +216,20 @@ input, textarea, select {
 }
 
 .animate-fade-in {
-  animation: fade-in 0.3s ease-out;
+  animation: fade-in 0.25s ease-out forwards;
+  opacity: 0;
 }
 
 /* Staggered animation for lists */
 .animate-fade-in:nth-child(1) { animation-delay: 0ms; }
-.animate-fade-in:nth-child(2) { animation-delay: 50ms; }
-.animate-fade-in:nth-child(3) { animation-delay: 100ms; }
-.animate-fade-in:nth-child(4) { animation-delay: 150ms; }
-.animate-fade-in:nth-child(5) { animation-delay: 200ms; }
+.animate-fade-in:nth-child(2) { animation-delay: 40ms; }
+.animate-fade-in:nth-child(3) { animation-delay: 80ms; }
+.animate-fade-in:nth-child(4) { animation-delay: 120ms; }
+.animate-fade-in:nth-child(5) { animation-delay: 160ms; }
+
+/* Focus states for accessibility */
+*:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 2px;
+}
 

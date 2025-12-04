@@ -1,0 +1,492 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1200" height="2400" viewBox="0 0 1200 2400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      .bg { fill: #14171c; }
+      .panel { fill: #1e2229; stroke: #3a4251; stroke-width: 1; rx: 12; }
+      .panel-inner { fill: #2a2f38; stroke: #3a4251; stroke-width: 1; rx: 8; }
+      .text-primary { fill: #f3ede4; font-family: system-ui, sans-serif; }
+      .text-secondary { fill: #8593a9; font-family: system-ui, sans-serif; }
+      .text-muted { fill: #66768f; font-family: system-ui, sans-serif; }
+      .accent-coral { fill: #e07356; }
+      .accent-teal { fill: #4a9c94; }
+      .accent-gold { fill: #d4a84b; }
+      .accent-plum { fill: #8b5a8b; }
+      .btn-primary { fill: #e07356; rx: 6; }
+      .btn-secondary { fill: #3a4251; rx: 6; }
+      .badge { rx: 10; }
+      .badge-coral { fill: rgba(224, 115, 86, 0.2); }
+      .badge-teal { fill: rgba(74, 156, 148, 0.2); }
+      .progress-bg { fill: #3a4251; rx: 4; }
+      .progress-fill { rx: 4; }
+      .divider { stroke: #3a4251; stroke-width: 1; }
+      .title { font-size: 24px; font-weight: 600; }
+      .subtitle { font-size: 14px; }
+      .label { font-size: 12px; }
+      .small { font-size: 10px; }
+    </style>
+  </defs>
+  
+  <!-- Background -->
+  <rect class="bg" width="1200" height="2400"/>
+  
+  <!-- ======================= -->
+  <!-- TITLE SECTION -->
+  <!-- ======================= -->
+  <text x="50" y="50" class="text-primary title">Weave Error Analysis - UI Wireframes</text>
+  <text x="50" y="75" class="text-secondary subtitle">6 Main Tabs: Sessions, Taxonomy, Agents, Synthetic, Runs, Settings</text>
+  
+  <!-- ======================= -->
+  <!-- GLOBAL HEADER WIREFRAME -->
+  <!-- ======================= -->
+  <text x="50" y="120" class="text-primary" font-size="16" font-weight="600">Global Header (sticky, max-width: 1800px)</text>
+  
+  <rect x="50" y="140" width="1100" height="70" class="panel"/>
+  
+  <!-- Logo -->
+  <rect x="70" y="155" width="40" height="40" rx="8" fill="url(#logoGradient)"/>
+  <defs>
+    <linearGradient id="logoGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#e07356"/>
+      <stop offset="100%" style="stop-color:#d4a84b"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Title -->
+  <text x="125" y="172" class="text-primary" font-size="16" font-weight="600">Error Analysis</text>
+  <text x="125" y="188" class="text-muted small">Bottom-up failure mode discovery</text>
+  
+  <!-- Tab Navigation -->
+  <rect x="280" y="155" width="580" height="40" rx="8" fill="#1e2229"/>
+  
+  <!-- Tab buttons -->
+  <rect x="288" y="162" width="85" height="26" rx="6" class="accent-coral"/>
+  <text x="310" y="180" class="text-primary small">💬 Sessions</text>
+  
+  <text x="390" y="180" class="text-secondary small">📊 Taxonomy</text>
+  <rect x="470" y="168" width="16" height="14" rx="7" class="badge-gold"/>
+  <text x="475" y="178" class="accent-gold" font-size="8">5</text>
+  
+  <text x="500" y="180" class="text-secondary small">🖥️ Agents</text>
+  <text x="590" y="180" class="text-secondary small">⚡ Synthetic</text>
+  <text x="680" y="180" class="text-secondary small">▶ Runs</text>
+  <text x="750" y="180" class="text-secondary small">⚙️ Settings</text>
+  
+  <!-- Stats -->
+  <text x="920" y="175" class="accent-teal small">👍 15</text>
+  <text x="970" y="175" class="accent-coral small">👎 3</text>
+  
+  <!-- Refresh button -->
+  <rect x="1020" y="160" width="80" height="30" class="btn-secondary"/>
+  <text x="1040" y="180" class="text-secondary small">🔄 Refresh</text>
+  
+  <!-- ======================= -->
+  <!-- SESSIONS TAB WIREFRAME -->
+  <!-- ======================= -->
+  <text x="50" y="250" class="text-primary" font-size="16" font-weight="600">Tab 1: Sessions (4 + 8 column grid)</text>
+  
+  <!-- Progress bar -->
+  <rect x="50" y="270" width="1100" height="50" class="panel"/>
+  <text x="70" y="295" class="text-primary small">🎯 Review Progress</text>
+  <text x="1000" y="295" class="text-muted small">45 / 100 reviewed</text>
+  <rect x="70" y="302" width="1060" height="8" class="progress-bg"/>
+  <rect x="70" y="302" width="477" height="8" class="progress-fill">
+    <animate attributeName="fill" values="#4a9c94;#e07356" dur="2s" repeatCount="1" fill="freeze"/>
+  </rect>
+  
+  <!-- Left Panel - Sessions List -->
+  <rect x="50" y="340" width="350" height="400" class="panel"/>
+  <text x="70" y="370" class="text-primary" font-size="14" font-weight="500">💬 Sessions</text>
+  <rect x="370" y="358" width="20" height="16" rx="8" class="badge-coral"/>
+  <text x="375" y="370" class="accent-coral small">158</text>
+  
+  <!-- Search -->
+  <rect x="70" y="390" width="310" height="32" class="panel-inner"/>
+  <text x="90" y="410" class="text-muted small">🔍 Search sessions...</text>
+  
+  <!-- Sort controls -->
+  <rect x="70" y="432" width="140" height="24" class="panel-inner"/>
+  <text x="85" y="448" class="text-secondary small">Last Updated ▾</text>
+  <rect x="218" y="432" width="24" height="24" class="panel-inner"/>
+  <text x="225" y="448" class="text-secondary small">↓</text>
+  
+  <!-- Filter pills -->
+  <rect x="70" y="466" width="55" height="20" rx="10" stroke="#e07356" stroke-width="1" fill="rgba(224,115,86,0.1)"/>
+  <text x="82" y="480" class="accent-coral" font-size="9">5+ turns</text>
+  
+  <rect x="132" y="466" width="70" height="20" rx="10" stroke="#3a4251" stroke-width="1" fill="transparent"/>
+  <text x="145" y="480" class="text-muted" font-size="9">Not Reviewed</text>
+  
+  <rect x="210" y="466" width="60" height="20" rx="10" stroke="#3a4251" stroke-width="1" fill="transparent"/>
+  <text x="220" y="480" class="text-muted" font-size="9">🔀 Random</text>
+  
+  <!-- Session cards -->
+  <rect x="70" y="500" width="310" height="60" class="panel-inner"/>
+  <text x="90" y="520" class="text-secondary small">☐ thread-abc-123</text>
+  <rect x="90" y="530" width="50" height="16" rx="8" class="badge-teal"/>
+  <text x="100" y="542" class="accent-teal" font-size="9">3 turns</text>
+  <text x="150" y="542" class="text-muted" font-size="9">2h ago</text>
+  <text x="355" y="530" class="text-muted small">›</text>
+  
+  <rect x="70" y="570" width="310" height="60" class="panel-inner" stroke="#e07356" stroke-width="2"/>
+  <text x="90" y="590" class="text-secondary small">☑ thread-def-456 (selected)</text>
+  <rect x="90" y="600" width="50" height="16" rx="8" class="badge-teal"/>
+  <text x="100" y="612" class="accent-teal" font-size="9">5 turns</text>
+  <text x="150" y="612" class="text-muted" font-size="9">1d ago</text>
+  
+  <rect x="70" y="640" width="310" height="60" class="panel-inner"/>
+  <text x="90" y="660" class="text-secondary small">☐ thread-ghi-789</text>
+  <rect x="90" y="670" width="50" height="16" rx="8" class="badge-teal"/>
+  <text x="100" y="682" class="accent-teal" font-size="9">8 turns</text>
+  <text x="150" y="682" class="text-muted" font-size="9">3d ago</text>
+  
+  <!-- Right Panel - Conversation -->
+  <rect x="420" y="340" width="730" height="400" class="panel"/>
+  <text x="440" y="370" class="text-primary" font-size="14" font-weight="500">💬 Conversation</text>
+  
+  <!-- Thread info bar -->
+  <rect x="440" y="390" width="690" height="50" class="panel-inner"/>
+  <text x="460" y="415" class="accent-coral small">thread-def-456</text>
+  <rect x="570" y="405" width="55" height="16" rx="8" class="badge-teal"/>
+  <text x="580" y="417" class="accent-teal" font-size="9">Reviewed</text>
+  <text x="460" y="432" class="text-muted" font-size="9">5 calls · 8 msgs · ⏱ 1234ms</text>
+  <text x="1030" y="420" class="text-secondary small">[↗ Weave]</text>
+  
+  <!-- Messages -->
+  <rect x="440" y="455" width="690" height="60" class="panel-inner"/>
+  <circle cx="465" cy="475" r="12" class="badge-coral"/>
+  <text x="460" y="480" class="text-primary" font-size="10">👤</text>
+  <text x="490" y="475" class="accent-coral" font-size="9">User</text>
+  <text x="530" y="475" class="text-muted" font-size="9">10:23 AM</text>
+  <text x="490" y="500" class="text-secondary small">"What's the weather in NYC?"</text>
+  
+  <rect x="440" y="525" width="690" height="60" class="panel-inner"/>
+  <circle cx="465" cy="545" r="12" class="badge-teal"/>
+  <text x="460" y="550" class="text-primary" font-size="10">🤖</text>
+  <text x="490" y="545" class="accent-teal" font-size="9">Assistant</text>
+  <text x="550" y="545" class="text-muted" font-size="9">10:23 AM</text>
+  <text x="490" y="570" class="text-secondary small">"Let me check the weather for you..."</text>
+  
+  <rect x="440" y="595" width="690" height="60" class="panel-inner" stroke="#d4a84b" stroke-opacity="0.3"/>
+  <circle cx="465" cy="615" r="12" fill="rgba(212,168,75,0.2)"/>
+  <text x="460" y="620" class="text-primary" font-size="10">🔧</text>
+  <text x="490" y="615" class="accent-gold" font-size="9">Tool: get_weather</text>
+  <text x="490" y="635" class="text-muted" font-size="9">Input: {"city": "NYC"}</text>
+  <text x="490" y="648" class="accent-teal" font-size="9">Output: {"temp": 72...}</text>
+  
+  <!-- Add note section -->
+  <rect x="440" y="670" width="690" height="55" class="panel-inner"/>
+  <text x="460" y="690" class="accent-gold small">📝 Add Note</text>
+  <rect x="460" y="698" width="550" height="20" rx="4" fill="#14171c" stroke="#3a4251"/>
+  <text x="470" y="712" class="text-muted" font-size="9">Document issues, observations...</text>
+  <rect x="1020" y="696" width="80" height="24" class="btn-primary"/>
+  <text x="1035" y="712" class="text-primary" font-size="9">➤ Add Note</text>
+  
+  <!-- ======================= -->
+  <!-- TAXONOMY TAB WIREFRAME -->
+  <!-- ======================= -->
+  <text x="50" y="790" class="text-primary" font-size="16" font-weight="600">Tab 2: Taxonomy (Saturation tracking + Failure modes)</text>
+  
+  <!-- Top row -->
+  <!-- Saturation card -->
+  <rect x="50" y="810" width="450" height="180" class="panel"/>
+  <text x="70" y="840" class="text-primary" font-size="14" font-weight="500">📈 Saturation Tracking</text>
+  <rect x="420" y="825" width="60" height="20" rx="10" fill="rgba(74,156,148,0.2)"/>
+  <text x="430" y="839" class="accent-teal" font-size="9">Saturated</text>
+  
+  <text x="70" y="870" class="text-muted small">"Keep reviewing to discover new failure modes"</text>
+  
+  <rect x="70" y="885" width="410" height="8" class="progress-bg"/>
+  <rect x="70" y="885" width="320" height="8" class="progress-fill accent-teal"/>
+  <text x="430" y="892" class="text-muted" font-size="9">78%</text>
+  
+  <!-- Stats boxes -->
+  <rect x="70" y="910" width="120" height="60" rx="8" fill="#14171c"/>
+  <text x="115" y="940" class="accent-coral" font-size="20" text-anchor="middle" font-weight="600">12</text>
+  <text x="115" y="958" class="text-muted" font-size="9" text-anchor="middle">Failure Modes</text>
+  
+  <rect x="200" y="910" width="120" height="60" rx="8" fill="#14171c"/>
+  <text x="245" y="940" class="accent-gold" font-size="20" text-anchor="middle" font-weight="600">5</text>
+  <text x="245" y="958" class="text-muted" font-size="9" text-anchor="middle">Uncategorized</text>
+  
+  <rect x="330" y="910" width="120" height="60" rx="8" fill="#14171c"/>
+  <text x="375" y="940" class="accent-teal" font-size="20" text-anchor="middle" font-weight="600">45</text>
+  <text x="375" y="958" class="text-muted" font-size="9" text-anchor="middle">Categorized</text>
+  
+  <!-- Actions card -->
+  <rect x="520" y="810" width="630" height="180" class="panel"/>
+  <text x="540" y="840" class="text-primary" font-size="14" font-weight="500">⚡ Actions</text>
+  
+  <!-- Action buttons -->
+  <rect x="540" y="860" width="280" height="50" class="panel-inner"/>
+  <circle cx="570" cy="885" r="15" class="badge-teal"/>
+  <text x="565" y="890" class="text-primary small">🔄</text>
+  <text x="600" y="880" class="text-primary small">Sync from Weave</text>
+  <text x="600" y="895" class="text-muted" font-size="9">Pull latest notes</text>
+  
+  <rect x="840" y="860" width="280" height="50" class="panel-inner"/>
+  <circle cx="870" cy="885" r="15" fill="rgba(139,90,139,0.2)"/>
+  <text x="865" y="890" class="text-primary small">✨</text>
+  <text x="900" y="880" class="text-primary small">Auto-Categorize</text>
+  <text x="900" y="895" class="text-muted" font-size="9">AI assigns all notes</text>
+  
+  <rect x="540" y="920" width="280" height="50" class="panel-inner"/>
+  <circle cx="570" cy="945" r="15" class="badge-coral"/>
+  <text x="565" y="950" class="text-primary small">➕</text>
+  <text x="600" y="940" class="text-primary small">New Failure Mode</text>
+  <text x="600" y="955" class="text-muted" font-size="9">Create manually</text>
+  
+  <rect x="840" y="920" width="280" height="50" class="panel-inner"/>
+  <circle cx="870" cy="945" r="15" fill="#3a4251"/>
+  <text x="865" y="950" class="text-primary small">🔄</text>
+  <text x="900" y="940" class="text-primary small">Refresh</text>
+  <text x="900" y="955" class="text-muted" font-size="9">Reload taxonomy</text>
+  
+  <!-- Main row - Uncategorized + Failure Modes -->
+  <!-- Uncategorized panel -->
+  <rect x="50" y="1010" width="350" height="350" class="panel"/>
+  <text x="70" y="1040" class="text-primary" font-size="14" font-weight="500">📋 Uncategorized</text>
+  <rect x="175" y="1025" width="20" height="16" rx="8" class="badge-gold"/>
+  <text x="181" y="1037" class="accent-gold small">5</text>
+  
+  <!-- Note cards -->
+  <rect x="70" y="1060" width="310" height="70" class="panel-inner"/>
+  <text x="90" y="1085" class="text-secondary small">"Agent hallucinated about</text>
+  <text x="90" y="1100" class="text-secondary small">weather data..."</text>
+  <text x="90" y="1120" class="text-muted" font-size="9">2h ago</text>
+  <text x="350" y="1120" class="accent-coral" font-size="9">↗</text>
+  
+  <rect x="70" y="1140" width="310" height="70" class="panel-inner" stroke="#d4a84b"/>
+  <text x="90" y="1165" class="text-secondary small">"Failed to parse user</text>
+  <text x="90" y="1180" class="text-secondary small">request correctly"</text>
+  <text x="90" y="1200" class="text-muted" font-size="9">(selected)</text>
+  
+  <!-- AI Suggestion box -->
+  <rect x="70" y="1220" width="310" height="120" class="panel-inner" stroke="rgba(212,168,75,0.3)"/>
+  <text x="90" y="1240" class="accent-gold small">Selected Note</text>
+  <rect x="90" y="1250" width="270" height="30" class="btn-primary"/>
+  <text x="170" y="1270" class="text-primary small">✨ Get AI Suggestion</text>
+  <text x="90" y="1305" class="text-muted" font-size="9">Or assign manually:</text>
+  <text x="90" y="1325" class="text-secondary" font-size="9">Hallucination →</text>
+  
+  <!-- Failure Modes panel -->
+  <rect x="420" y="1010" width="730" height="350" class="panel"/>
+  <text x="440" y="1040" class="text-primary" font-size="14" font-weight="500">⚠️ Failure Modes</text>
+  <rect x="560" y="1025" width="20" height="16" rx="8" class="badge-coral"/>
+  <text x="565" y="1037" class="accent-coral small">12</text>
+  <text x="1050" y="1040" class="text-secondary small">[📋 Copy All]</text>
+  
+  <!-- Failure mode cards with severity borders -->
+  <rect x="440" y="1060" width="690" height="90" rx="8" fill="#14171c" stroke-width="0"/>
+  <rect x="440" y="1060" width="4" height="90" fill="#e07356" rx="2"/>
+  <text x="460" y="1085" class="text-primary small" font-weight="500">Hallucination</text>
+  <rect x="555" y="1073" width="35" height="16" rx="8" fill="rgba(224,115,86,0.2)"/>
+  <text x="562" y="1085" class="accent-coral" font-size="9">high</text>
+  <rect x="600" y="1073" width="45" height="16" rx="8" fill="rgba(139,90,139,0.2)"/>
+  <text x="608" y="1085" class="accent-plum" font-size="9">5 notes</text>
+  <text x="460" y="1105" class="text-muted small">Agent generates false or fabricated information</text>
+  <text x="460" y="1125" class="text-muted" font-size="9">Created 2d ago · Last seen 1h ago</text>
+  <text x="1100" y="1090" class="text-muted small">▼</text>
+  
+  <rect x="440" y="1160" width="690" height="70" rx="8" fill="#14171c" stroke-width="0"/>
+  <rect x="440" y="1160" width="4" height="70" fill="#d4a84b" rx="2"/>
+  <text x="460" y="1185" class="text-primary small" font-weight="500">Tool Misuse</text>
+  <rect x="540" y="1173" width="45" height="16" rx="8" fill="rgba(212,168,75,0.2)"/>
+  <text x="550" y="1185" class="accent-gold" font-size="9">medium</text>
+  <text x="460" y="1205" class="text-muted small">Incorrect tool selection or parameter usage</text>
+  <text x="1100" y="1185" class="text-muted small">▶</text>
+  
+  <rect x="440" y="1240" width="690" height="70" rx="8" fill="#14171c" stroke-width="0"/>
+  <rect x="440" y="1240" width="4" height="70" fill="#4a9c94" rx="2"/>
+  <text x="460" y="1265" class="text-primary small" font-weight="500">Context Loss</text>
+  <rect x="550" y="1253" width="30" height="16" rx="8" fill="rgba(74,156,148,0.2)"/>
+  <text x="558" y="1265" class="accent-teal" font-size="9">low</text>
+  <text x="460" y="1285" class="text-muted small">Agent loses track of conversation context</text>
+  <text x="1100" y="1265" class="text-muted small">▶</text>
+  
+  <!-- ======================= -->
+  <!-- AGENTS TAB WIREFRAME -->
+  <!-- ======================= -->
+  <text x="50" y="1410" class="text-primary" font-size="16" font-weight="600">Tab 3: Agents (4 + 8 column grid)</text>
+  
+  <!-- Agent List -->
+  <rect x="50" y="1430" width="350" height="300" class="panel"/>
+  <text x="70" y="1460" class="text-primary" font-size="14" font-weight="500">🖥️ Registered Agents</text>
+  <rect x="210" y="1445" width="20" height="16" rx="8" class="badge-teal"/>
+  <text x="216" y="1457" class="accent-teal small">3</text>
+  <rect x="300" y="1445" width="80" height="24" class="btn-primary"/>
+  <text x="315" y="1461" class="text-primary" font-size="9">➕ Add Agent</text>
+  
+  <!-- Agent cards -->
+  <rect x="70" y="1480" width="310" height="70" class="panel-inner" stroke="#4a9c94" stroke-width="2"/>
+  <text x="90" y="1502" class="text-primary small" font-weight="500">Customer Support Agent</text>
+  <text x="240" y="1502" class="text-muted" font-size="9">v1.2</text>
+  <text x="90" y="1520" class="text-muted small">Handle customer inquiries...</text>
+  <text x="90" y="1538" class="accent-teal" font-size="9">🟢 connected · 5 dims</text>
+  <text x="355" y="1510" class="text-muted small">›</text>
+  
+  <rect x="70" y="1560" width="310" height="70" class="panel-inner"/>
+  <text x="90" y="1582" class="text-primary small" font-weight="500">Research Assistant</text>
+  <text x="210" y="1582" class="text-muted" font-size="9">v0.9</text>
+  <text x="90" y="1600" class="text-muted small">Conduct research...</text>
+  <text x="90" y="1618" class="accent-coral" font-size="9">🔴 error · 2 dims</text>
+  
+  <rect x="70" y="1640" width="310" height="70" class="panel-inner"/>
+  <text x="90" y="1662" class="text-primary small" font-weight="500">Data Analyst</text>
+  <text x="175" y="1662" class="text-muted" font-size="9">v2.0</text>
+  <text x="90" y="1680" class="text-muted small">Analyze data...</text>
+  <text x="90" y="1698" class="text-muted" font-size="9">⚪ unknown · 3 dims</text>
+  
+  <!-- Agent Detail -->
+  <rect x="420" y="1430" width="730" height="300" class="panel"/>
+  <text x="440" y="1460" class="text-primary" font-size="14" font-weight="500">Customer Support Agent</text>
+  <text x="440" y="1480" class="text-muted small">Handle customer inquiries and support</text>
+  <text x="440" y="1500" class="text-muted" font-size="9">v1.2</text>
+  <rect x="480" y="1488" width="60" height="16" rx="8" fill="rgba(139,90,139,0.2)"/>
+  <text x="490" y="1500" class="accent-plum" font-size="9">LangChain</text>
+  <rect x="550" y="1488" width="50" height="16" rx="8" fill="rgba(212,168,75,0.2)"/>
+  <text x="558" y="1500" class="accent-gold" font-size="9">Support</text>
+  
+  <!-- Buttons -->
+  <rect x="950" y="1448" width="100" height="28" class="btn-primary"/>
+  <text x="965" y="1466" class="text-primary" font-size="9">▶ Playground</text>
+  <rect x="1060" y="1448" width="60" height="28" class="btn-secondary"/>
+  <text x="1075" y="1466" class="text-secondary" font-size="9">📡 Test</text>
+  
+  <!-- Connection status -->
+  <rect x="440" y="1520" width="690" height="40" rx="8" fill="rgba(74,156,148,0.1)" stroke="rgba(74,156,148,0.2)"/>
+  <text x="460" y="1545" class="accent-teal small">✅ Connection successful</text>
+  <text x="640" y="1545" class="text-muted" font-size="9">Response time: 145ms</text>
+  
+  <!-- Sections preview -->
+  <text x="440" y="1590" class="text-muted small">CAPABILITIES:</text>
+  <text x="440" y="1608" class="text-secondary small">✅ Respond to customer queries</text>
+  <text x="440" y="1623" class="text-secondary small">✅ Track order status</text>
+  
+  <text x="720" y="1590" class="text-muted small">TOOLS (4):</text>
+  <rect x="720" y="1598" width="180" height="30" class="panel-inner"/>
+  <text x="740" y="1618" class="accent-plum" font-size="9">🔧 search_orders</text>
+  
+  <text x="940" y="1590" class="text-muted small">TESTING DIMS (3):</text>
+  <rect x="940" y="1598" width="180" height="30" class="panel-inner"/>
+  <text x="960" y="1618" class="accent-teal" font-size="9">🎯 customer_mood (5)</text>
+  
+  <line x1="440" y1="1650" x2="1130" y2="1650" class="divider"/>
+  <text x="440" y="1680" class="accent-gold small">⚡ Go to Synthetic Data Generation →</text>
+  
+  <!-- ======================= -->
+  <!-- COLOR PALETTE REFERENCE -->
+  <!-- ======================= -->
+  <text x="50" y="1780" class="text-primary" font-size="16" font-weight="600">Design System - Color Palette</text>
+  
+  <!-- Background colors -->
+  <rect x="50" y="1800" width="150" height="40" fill="#14171c" stroke="#3a4251"/>
+  <text x="60" y="1825" class="text-primary small">ink-950 #14171c</text>
+  
+  <rect x="210" y="1800" width="150" height="40" fill="#1e2229" stroke="#3a4251"/>
+  <text x="220" y="1825" class="text-primary small">ink-900 #1e2229</text>
+  
+  <rect x="370" y="1800" width="150" height="40" fill="#3a4251" stroke="#3a4251"/>
+  <text x="380" y="1825" class="text-primary small">ink-800 #3a4251</text>
+  
+  <!-- Accent colors -->
+  <rect x="50" y="1860" width="100" height="40" fill="#e07356"/>
+  <text x="60" y="1885" class="text-primary small">coral</text>
+  
+  <rect x="160" y="1860" width="100" height="40" fill="#4a9c94"/>
+  <text x="170" y="1885" class="text-primary small">teal</text>
+  
+  <rect x="270" y="1860" width="100" height="40" fill="#d4a84b"/>
+  <text x="280" y="1885" class="text-primary small">gold</text>
+  
+  <rect x="380" y="1860" width="100" height="40" fill="#8b5a8b"/>
+  <text x="390" y="1885" class="text-primary small">plum</text>
+  
+  <!-- Text colors -->
+  <rect x="50" y="1920" width="100" height="40" fill="#14171c" stroke="#3a4251"/>
+  <text x="60" y="1945" fill="#f3ede4" font-size="11">sand-100</text>
+  
+  <rect x="160" y="1920" width="100" height="40" fill="#14171c" stroke="#3a4251"/>
+  <text x="170" y="1945" fill="#8593a9" font-size="11">ink-400</text>
+  
+  <rect x="270" y="1920" width="100" height="40" fill="#14171c" stroke="#3a4251"/>
+  <text x="280" y="1945" fill="#66768f" font-size="11">ink-500</text>
+  
+  <!-- ======================= -->
+  <!-- COMPONENT REFERENCE -->
+  <!-- ======================= -->
+  <text x="550" y="1780" class="text-primary" font-size="16" font-weight="600">Components</text>
+  
+  <!-- Buttons -->
+  <text x="550" y="1810" class="text-muted small">Buttons:</text>
+  <rect x="550" y="1820" width="100" height="32" class="btn-primary"/>
+  <text x="575" y="1840" class="text-primary small">Primary</text>
+  
+  <rect x="660" y="1820" width="100" height="32" class="btn-secondary"/>
+  <text x="680" y="1840" class="text-secondary small">Secondary</text>
+  
+  <rect x="770" y="1820" width="80" height="32" fill="transparent"/>
+  <text x="790" y="1840" class="text-secondary small">Ghost</text>
+  
+  <!-- Badges -->
+  <text x="550" y="1880" class="text-muted small">Badges:</text>
+  <rect x="550" y="1890" width="50" height="20" rx="10" class="badge-coral"/>
+  <text x="563" y="1904" class="accent-coral" font-size="9">coral</text>
+  
+  <rect x="610" y="1890" width="45" height="20" rx="10" class="badge-teal"/>
+  <text x="623" y="1904" class="accent-teal" font-size="9">teal</text>
+  
+  <rect x="665" y="1890" width="45" height="20" rx="10" class="badge-gold"/>
+  <text x="678" y="1904" class="accent-gold" font-size="9">gold</text>
+  
+  <rect x="720" y="1890" width="50" height="20" rx="10" fill="rgba(139,90,139,0.2)"/>
+  <text x="733" y="1904" class="accent-plum" font-size="9">plum</text>
+  
+  <!-- Status badges -->
+  <text x="550" y="1940" class="text-muted small">Status:</text>
+  <rect x="550" y="1950" width="60" height="18" rx="4" fill="rgba(74,156,148,0.3)"/>
+  <text x="560" y="1963" class="accent-teal" font-size="8">connected</text>
+  
+  <rect x="620" y="1950" width="50" height="18" rx="4" fill="rgba(212,168,75,0.3)"/>
+  <text x="630" y="1963" class="accent-gold" font-size="8">pending</text>
+  
+  <rect x="680" y="1950" width="60" height="18" rx="4" fill="rgba(224,115,86,0.3)"/>
+  <text x="690" y="1963" class="accent-coral" font-size="8">error</text>
+  
+  <!-- ======================= -->
+  <!-- TYPOGRAPHY -->
+  <!-- ======================= -->
+  <text x="850" y="1780" class="text-primary" font-size="16" font-weight="600">Typography</text>
+  
+  <text x="850" y="1815" class="text-primary" font-size="20" font-weight="600" font-family="serif">Playfair Display</text>
+  <text x="850" y="1835" class="text-muted small">Display font - headings</text>
+  
+  <text x="850" y="1870" class="text-primary" font-size="14">Source Sans 3</text>
+  <text x="850" y="1890" class="text-muted small">Body font - paragraphs, UI</text>
+  
+  <text x="850" y="1925" class="text-primary" font-size="12" font-family="monospace">JetBrains Mono</text>
+  <text x="850" y="1945" class="text-muted small">Mono - code, IDs</text>
+  
+  <!-- ======================= -->
+  <!-- NOTES FOR DESIGNER -->
+  <!-- ======================= -->
+  <rect x="50" y="2000" width="1100" height="380" class="panel"/>
+  <text x="70" y="2030" class="text-primary" font-size="16" font-weight="600">Notes for Designer</text>
+  
+  <text x="70" y="2060" class="text-secondary small">1. COLOR USAGE: Each tab has a designated accent (Sessions=coral, Taxonomy=plum, Agents=teal, Synthetic=gold)</text>
+  <text x="70" y="2085" class="text-secondary small">2. DARK THEME: ink-950 (#14171c) base - consider eye comfort for extended use</text>
+  <text x="70" y="2110" class="text-secondary small">3. INFORMATION DENSITY: Application shows lots of data - progressive disclosure recommended</text>
+  <text x="70" y="2135" class="text-secondary small">4. GRID BACKGROUND: Subtle 24x24px grid pattern - may be distracting, consider alternatives</text>
+  <text x="70" y="2160" class="text-secondary small">5. FONTS: Playfair Display (serif) for headings contrasts technical content</text>
+  <text x="70" y="2185" class="text-secondary small">6. RESPONSIVE: Current design is desktop-focused (max 1800px) - mobile adaptation needed</text>
+  <text x="70" y="2210" class="text-secondary small">7. ACCESSIBILITY: Color contrast and focus states need verification</text>
+  
+  <text x="70" y="2250" class="text-primary small" font-weight="500">Key Improvement Areas:</text>
+  <text x="70" y="2275" class="text-muted small">• Better visual hierarchy and whitespace usage</text>
+  <text x="70" y="2295" class="text-muted small">• More distinctive loading states (skeleton screens matching content)</text>
+  <text x="70" y="2315" class="text-muted small">• Enhanced empty states with clearer call-to-actions</text>
+  <text x="70" y="2335" class="text-muted small">• Mobile-responsive layouts for all tabs</text>
+  <text x="70" y="2355" class="text-muted small">• Consistent spacing system (currently mixing various values)</text>
+  
+</svg>
+

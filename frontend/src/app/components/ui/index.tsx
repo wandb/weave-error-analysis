@@ -16,11 +16,11 @@ import {
 // ============================================================================
 
 export function Shimmer({ className = "" }: { className?: string }) {
-  return <div className={`shimmer rounded ${className}`} />;
+  return <div className={`shimmer rounded-md ${className}`} />;
 }
 
 export function LoadingSpinner({ size = 4 }: { size?: number }) {
-  return <RefreshCw className={`w-${size} h-${size} animate-spin`} />;
+  return <RefreshCw className={`w-${size} h-${size} animate-spin text-gold`} />;
 }
 
 export function LoadingCards({ count = 3 }: { count?: number }) {
@@ -46,10 +46,10 @@ interface EmptyStateProps {
 
 export function EmptyState({ icon, title, description, action }: EmptyStateProps) {
   return (
-    <div className="text-center py-12 text-ink-500">
+    <div className="text-center py-12 text-moon-450">
       {icon && <div className="mb-3">{icon}</div>}
-      <p className="text-lg">{title}</p>
-      {description && <p className="text-sm mt-2">{description}</p>}
+      <p className="text-base">{title}</p>
+      {description && <p className="text-sm mt-2 text-moon-450/80">{description}</p>}
       {action && <div className="mt-4">{action}</div>}
     </div>
   );
@@ -58,7 +58,7 @@ export function EmptyState({ icon, title, description, action }: EmptyStateProps
 export function NoSessionsFound() {
   return (
     <EmptyState
-      icon={<AlertTriangle className="w-8 h-8 mx-auto opacity-50" />}
+      icon={<AlertTriangle className="w-8 h-8 mx-auto text-moon-450/50" />}
       title="No sessions found"
       description="Try adjusting filters"
     />
@@ -68,13 +68,13 @@ export function NoSessionsFound() {
 export function NoAgentsRegistered({ onRegister }: { onRegister?: () => void }) {
   return (
     <EmptyState
-      icon={<Cpu className="w-12 h-12 mx-auto opacity-50" />}
+      icon={<Cpu className="w-12 h-12 mx-auto text-moon-450/50" />}
       title="No agents registered yet"
       description="Register your agent to enable synthetic data generation and automated review."
       action={
         onRegister && (
           <button onClick={onRegister} className="btn-primary">
-            Register Your First Agent
+            REGISTER YOUR FIRST AGENT
           </button>
         )
       }
@@ -84,10 +84,10 @@ export function NoAgentsRegistered({ onRegister }: { onRegister?: () => void }) 
 
 export function SelectPrompt({ icon, title, description }: { icon: ReactNode; title: string; description: string }) {
   return (
-    <div className="text-center py-16 text-ink-500">
+    <div className="text-center py-16 text-moon-450">
       <div className="mx-auto mb-3 opacity-50">{icon}</div>
-      <p>{title}</p>
-      <p className="text-sm mt-1">{description}</p>
+      <p className="text-moon-50">{title}</p>
+      {description && <p className="text-sm mt-1 text-moon-450">{description}</p>}
     </div>
   );
 }
@@ -112,19 +112,19 @@ export function ProgressBar({
   label,
   sublabel,
   className = "",
-  gradientFrom = "from-accent-teal",
-  gradientTo = "to-accent-coral",
+  gradientFrom = "from-teal",
+  gradientTo = "to-gold",
 }: ProgressBarProps) {
   const percent = Math.min((value / max) * 100, 100);
   return (
     <div className={className}>
       {(label || sublabel) && (
-        <div className="flex items-center justify-between mb-2 text-xs text-ink-500">
+        <div className="flex items-center justify-between mb-2 text-xs text-moon-450">
           {label && <span>{label}</span>}
-          {sublabel && <span>{sublabel}</span>}
+          {sublabel && <span className="text-moon-50">{sublabel}</span>}
         </div>
       )}
-      <div className="h-2 bg-ink-800 rounded-full overflow-hidden">
+      <div className="h-1.5 bg-moon-800 rounded-full overflow-hidden">
         <div
           className={`h-full bg-gradient-to-r ${gradientFrom} ${gradientTo} transition-all duration-500`}
           style={{ width: `${percent}%` }}
@@ -153,11 +153,11 @@ export function Card({
   selected,
   hoverable = true,
 }: CardProps) {
-  const baseClass = "bg-ink-900/50 rounded-xl border border-ink-800 p-4";
+  const baseClass = "bg-moon-800/40 rounded-lg border border-moon-800 p-4";
   const interactiveClass = onClick
-    ? `cursor-pointer ${hoverable ? "hover:bg-ink-800/50" : ""} transition-colors`
+    ? `cursor-pointer ${hoverable ? "hover:bg-moon-800/60" : ""} transition-colors`
     : "";
-  const selectedClass = selected ? "ring-2 ring-accent-coral" : "";
+  const selectedClass = selected ? "ring-2 ring-gold" : "";
 
   return (
     <div
@@ -177,23 +177,24 @@ export function Panel({
   className?: string;
 }) {
   return (
-    <div className={`bg-ink-900/50 rounded-xl border border-ink-800 p-5 ${className}`}>
+    <div className={`bg-moon-800/40 rounded-lg border border-moon-800 p-5 ${className}`}>
       {children}
     </div>
   );
 }
 
 interface PanelHeaderProps {
-  icon: ReactNode;
+  icon?: ReactNode;
   title: string;
   badge?: ReactNode;
   actions?: ReactNode;
+  className?: string;
 }
 
-export function PanelHeader({ icon, title, badge, actions }: PanelHeaderProps) {
+export function PanelHeader({ icon, title, badge, actions, className = "" }: PanelHeaderProps) {
   return (
-    <div className="flex items-center justify-between mb-4">
-      <h2 className="font-display text-lg font-semibold text-sand-100 flex items-center gap-2">
+    <div className={`flex items-center justify-between mb-4 ${className}`}>
+      <h2 className="font-display text-lg text-moon-50 flex items-center gap-2">
         {icon}
         {title}
         {badge}
@@ -219,7 +220,7 @@ export function ListItem({ children, onClick, selected, className = "" }: ListIt
     <button
       onClick={onClick}
       className={`w-full text-left trace-card rounded-lg p-3 ${
-        selected ? "ring-2 ring-accent-coral" : ""
+        selected ? "ring-2 ring-gold" : ""
       } ${className}`}
     >
       {children}
@@ -248,28 +249,28 @@ export function AgentListItem({
 }: AgentListItemProps) {
   const statusColor =
     connectionStatus === "connected"
-      ? "text-emerald-400"
+      ? "text-teal"
       : connectionStatus === "error"
       ? "text-red-400"
-      : "text-ink-400";
+      : "text-moon-450";
 
   return (
     <button
       onClick={onClick}
       className={`w-full text-left p-4 rounded-lg border transition-all ${
         selected
-          ? "bg-accent-teal/10 border-accent-teal"
-          : "bg-ink-800/50 border-ink-700 hover:border-ink-600"
+          ? "bg-gold/10 border-gold"
+          : "bg-moon-800/50 border-moon-700 hover:border-moon-600"
       }`}
     >
       <div className="flex items-start justify-between">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className="font-medium text-sand-100 truncate">{name}</span>
-            {version && <span className="text-xs text-ink-400">v{version}</span>}
+            <span className="font-medium text-moon-50 truncate">{name}</span>
+            {version && <span className="text-xs text-moon-450">v{version}</span>}
           </div>
           {purpose && (
-            <p className="text-sm text-ink-400 truncate mt-1">{purpose}</p>
+            <p className="text-sm text-moon-450 truncate mt-1">{purpose}</p>
           )}
           <div className="flex items-center gap-3 mt-2 text-xs">
             {connectionStatus && (
@@ -278,29 +279,29 @@ export function AgentListItem({
               </span>
             )}
             {dimensionsCount !== undefined && dimensionsCount > 0 && (
-              <span className="text-ink-400">{dimensionsCount} dimensions</span>
+              <span className="text-moon-450">{dimensionsCount} dimensions</span>
             )}
           </div>
         </div>
-        <ChevronRight className="w-4 h-4 text-ink-500 flex-shrink-0" />
+        <ChevronRight className="w-4 h-4 text-moon-450 flex-shrink-0" />
       </div>
     </button>
   );
 }
 
 // ============================================================================
-// Badges
+// Badges - W&B Brand Colors
 // ============================================================================
 
 type BadgeVariant = "coral" | "teal" | "gold" | "plum" | "amber" | "default";
 
 const badgeVariants: Record<BadgeVariant, string> = {
-  coral: "bg-accent-coral/20 text-accent-coral",
-  teal: "bg-accent-teal/20 text-accent-teal",
-  gold: "bg-accent-gold/20 text-accent-gold",
-  plum: "bg-accent-plum/20 text-accent-plum",
-  amber: "bg-amber-500/20 text-amber-400",
-  default: "bg-ink-700 text-ink-300",
+  coral: "bg-gold/15 text-gold",
+  teal: "bg-teal/15 text-teal",
+  gold: "bg-gold/15 text-gold",
+  plum: "bg-moon-450/15 text-moon-450",
+  amber: "bg-gold/15 text-gold",
+  default: "bg-moon-700 text-moon-450",
 };
 
 export function Badge({
@@ -325,20 +326,20 @@ export function StatusBadge({
   className?: string;
 }) {
   const statusStyles: Record<string, string> = {
-    connected: "bg-green-900/50 text-green-400",
-    disconnected: "bg-ink-700 text-ink-400",
-    error: "bg-red-900/50 text-red-400",
-    completed: "bg-green-900/50 text-green-400",
-    running: "bg-amber-900/50 text-amber-400 animate-pulse",
-    ready: "bg-blue-900/50 text-blue-400",
-    pending: "bg-ink-700 text-ink-400",
-    failed: "bg-red-900/50 text-red-400",
-    success: "bg-green-900/50 text-green-400",
+    connected: "bg-teal/20 text-teal",
+    disconnected: "bg-moon-700 text-moon-450",
+    error: "bg-red-500/20 text-red-400",
+    completed: "bg-teal/20 text-teal",
+    running: "bg-gold/20 text-gold animate-pulse",
+    ready: "bg-teal/20 text-teal",
+    pending: "bg-moon-700 text-moon-450",
+    failed: "bg-red-500/20 text-red-400",
+    success: "bg-teal/20 text-teal",
   };
 
   return (
     <span
-      className={`text-xs px-1.5 py-0.5 rounded ${statusStyles[status] || statusStyles.pending} ${className}`}
+      className={`text-xs px-2 py-0.5 rounded-md ${statusStyles[status] || statusStyles.pending} ${className}`}
     >
       {status}
     </span>
@@ -421,7 +422,7 @@ export function ActionButton({
 }
 
 // ============================================================================
-// Modal
+// Modal - W&B Styled
 // ============================================================================
 
 interface ModalProps {
@@ -436,9 +437,9 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps) {
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-ink-900 rounded-xl border border-ink-700 p-6 w-full max-w-md">
-        <h3 className="font-display text-lg font-semibold text-sand-100 mb-4">{title}</h3>
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm">
+      <div className="bg-moon-800 rounded-lg border border-moon-700 p-6 w-full max-w-md shadow-xl">
+        <h3 className="font-display text-lg text-moon-50 mb-4">{title}</h3>
         {children}
         {footer && (
           <div className="flex items-center justify-end gap-3 mt-6">{footer}</div>

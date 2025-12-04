@@ -59,26 +59,29 @@ function AppLayout() {
   };
 
   return (
-    <div className="min-h-screen bg-grid-pattern">
+    <div className="min-h-screen" style={{ backgroundColor: '#171A1F' }}>
       {/* Header */}
-      <header className="border-b border-ink-800 bg-ink-950/80 backdrop-blur-md sticky top-0 z-50">
-        <div className="max-w-[1800px] mx-auto px-6 py-4">
+      <header 
+        className="border-b backdrop-blur-md sticky top-0 z-50"
+        style={{ borderColor: '#252830', backgroundColor: 'rgba(23, 26, 31, 0.95)' }}
+      >
+        <div className="max-w-[1800px] mx-auto px-6 py-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-8">
               {/* Logo */}
-              <div className="flex items-center gap-2">
-                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-accent-coral to-accent-gold flex items-center justify-center">
-                  <Layers className="w-5 h-5 text-white" />
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ backgroundColor: '#FCBC32' }}>
+                  <Layers className="w-5 h-5" style={{ color: '#171A1F' }} />
                 </div>
                 <div>
-                  <h1 className="font-display text-xl font-semibold text-sand-100">
-                    Error Analysis
+                  <h1 className="font-display text-lg" style={{ color: '#FDFDFD' }}>
+                    Error analysis
                   </h1>
-                  <p className="text-xs text-ink-400">Bottom-up failure mode discovery</p>
+                  <p className="text-xs" style={{ color: '#8F949E' }}>Bottom-up failure mode discovery</p>
                 </div>
               </div>
 
-              {/* Tab Navigation */}
+              {/* Tab Navigation - Reordered for workflow */}
               <TabNavigation
                 activeTab={activeTab}
                 setActiveTab={setActiveTab}
@@ -89,15 +92,15 @@ function AppLayout() {
               />
             </div>
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
               {/* Feedback Stats */}
               {feedbackSummary && (
                 <div className="flex items-center gap-3 text-sm">
-                  <div className="flex items-center gap-1 text-emerald-400">
+                  <div className="flex items-center gap-1.5" style={{ color: '#10BFCC' }}>
                     <ThumbsUp className="w-4 h-4" />
                     <span>{feedbackSummary.thumbs_up}</span>
                   </div>
-                  <div className="flex items-center gap-1 text-red-400">
+                  <div className="flex items-center gap-1.5" style={{ color: '#8F949E' }}>
                     <ThumbsDown className="w-4 h-4" />
                     <span>{feedbackSummary.thumbs_down}</span>
                   </div>
@@ -107,7 +110,20 @@ function AppLayout() {
               {/* Refresh */}
               <button onClick={handleRefresh} className="btn-secondary flex items-center gap-2">
                 <RefreshCw className="w-4 h-4" />
-                Refresh
+                <span className="uppercase text-xs tracking-wide">Refresh</span>
+              </button>
+
+              {/* Settings - Icon only in corner */}
+              <button
+                onClick={() => setActiveTab("settings")}
+                className="p-2.5 rounded-lg transition-all hover:opacity-90"
+                style={activeTab === "settings"
+                  ? { backgroundColor: '#FCBC32', color: '#171A1F' }
+                  : { color: '#8F949E' }
+                }
+                title="Settings"
+              >
+                <Settings className="w-5 h-5" />
               </button>
             </div>
           </div>
@@ -116,11 +132,11 @@ function AppLayout() {
 
       {/* Main Content */}
       <main className="max-w-[1800px] mx-auto px-6 py-6">
-        {activeTab === "sessions" && <SessionsTab />}
-        {activeTab === "taxonomy" && <TaxonomyTab />}
         {activeTab === "agents" && <AgentsTab />}
         {activeTab === "synthetic" && <SyntheticTab />}
         {activeTab === "runs" && <RunsTab />}
+        {activeTab === "sessions" && <SessionsTab />}
+        {activeTab === "taxonomy" && <TaxonomyTab />}
         {activeTab === "settings" && <SettingsTab />}
       </main>
     </div>
@@ -129,6 +145,8 @@ function AppLayout() {
 
 // ============================================================================
 // Tab Navigation Component
+// Workflow order: Agents → Synthetic → Runs → Sessions → Taxonomy
+// Settings moved to corner icon
 // ============================================================================
 
 interface TabNavigationProps {
@@ -148,29 +166,13 @@ function TabNavigation({
   syntheticBatches,
   executingBatch,
 }: TabNavigationProps) {
+  // Tabs ordered by workflow: Connect → Generate → Run → Review → Categorize
   const tabs = [
-    {
-      id: "sessions" as const,
-      label: "Sessions",
-      icon: MessageCircle,
-      color: "accent-coral",
-      badge: null,
-    },
-    {
-      id: "taxonomy" as const,
-      label: "Taxonomy",
-      icon: BarChart3,
-      color: "accent-plum",
-      badge: taxonomy && taxonomy.stats.total_uncategorized > 0 
-        ? taxonomy.stats.total_uncategorized 
-        : null,
-      badgeVariant: "gold" as const,
-    },
     {
       id: "agents" as const,
       label: "Agents",
       icon: Cpu,
-      color: "accent-teal",
+      step: 1,
       badge: agents.length > 0 ? agents.length : null,
       badgeVariant: "teal" as const,
     },
@@ -178,29 +180,39 @@ function TabNavigation({
       id: "synthetic" as const,
       label: "Synthetic",
       icon: Zap,
-      color: "accent-amber",
+      step: 2,
       badge: syntheticBatches.length > 0 ? syntheticBatches.length : null,
-      badgeVariant: "amber" as const,
+      badgeVariant: "gold" as const,
     },
     {
       id: "runs" as const,
       label: "Runs",
       icon: Play,
-      color: "accent-coral",
+      step: 3,
       badge: null,
       showPulse: executingBatch,
     },
     {
-      id: "settings" as const,
-      label: "Settings",
-      icon: Settings,
-      color: "ink-500",
+      id: "sessions" as const,
+      label: "Sessions",
+      icon: MessageCircle,
+      step: 4,
       badge: null,
+    },
+    {
+      id: "taxonomy" as const,
+      label: "Taxonomy",
+      icon: BarChart3,
+      step: 5,
+      badge: taxonomy && taxonomy.stats.total_uncategorized > 0 
+        ? taxonomy.stats.total_uncategorized 
+        : null,
+      badgeVariant: "gold" as const,
     },
   ];
 
   return (
-    <nav className="flex items-center gap-1 bg-ink-900 rounded-lg p-1 ml-4">
+    <nav className="flex items-center gap-0.5 rounded-lg p-1" style={{ backgroundColor: 'rgba(37, 40, 48, 0.5)' }}>
       {tabs.map((tab) => {
         const Icon = tab.icon;
         const isActive = activeTab === tab.id;
@@ -209,20 +221,22 @@ function TabNavigation({
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all ${
-              isActive
-                ? `bg-${tab.color} text-white shadow-lg shadow-${tab.color}/20`
-                : "text-ink-400 hover:text-sand-200 hover:bg-ink-800"
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-sm transition-all ${
+              isActive ? "font-medium" : "hover:text-white"
             }`}
+            style={isActive 
+              ? { backgroundColor: '#FCBC32', color: '#171A1F' }
+              : { color: '#8F949E' }
+            }
           >
             <Icon className="w-4 h-4" />
-            {tab.label}
+            <span>{tab.label}</span>
             {tab.badge && (
-              <Badge variant={tab.badgeVariant || "default"} className="text-xs ml-1">
+              <Badge variant={tab.badgeVariant || "default"} className="text-xs ml-0.5">
                 {tab.badge}
               </Badge>
             )}
-            {tab.showPulse && <span className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />}
+            {tab.showPulse && <span className="w-2 h-2 rounded-full animate-pulse" style={{ backgroundColor: '#10BFCC' }} />}
           </button>
         );
       })}

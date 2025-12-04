@@ -284,8 +284,53 @@ export interface AutoReview {
 }
 
 // ============================================================================
+// Settings Types
+// ============================================================================
+
+export interface SettingValue {
+  key: string;
+  value: string;
+  is_secret: boolean;
+  description?: string;
+  updated_at?: string;
+}
+
+export interface SettingsGroup {
+  name: string;
+  description: string;
+  settings: SettingValue[];
+}
+
+export interface ConfigStatus {
+  llm: {
+    configured: boolean;
+    model: string;
+    provider: string;
+    message: string;
+  };
+  weave: {
+    configured: boolean;
+    entity: string;
+    project: string;
+    project_id: string | null;
+    message: string;
+  };
+}
+
+export interface TestConnectionResult {
+  success: boolean;
+  model?: string;
+  entity?: string;
+  project?: string;
+  project_id?: string;
+  response?: string;
+  error?: string;
+  message: string;
+}
+
+// ============================================================================
 // Tab Types
 // ============================================================================
 
-export type TabType = "sessions" | "taxonomy" | "agents" | "synthetic" | "runs";
+export type TabType = "sessions" | "taxonomy" | "agents" | "synthetic" | "runs" | "settings";
 

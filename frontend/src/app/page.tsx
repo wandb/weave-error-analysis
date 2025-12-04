@@ -7,12 +7,13 @@ import {
   Cpu,
   Zap,
   Play,
+  Settings,
   ThumbsUp,
   ThumbsDown,
   RefreshCw,
 } from "lucide-react";
 import { AppProvider, useApp } from "./context/AppContext";
-import { SessionsTab, TaxonomyTab, AgentsTab, SyntheticTab, RunsTab } from "./components/tabs";
+import { SessionsTab, TaxonomyTab, AgentsTab, SyntheticTab, RunsTab, SettingsTab } from "./components/tabs";
 import { Badge } from "./components/ui";
 
 // ============================================================================
@@ -120,6 +121,7 @@ function AppLayout() {
         {activeTab === "agents" && <AgentsTab />}
         {activeTab === "synthetic" && <SyntheticTab />}
         {activeTab === "runs" && <RunsTab />}
+        {activeTab === "settings" && <SettingsTab />}
       </main>
     </div>
   );
@@ -131,7 +133,7 @@ function AppLayout() {
 
 interface TabNavigationProps {
   activeTab: string;
-  setActiveTab: (tab: "sessions" | "taxonomy" | "agents" | "synthetic" | "runs") => void;
+  setActiveTab: (tab: "sessions" | "taxonomy" | "agents" | "synthetic" | "runs" | "settings") => void;
   taxonomy: ReturnType<typeof useApp>["taxonomy"];
   agents: ReturnType<typeof useApp>["agents"];
   syntheticBatches: ReturnType<typeof useApp>["syntheticBatches"];
@@ -187,6 +189,13 @@ function TabNavigation({
       color: "accent-coral",
       badge: null,
       showPulse: executingBatch,
+    },
+    {
+      id: "settings" as const,
+      label: "Settings",
+      icon: Settings,
+      color: "ink-500",
+      badge: null,
     },
   ];
 

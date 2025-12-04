@@ -1054,8 +1054,8 @@ from services.auto_reviewer import (
 
 class AutoReviewRequest(BaseModel):
     """Request to run an automated review."""
-    model: str = "openai/gpt-4o-mini"
-    max_concurrent_llm_calls: int = 10
+    model: Optional[str] = None  # Uses settings default if not provided
+    max_concurrent_llm_calls: Optional[int] = None  # Uses settings default if not provided
 
 
 class AutoReviewResponse(BaseModel):
@@ -1090,8 +1090,15 @@ async def run_batch_auto_review(batch_id: str, request: AutoReviewRequest = None
     Returns:
         AutoReviewResponse with failure categories and classifications
     """
+    from services.settings import get_setting
+    
     if request is None:
         request = AutoReviewRequest()
+    
+    # Get model and concurrency from settings if not provided in request
+    model = request.model or get_setting("auto_review_model", "openai/gpt-4o-mini")
+    concurrency_str = get_setting("auto_review_concurrency", "10")
+    max_concurrent = request.max_concurrent_llm_calls or int(concurrency_str)
     
     # Get batch and verify it's completed
     with get_db() as conn:
@@ -1120,8 +1127,8 @@ async def run_batch_auto_review(batch_id: str, request: AutoReviewRequest = None
         result = await run_auto_review(
             agent_id=agent_id,
             batch_id=batch_id,
-            model=request.model,
-            max_concurrent_llm_calls=request.max_concurrent_llm_calls
+            model=model,
+            max_concurrent_llm_calls=max_concurrent
         )
         
         return AutoReviewResponse(

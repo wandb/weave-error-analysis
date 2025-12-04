@@ -1,5 +1,10 @@
 """
 Configuration for the Error Analysis Backend.
+
+Configuration is loaded with the following priority:
+1. Database settings (user-configured via UI)
+2. Environment variables
+3. Default values
 """
 
 import os
@@ -10,7 +15,51 @@ from dotenv import load_dotenv
 env_path = Path(__file__).parent.parent / ".env"
 load_dotenv(env_path)
 
-# W&B / Weave Configuration
+
+def get_config_value(setting_key: str, env_key: str, default: str = "") -> str:
+    """
+    Get a configuration value with priority:
+    1. Database setting
+    2. Environment variable
+    3. Default value
+    """
+    # Try database first (lazy import to avoid circular dependency)
+    try:
+        from services.settings import get_setting
+        db_value = get_setting(setting_key)
+        if db_value:
+            return db_value
+    except Exception:
+        pass  # Settings table might not exist yet
+    
+    # Fall back to environment variable
+    env_value = os.getenv(env_key)
+    if env_value:
+        return env_value
+    
+    return default
+
+
+# W&B / Weave Configuration (these are now dynamic properties)
+def get_wandb_api_key() -> str:
+    return get_config_value("weave_api_key", "WANDB_API_KEY", "")
+
+
+def get_wandb_entity() -> str:
+    return get_config_value("weave_entity", "WANDB_ENTITY", "")
+
+
+def get_weave_project() -> str:
+    return get_config_value("weave_project", "WEAVE_PROJECT", "error-analysis-demo")
+
+
+def get_project_id() -> str:
+    entity = get_wandb_entity()
+    project = get_weave_project()
+    return f"{entity}/{project}" if entity else project
+
+
+# Static values from env (for backwards compatibility)
 WANDB_API_KEY = os.getenv("WANDB_API_KEY")
 WANDB_ENTITY = os.getenv("WANDB_ENTITY")
 WEAVE_PROJECT = os.getenv("WEAVE_PROJECT", "error-analysis-demo")

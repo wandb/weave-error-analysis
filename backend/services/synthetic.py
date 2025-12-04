@@ -174,6 +174,7 @@ class SyntheticGenerator:
             List of DimensionTuple objects
         """
         from litellm import acompletion
+        from services.settings import get_litellm_kwargs
         
         dim_values = self.get_dimension_values()
         
@@ -201,10 +202,13 @@ Example: [{{"persona": "frustrated_customer", "scenario": "refund_request", "com
 
 Return ONLY the JSON array, no other text."""
 
+        # Get LLM settings
+        llm_kwargs = get_litellm_kwargs()
+
         response = await acompletion(
-            model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
+            response_format={"type": "json_object"},
+            **llm_kwargs
         )
         
         content = response.choices[0].message.content
@@ -304,6 +308,7 @@ Return ONLY the JSON array, no other text."""
         
         try:
             from litellm import acompletion
+            from services.settings import get_litellm_kwargs
         except ImportError:
             return self.tuple_to_query_template(dimension_tuple)
         
@@ -342,9 +347,12 @@ Guidelines:
 Return ONLY the user message, nothing else. No quotes around it."""
 
         try:
+            # Get LLM settings
+            llm_kwargs = get_litellm_kwargs()
+            
             response = await acompletion(
-                model="gpt-4o-mini",
-                messages=[{"role": "user", "content": prompt}]
+                messages=[{"role": "user", "content": prompt}],
+                **llm_kwargs
             )
             
             query_text = response.choices[0].message.content.strip()

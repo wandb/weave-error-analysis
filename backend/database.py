@@ -359,6 +359,21 @@ def init_db():
                 ON auto_reviews(agent_id)
             """)
             
+            # =====================================================================
+            # Settings Table - Application configuration
+            # =====================================================================
+            
+            # Settings table for storing configuration (LLM, Weave, etc.)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS app_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    is_secret BOOLEAN DEFAULT FALSE,
+                    description TEXT,
+                    updated_at TEXT NOT NULL
+                )
+            """)
+            
             conn.commit()
             _initialized = True
             

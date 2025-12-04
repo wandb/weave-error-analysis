@@ -84,11 +84,18 @@ Automated trace analysis powered by LLM:
 - Integrates with FAILS categorization pipeline
 - Generates actionable failure reports
 
+### ⚙️ Settings
+Configure the application through the UI:
+- **LLM Configuration**: Set your LLM provider (OpenAI, Anthropic, Google), model, and API key
+- **Weave Configuration**: Set your W&B API key, entity, and project
+- **Auto-Review Settings**: Configure the model and concurrency for automated reviews
+- Test connections directly from the Settings tab
+
 ## Components
 
 | Directory | Description |
 |-----------|-------------|
-| `frontend/` | Next.js app with tabs: Sessions, Taxonomy, Agents, Synthetic, Runs |
+| `frontend/` | Next.js app with tabs: Sessions, Taxonomy, Agents, Synthetic, Runs, Settings |
 | `backend/` | FastAPI service handling Weave queries, AG-UI client, synthetic generation |
 | `agent/` | Demo TaskFlow Support Agent (example—replace with your own agent) |
 
@@ -99,17 +106,31 @@ Automated trace analysis powered by LLM:
 - Node.js 18+ and pnpm
 - W&B account with Weave project
 
-### Environment Variables
+### Configuration
 
-Create a `.env` file in each component directory (or the root):
+You have two options for configuring API keys:
+
+**Option 1: Via the Settings UI (Recommended)**
+1. Start the application
+2. Go to the **Settings** tab
+3. Enter your LLM and Weave credentials
+4. Click **Save Settings**
+
+**Option 2: Via Environment Variables**
+
+Create a `.env` file in the root directory:
 
 ```bash
-# Required
+# W&B / Weave (required for trace retrieval)
 WANDB_API_KEY=your_wandb_api_key
 WANDB_ENTITY=your_wandb_username
 WEAVE_PROJECT=your_weave_project_name
-OPENAI_API_KEY=your_openai_key  # For LLM features (synthetic gen, auto-review)
+
+# LLM (required for synthetic generation, auto-review)
+OPENAI_API_KEY=your_openai_key
 ```
+
+Settings configured via the UI take priority over environment variables.
 
 ### Quick Start
 
@@ -222,11 +243,12 @@ See `agent/AGENT_INFO.md` for a complete example.
                                                                    Track improvement
 ```
 
-1. **Agents Tab**: Register your agent with endpoint URL and AGENT_INFO
-2. **Synthetic Tab**: Import dimensions, configure batch size, generate queries
-3. **Runs Tab**: Execute batches, watch real-time progress
-4. **Sessions Tab**: Review traces, add notes, filter by batch
-5. **Taxonomy Tab**: Categorize failures, run auto-review, export reports
+1. **Settings Tab**: Configure your LLM and Weave API keys (first time setup)
+2. **Agents Tab**: Register your agent with endpoint URL and AGENT_INFO
+3. **Synthetic Tab**: Import dimensions, configure batch size, generate queries
+4. **Runs Tab**: Execute batches, watch real-time progress
+5. **Sessions Tab**: Review traces, add notes, filter by batch
+6. **Taxonomy Tab**: Categorize failures, run auto-review, export reports
 
 ## API Endpoints
 
@@ -240,6 +262,10 @@ See `agent/AGENT_INFO.md` for a complete example.
 | `POST /api/synthetic/batches/{id}/execute` | Execute a batch (SSE) |
 | `POST /api/synthetic/batches/{id}/auto-review` | Run automated review |
 | `POST /api/categorize` | LLM-categorize failure modes |
+| `GET /api/settings/grouped` | Get all settings by category |
+| `PUT /api/settings/{key}` | Update a setting |
+| `POST /api/settings/test-llm` | Test LLM connection |
+| `POST /api/settings/test-weave` | Test Weave connection |
 
 ## Demo Agent
 

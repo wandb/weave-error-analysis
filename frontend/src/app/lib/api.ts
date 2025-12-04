@@ -12,6 +12,9 @@ import type {
   SyntheticBatch,
   BatchDetail,
   AutoReview,
+  SettingsGroup,
+  ConfigStatus,
+  TestConnectionResult,
 } from "../types";
 
 const API_BASE = "/api";
@@ -411,5 +414,64 @@ export async function fetchReview(reviewId: string): Promise<AutoReview> {
 
 export async function deleteReview(reviewId: string): Promise<void> {
   await fetch(`${API_BASE}/synthetic/reviews/${reviewId}`, { method: "DELETE" });
+}
+
+// ============================================================================
+// Settings API
+// ============================================================================
+
+export async function fetchSettingsGrouped(): Promise<SettingsGroup[]> {
+  const response = await fetch(`${API_BASE}/settings/grouped`);
+  const data = await response.json();
+  return data.groups;
+}
+
+export async function fetchConfigStatus(): Promise<ConfigStatus> {
+  const response = await fetch(`${API_BASE}/settings/status`);
+  return response.json();
+}
+
+export async function updateSetting(key: string, value: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/settings/${key}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to update setting");
+  }
+}
+
+export async function bulkUpdateSettings(settings: Record<string, string>): Promise<void> {
+  const response = await fetch(`${API_BASE}/settings/bulk`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ settings }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to update settings");
+  }
+}
+
+export async function resetSetting(key: string): Promise<void> {
+  await fetch(`${API_BASE}/settings/${key}`, { method: "DELETE" });
+}
+
+export async function testLLMConnection(): Promise<TestConnectionResult> {
+  const response = await fetch(`${API_BASE}/settings/test-llm`, {
+    method: "POST",
+  });
+  return response.json();
+}
+
+export async function testWeaveConnection(): Promise<TestConnectionResult> {
+  const response = await fetch(`${API_BASE}/settings/test-weave`, {
+    method: "POST",
+  });
+  return response.json();
 }
 

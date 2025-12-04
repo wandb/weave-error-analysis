@@ -16,6 +16,7 @@ from routers import (
     taxonomy_router,
     agents_router,
     synthetic_router,
+    settings_router,
 )
 
 app = FastAPI(
@@ -41,6 +42,7 @@ app.include_router(categorize_router)
 app.include_router(taxonomy_router)
 app.include_router(agents_router)
 app.include_router(synthetic_router)
+app.include_router(settings_router)
 
 
 @app.get("/")

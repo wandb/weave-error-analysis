@@ -34,7 +34,7 @@
   <!-- TITLE SECTION -->
   <!-- ======================= -->
   <text x="50" y="50" class="text-primary title">Weave Error Analysis - UI Wireframes</text>
-  <text x="50" y="75" class="text-secondary subtitle">6 Main Tabs: Sessions, Taxonomy, Agents, Synthetic, Runs, Settings</text>
+  <text x="50" y="75" class="text-secondary subtitle">6 Main Tabs: Sessions, Taxonomy, Agents, Data, Runs, Settings</text>
   
   <!-- ======================= -->
   <!-- GLOBAL HEADER WIREFRAME -->
@@ -68,8 +68,8 @@
   <text x="475" y="178" class="accent-gold" font-size="8">5</text>
   
   <text x="500" y="180" class="text-secondary small">🖥️ Agents</text>
-  <text x="590" y="180" class="text-secondary small">⚡ Synthetic</text>
-  <text x="680" y="180" class="text-secondary small">▶ Runs</text>
+  <text x="590" y="180" class="text-secondary small">⚡ Data</text>
+  <text x="665" y="180" class="text-secondary small">▶ Runs</text>
   <text x="750" y="180" class="text-secondary small">⚙️ Settings</text>
   
   <!-- Stats -->

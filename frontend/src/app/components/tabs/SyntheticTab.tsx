@@ -70,6 +70,7 @@ export function SyntheticTab() {
   const [copiedQueryId, setCopiedQueryId] = useState<string | null>(null);
   const [copiedAllSelected, setCopiedAllSelected] = useState(false);
   const [showImportHelp, setShowImportHelp] = useState(false);
+  const [selectedBatchIds, setSelectedBatchIds] = useState<Set<string>>(new Set());
 
   const handleSaveDimension = async (dimName: string, values: string[]) => {
     if (!selectedAgent) return;
@@ -211,6 +212,24 @@ export function SyntheticTab() {
     if (selectedBatch?.id === batchId) {
       setSelectedBatch(null);
     }
+    setSelectedBatchIds(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(batchId);
+      return newSet;
+    });
+  };
+
+  const handleDeleteSelectedBatches = async () => {
+    if (!selectedAgent || selectedBatchIds.size === 0) return;
+    if (!confirm(`Delete ${selectedBatchIds.size} selected batches and all their queries?`)) return;
+    
+    for (const batchId of selectedBatchIds) {
+      await deleteBatch(batchId, selectedAgent.id);
+      if (selectedBatch?.id === batchId) {
+        setSelectedBatch(null);
+      }
+    }
+    setSelectedBatchIds(new Set());
   };
 
   const copyBatchId = (batchId: string) => {
@@ -642,62 +661,114 @@ export function SyntheticTab() {
                   {syntheticBatches.length}
                 </span>
               </h2>
-              {executingBatch && (
-                <span className="text-xs flex items-center gap-1" style={{ color: '#10BFCC' }}>
-                  <RefreshCw className="w-3 h-3 animate-spin" />
-                  Running...
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                {executingBatch && (
+                  <span className="text-xs flex items-center gap-1" style={{ color: '#10BFCC' }}>
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                    Running...
+                  </span>
+                )}
+                {selectedBatchIds.size > 0 && (
+                  <>
+                    <label className="flex items-center gap-1.5 cursor-pointer text-xs" style={{ color: '#8F949E' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedBatchIds.size === syntheticBatches.length}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedBatchIds(new Set(syntheticBatches.map(b => b.id)));
+                          else setSelectedBatchIds(new Set());
+                        }}
+                        className="w-3.5 h-3.5 rounded"
+                        style={{ accentColor: '#FCBC32' }}
+                      />
+                      All
+                    </label>
+                    <button
+                      onClick={handleDeleteSelectedBatches}
+                      className="text-xs px-2 py-1 rounded flex items-center gap-1 text-red-400"
+                      style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)' }}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      Delete {selectedBatchIds.size}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
             
             {syntheticBatches.length > 0 ? (
               <div className="flex-1 overflow-y-auto space-y-2 pr-1">
                 {syntheticBatches.map((batch) => (
-                  <button
+                  <div
                     key={batch.id}
-                    onClick={() => fetchBatchDetail(batch.id)}
-                    className={`w-full rounded-lg p-3 transition-all text-left ${
+                    className={`rounded-lg p-3 transition-all ${
                       selectedBatch?.id === batch.id ? 'ring-1' : ''
                     }`}
                     style={{ 
-                      backgroundColor: selectedBatch?.id === batch.id ? 'rgba(252, 188, 50, 0.15)' : '#252830',
-                      border: '1px solid #333333',
+                      backgroundColor: selectedBatchIds.has(batch.id) 
+                        ? 'rgba(16, 191, 204, 0.1)' 
+                        : selectedBatch?.id === batch.id 
+                          ? 'rgba(252, 188, 50, 0.15)' 
+                          : '#252830',
+                      border: selectedBatchIds.has(batch.id) 
+                        ? '1px solid rgba(16, 191, 204, 0.3)' 
+                        : '1px solid #333333',
                       ringColor: '#FCBC32'
                     }}
                   >
-                    <div className="flex items-center justify-between mb-1">
-                      <code 
-                        className="font-mono text-sm font-medium px-1.5 py-0.5 rounded"
-                        style={{ backgroundColor: '#333333', color: '#FCBC32' }}
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedBatchIds.has(batch.id)}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          const newSet = new Set(selectedBatchIds);
+                          if (e.target.checked) newSet.add(batch.id);
+                          else newSet.delete(batch.id);
+                          setSelectedBatchIds(newSet);
+                        }}
+                        className="w-4 h-4 mt-0.5 rounded flex-shrink-0"
+                        style={{ accentColor: '#FCBC32' }}
+                      />
+                      <button
+                        onClick={() => fetchBatchDetail(batch.id)}
+                        className="flex-1 text-left"
                       >
-                        {batch.id.slice(0, 12)}
-                      </code>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={(e) => { e.stopPropagation(); copyBatchId(batch.id); }}
-                          className="p-1 rounded transition-colors"
-                          style={{ color: copiedBatchId === batch.id ? '#10BFCC' : '#8F949E' }}
-                          title="Copy batch ID"
-                        >
-                          {copiedBatchId === batch.id ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                        </button>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); handleDeleteBatch(batch.id); }}
-                          className="p-1 rounded text-red-400 hover:text-red-300"
-                          title="Delete batch"
-                        >
-                          <Trash2 className="w-3 h-3" />
-                        </button>
-                      </div>
+                        <div className="flex items-center justify-between mb-1">
+                          <code 
+                            className="font-mono text-sm font-medium px-1.5 py-0.5 rounded"
+                            style={{ backgroundColor: '#333333', color: '#FCBC32' }}
+                          >
+                            {batch.id.slice(0, 12)}
+                          </code>
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={(e) => { e.stopPropagation(); copyBatchId(batch.id); }}
+                              className="p-1 rounded transition-colors"
+                              style={{ color: copiedBatchId === batch.id ? '#10BFCC' : '#8F949E' }}
+                              title="Copy batch ID"
+                            >
+                              {copiedBatchId === batch.id ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); handleDeleteBatch(batch.id); }}
+                              className="p-1 rounded text-red-400 hover:text-red-300"
+                              title="Delete batch"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <StatusBadge status={batch.status} />
+                            <span className="text-xs" style={{ color: '#8F949E' }}>{batch.query_count} queries</span>
+                          </div>
+                          <span className="text-xs" style={{ color: '#8F949E' }}>{formatRelativeTime(batch.created_at)}</span>
+                        </div>
+                      </button>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <StatusBadge status={batch.status} />
-                        <span className="text-xs" style={{ color: '#8F949E' }}>{batch.query_count} queries</span>
-                      </div>
-                      <span className="text-xs" style={{ color: '#8F949E' }}>{formatRelativeTime(batch.created_at)}</span>
-                    </div>
-                  </button>
+                  </div>
                 ))}
               </div>
             ) : (

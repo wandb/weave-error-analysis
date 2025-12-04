@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   Cpu,
   Target,
@@ -18,6 +18,7 @@ import {
   Copy,
   Check,
   HelpCircle,
+  Square,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { formatRelativeTime } from "../../utils/formatters";
@@ -53,6 +54,7 @@ export function SyntheticTab() {
   // Generation state
   const [generating, setGenerating] = useState(false);
   const [genProgress, setGenProgress] = useState<{ completed: number; total: number; percent: number; currentQuery?: string } | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   // Query editing
   const [selectedQueryIds, setSelectedQueryIds] = useState<Set<string>>(new Set());
@@ -71,6 +73,10 @@ export function SyntheticTab() {
   const [copiedAllSelected, setCopiedAllSelected] = useState(false);
   const [showImportHelp, setShowImportHelp] = useState(false);
   const [selectedBatchIds, setSelectedBatchIds] = useState<Set<string>>(new Set());
+
+  // Collapsible sections
+  const [dimensionsCollapsed, setDimensionsCollapsed] = useState(false);
+  const [batchesCollapsed, setBatchesCollapsed] = useState(false);
 
   const handleSaveDimension = async (dimName: string, values: string[]) => {
     if (!selectedAgent) return;
@@ -103,8 +109,20 @@ export function SyntheticTab() {
     }
   };
 
+  const stopGeneration = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setGenerating(false);
+    setGenProgress(null);
+  };
+
   const generateBatch = async () => {
     if (!selectedAgent) return;
+    
+    // Create new abort controller for this generation
+    abortControllerRef.current = new AbortController();
     
     setGenerating(true);
     setGenProgress({ total: batchSize, completed: 0, percent: 0 });
@@ -130,6 +148,7 @@ export function SyntheticTab() {
           model,
           temperature,
         }),
+        signal: abortControllerRef.current.signal,
       });
 
       if (!response.ok) throw new Error("Failed to generate batch");
@@ -462,58 +481,36 @@ export function SyntheticTab() {
         </div>
       )}
 
-      {/* Generation Progress */}
-      {generating && genProgress && (
-        <div 
-          className="rounded-lg p-4"
-          style={{ backgroundColor: 'rgba(252, 188, 50, 0.1)', border: '1px solid rgba(252, 188, 50, 0.3)' }}
-        >
-          <div className="flex items-center justify-between mb-2">
-            <span className="font-medium" style={{ color: '#FDFDFD' }}>
-              {genProgress.percent === 0 ? 'Preparing...' : 'Generating queries...'}
-            </span>
-            <span className="text-sm" style={{ color: '#FCBC32' }}>{genProgress.completed} / {genProgress.total}</span>
-          </div>
-          <div className="w-full rounded-full h-2 mb-2 overflow-hidden" style={{ backgroundColor: '#333333' }}>
-            {genProgress.percent === 0 ? (
-              // Indeterminate progress animation
-              <div 
-                className="h-2 rounded-full animate-pulse"
-                style={{ 
-                  width: '30%', 
-                  backgroundColor: '#FCBC32',
-                  animation: 'indeterminate 1.5s ease-in-out infinite'
-                }}
-              />
-            ) : (
-              <div
-                className="h-2 rounded-full transition-all duration-300"
-                style={{ width: `${genProgress.percent}%`, backgroundColor: '#FCBC32' }}
-              />
-            )}
-          </div>
-          {genProgress.currentQuery && (
-            <p className="text-xs truncate" style={{ color: '#8F949E' }}>
-              {genProgress.percent === 0 ? genProgress.currentQuery : `Latest: "${genProgress.currentQuery}"`}
-            </p>
-          )}
-        </div>
-      )}
-
       {/* ========== MAIN CONTENT ========== */}
       <div className="flex flex-col gap-4">
         {/* TOP ROW: Testing Dimensions + Generated Batches (side by side) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* LEFT: Testing Dimensions */}
           <div 
-            className="rounded-lg p-4 flex flex-col overflow-hidden"
-            style={{ backgroundColor: '#1C1E24', border: '1px solid #333333', height: '300px' }}
+            className="rounded-lg p-4 flex flex-col overflow-hidden transition-all duration-200"
+            style={{ 
+              backgroundColor: '#1C1E24', 
+              border: '1px solid #333333', 
+              height: dimensionsCollapsed ? 'auto' : '280px' 
+            }}
           >
-          <div className="flex items-center justify-between mb-4 flex-shrink-0">
-            <h2 className="font-display text-lg flex items-center gap-2" style={{ color: '#FDFDFD' }}>
+          <div className="flex items-center justify-between flex-shrink-0">
+            <button
+              onClick={() => setDimensionsCollapsed(!dimensionsCollapsed)}
+              className="font-display text-lg flex items-center gap-2 hover:opacity-80 transition-opacity"
+              style={{ color: '#FDFDFD' }}
+            >
+              {dimensionsCollapsed ? (
+                <ChevronDown className="w-4 h-4" style={{ color: '#8F949E' }} />
+              ) : (
+                <ChevronUp className="w-4 h-4" style={{ color: '#8F949E' }} />
+              )}
               <Target className="w-5 h-5" style={{ color: '#FCBC32' }} />
               Testing dimensions
-              </h2>
+              <span className="text-xs px-2 py-0.5 rounded ml-1" style={{ backgroundColor: '#333333', color: '#8F949E' }}>
+                {dimensions.length}
+              </span>
+            </button>
             <div className="flex gap-2 items-center">
               <div 
                 className="relative"
@@ -581,6 +578,9 @@ export function SyntheticTab() {
               </div>
             </div>
 
+          {/* Collapsible content */}
+          {!dimensionsCollapsed && (
+            <div className="mt-4 flex-1 flex flex-col overflow-hidden">
           {/* Add Dimension Form */}
             {showAddDimension && (
             <div 
@@ -695,15 +695,30 @@ export function SyntheticTab() {
               </div>
             )}
           </div>
+            </div>
+          )}
         </div>
 
           {/* RIGHT: Generated Batches */}
           <div 
-            className="rounded-lg p-4 flex flex-col overflow-hidden"
-            style={{ backgroundColor: '#1C1E24', border: '1px solid #333333', height: '300px' }}
+            className="rounded-lg p-4 flex flex-col overflow-hidden transition-all duration-200"
+            style={{ 
+              backgroundColor: '#1C1E24', 
+              border: '1px solid #333333', 
+              height: batchesCollapsed ? 'auto' : '280px' 
+            }}
           >
-            <div className="flex items-center justify-between mb-3 flex-shrink-0">
-              <h2 className="font-display text-lg flex items-center gap-2" style={{ color: '#FDFDFD' }}>
+            <div className="flex items-center justify-between flex-shrink-0">
+              <button
+                onClick={() => setBatchesCollapsed(!batchesCollapsed)}
+                className="font-display text-lg flex items-center gap-2 hover:opacity-80 transition-opacity"
+                style={{ color: '#FDFDFD' }}
+              >
+                {batchesCollapsed ? (
+                  <ChevronDown className="w-4 h-4" style={{ color: '#8F949E' }} />
+                ) : (
+                  <ChevronUp className="w-4 h-4" style={{ color: '#8F949E' }} />
+                )}
                 <Zap className="w-5 h-5" style={{ color: '#FCBC32' }} />
                 Generated batches
                 <span 
@@ -712,7 +727,7 @@ export function SyntheticTab() {
                 >
                   {syntheticBatches.length}
                 </span>
-              </h2>
+              </button>
               <div className="flex items-center gap-2">
                 {executingBatch && (
                   <span className="text-xs flex items-center gap-1" style={{ color: '#10BFCC' }}>
@@ -748,6 +763,8 @@ export function SyntheticTab() {
               </div>
             </div>
             
+            {!batchesCollapsed && (
+              <div className="mt-3 flex-1 flex flex-col overflow-hidden">
             {syntheticBatches.length > 0 ? (
               <div className="flex-1 overflow-y-auto space-y-2 pr-1">
                 {syntheticBatches.map((batch) => (
@@ -832,13 +849,67 @@ export function SyntheticTab() {
                 </div>
               </div>
             )}
+              </div>
+            )}
           </div>
         </div>
 
+        {/* Generation Progress - below the two columns */}
+        {generating && genProgress && (
+          <div 
+            className="rounded-lg p-4"
+            style={{ backgroundColor: 'rgba(252, 188, 50, 0.1)', border: '1px solid rgba(252, 188, 50, 0.3)' }}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <span className="font-medium" style={{ color: '#FDFDFD' }}>
+                {genProgress.percent === 0 ? 'Preparing...' : 'Generating queries...'}
+              </span>
+              <div className="flex items-center gap-3">
+                <span className="text-sm" style={{ color: '#FCBC32' }}>{genProgress.completed} / {genProgress.total}</span>
+                <button
+                  onClick={stopGeneration}
+                  className="p-1.5 rounded transition-colors hover:bg-red-500/20"
+                  style={{ color: '#EF4444' }}
+                  title="Stop generation"
+                >
+                  <Square className="w-4 h-4 fill-current" />
+                </button>
+              </div>
+            </div>
+            <div className="w-full rounded-full h-2 mb-2 overflow-hidden" style={{ backgroundColor: '#333333' }}>
+              {genProgress.percent === 0 ? (
+                <div 
+                  className="h-2 rounded-full"
+                  style={{ 
+                    width: '30%', 
+                    backgroundColor: '#FCBC32',
+                    animation: 'indeterminate 1.5s ease-in-out infinite'
+                  }}
+                />
+              ) : (
+                <div
+                  className="h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${genProgress.percent}%`, backgroundColor: '#FCBC32' }}
+                />
+              )}
+            </div>
+            {genProgress.currentQuery && (
+              <p className="text-xs truncate" style={{ color: '#8F949E' }}>
+                {genProgress.percent === 0 ? genProgress.currentQuery : `Latest: "${genProgress.currentQuery}"`}
+              </p>
+            )}
+          </div>
+        )}
+
         {/* BOTTOM: Batch Data Preview (full width) */}
         <div 
-          className="rounded-lg p-4 flex flex-col"
-          style={{ backgroundColor: '#1C1E24', border: '1px solid #333333', height: '400px' }}
+          className="rounded-lg p-4 flex flex-col flex-1"
+          style={{ 
+            backgroundColor: '#1C1E24', 
+            border: '1px solid #333333', 
+            minHeight: '400px',
+            maxHeight: dimensionsCollapsed && batchesCollapsed ? '70vh' : '500px'
+          }}
         >
           <div className="flex items-center justify-between mb-3 flex-shrink-0">
             <h2 className="font-display text-lg flex items-center gap-2" style={{ color: '#FDFDFD' }}>

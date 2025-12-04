@@ -14,11 +14,10 @@ import {
   ChevronDown,
   ChevronUp,
   Settings2,
-  Key,
-  Thermometer,
   Hash,
   Copy,
   Check,
+  HelpCircle,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { formatRelativeTime } from "../../utils/formatters";
@@ -68,6 +67,9 @@ export function SyntheticTab() {
   // Batches panel
   const [showBatches, setShowBatches] = useState(false);
   const [copiedBatchId, setCopiedBatchId] = useState<string | null>(null);
+  const [copiedQueryId, setCopiedQueryId] = useState<string | null>(null);
+  const [copiedAllSelected, setCopiedAllSelected] = useState(false);
+  const [showImportHelp, setShowImportHelp] = useState(false);
 
   const handleSaveDimension = async (dimName: string, values: string[]) => {
     if (!selectedAgent) return;
@@ -215,6 +217,23 @@ export function SyntheticTab() {
     navigator.clipboard.writeText(batchId);
     setCopiedBatchId(batchId);
     setTimeout(() => setCopiedBatchId(null), 2000);
+  };
+
+  const copyQueryText = (queryId: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedQueryId(queryId);
+    setTimeout(() => setCopiedQueryId(null), 2000);
+  };
+
+  const copySelectedQueries = () => {
+    if (!selectedBatch?.queries || selectedQueryIds.size === 0) return;
+    const selectedTexts = selectedBatch.queries
+      .filter(q => selectedQueryIds.has(q.id))
+      .map(q => q.query_text)
+      .join('\n\n---\n\n');
+    navigator.clipboard.writeText(selectedTexts);
+    setCopiedAllSelected(true);
+    setTimeout(() => setCopiedAllSelected(false), 2000);
   };
 
   // If no agent selected, show prompt pointing to Agents tab
@@ -411,35 +430,83 @@ export function SyntheticTab() {
       )}
 
       {/* ========== MAIN CONTENT: Two Columns ========== */}
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 gap-4" style={{ height: '420px' }}>
         {/* LEFT: Testing Dimensions */}
         <div 
-          className="rounded-lg p-4"
+          className="rounded-lg p-4 flex flex-col min-h-0 overflow-hidden"
           style={{ backgroundColor: '#1C1E24', border: '1px solid #333333' }}
         >
-            <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-4 flex-shrink-0">
             <h2 className="font-display text-lg flex items-center gap-2" style={{ color: '#FDFDFD' }}>
               <Target className="w-5 h-5" style={{ color: '#FCBC32' }} />
               Testing dimensions
-              </h2>
-              <div className="flex gap-2">
+            </h2>
+            <div className="flex gap-2 items-center">
+              <div 
+                className="relative"
+                onMouseLeave={() => setShowImportHelp(false)}
+              >
                 <button
                   onClick={() => importDimensions(selectedAgent.id)}
                   disabled={loadingDimensions}
-                className="text-xs px-3 py-1.5 rounded transition-colors"
-                style={{ backgroundColor: '#252830', color: '#8F949E', border: '1px solid #333333' }}
+                  className="text-xs px-3 py-1.5 rounded transition-colors flex items-center gap-1.5"
+                  style={{ backgroundColor: '#252830', color: '#8F949E', border: '1px solid #333333' }}
                 >
                   {loadingDimensions ? "..." : "Import from AGENT_INFO"}
+                  <span
+                    className="cursor-help"
+                    onMouseEnter={() => setShowImportHelp(true)}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <HelpCircle className="w-3.5 h-3.5" style={{ color: showImportHelp ? '#FCBC32' : '#8F949E' }} />
+                  </span>
                 </button>
+                {/* Tooltip - stays visible when hovering over it */}
+                {showImportHelp && (
+                  <div 
+                    className="absolute right-0 top-full mt-1 p-4 rounded-lg z-50 w-96 text-xs cursor-default"
+                    style={{ backgroundColor: '#252830', border: '1px solid #FCBC32', boxShadow: '0 4px 20px rgba(0,0,0,0.4)' }}
+                    onMouseEnter={() => setShowImportHelp(true)}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="font-medium" style={{ color: '#FCBC32' }}>Expected AGENT_INFO format:</p>
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(`## Testing Dimensions
+- **personas**: first_time_user, power_user
+- **complexity**: simple, multi_step
+- **scenarios**: pricing_inquiry, refund`);
+                        }}
+                        className="text-xs px-2 py-1 rounded flex items-center gap-1 transition-colors hover:opacity-80"
+                        style={{ backgroundColor: '#333333', color: '#8F949E' }}
+                      >
+                        <Copy className="w-3 h-3" />
+                        Copy template
+                      </button>
+                    </div>
+                    <pre 
+                      className="p-3 rounded text-xs overflow-x-auto mb-3 select-all"
+                      style={{ backgroundColor: '#171A1F', color: '#FDFDFD', userSelect: 'all' }}
+                    >{`## Testing Dimensions
+- **personas**: first_time_user, power_user
+- **complexity**: simple, multi_step
+- **scenarios**: pricing_inquiry, refund`}</pre>
+                    <p style={{ color: '#8F949E' }}>
+                      Add a <code className="px-1 rounded" style={{ backgroundColor: '#333333' }}>## Testing Dimensions</code> section 
+                      with bullet points in the format <code className="px-1 rounded" style={{ backgroundColor: '#333333' }}>- **name**: value1, value2</code>
+                    </p>
+                  </div>
+                )}
+              </div>
               <button 
                 onClick={() => setShowAddDimension(true)} 
                 className="p-1.5 rounded transition-colors"
                 style={{ backgroundColor: '#FCBC32', color: '#171A1F' }}
               >
                 <Plus className="w-4 h-4" />
-                </button>
-              </div>
+              </button>
             </div>
+          </div>
 
           {/* Add Dimension Form */}
             {showAddDimension && (
@@ -484,7 +551,7 @@ export function SyntheticTab() {
             )}
 
           {/* Dimensions List */}
-          <div className="space-y-3 max-h-[calc(100vh-450px)] overflow-y-auto">
+          <div className="space-y-3 flex-1 overflow-y-auto pr-1">
             {dimensions.length > 0 ? (
               dimensions.map((dim) => (
                 <div 
@@ -543,67 +610,79 @@ export function SyntheticTab() {
                   </div>
               ))
             ) : (
-              <div className="text-center py-12" style={{ color: '#8F949E' }}>
-                <Target className="w-10 h-10 mx-auto mb-3 opacity-40" />
-                <p className="text-sm mb-2">No dimensions defined yet</p>
-                <p className="text-xs">Click "Import from AGENT_INFO" or add manually</p>
+              <div className="flex-1 flex items-center justify-center" style={{ color: '#8F949E' }}>
+                <div className="text-center">
+                  <Target className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                  <p className="text-sm mb-2">No dimensions defined yet</p>
+                  <p className="text-xs mb-3">Click "Import from AGENT_INFO" or add manually</p>
+                  <p className="text-xs" style={{ color: '#FCBC32' }}>
+                    ⚠️ Define at least one dimension to generate queries
+                  </p>
+                </div>
               </div>
-        )}
-      </div>
-
-          {dimensions.length === 0 && (
-            <p className="text-xs text-center mt-4" style={{ color: '#FCBC32' }}>
-              ⚠️ Define at least one dimension to generate queries
-            </p>
-        )}
-      </div>
+            )}
+          </div>
+        </div>
 
         {/* RIGHT: Query Preview */}
         <div 
-          className="rounded-lg p-4"
+          className="rounded-lg p-4 flex flex-col min-h-0 overflow-hidden"
           style={{ backgroundColor: '#1C1E24', border: '1px solid #333333' }}
         >
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-4 flex-shrink-0">
             <h2 className="font-display text-lg flex items-center gap-2" style={{ color: '#FDFDFD' }}>
               <MessageSquare className="w-5 h-5" style={{ color: '#10BFCC' }} />
               Query preview
-            {selectedBatch && (
+              {selectedBatch && (
                 <span className="text-xs px-2 py-0.5 rounded ml-2" style={{ backgroundColor: '#333333', color: '#8F949E' }}>
                   {selectedBatch.queries?.length || 0} queries
                 </span>
               )}
             </h2>
             {selectedBatch && selectedQueryIds.size > 0 && (
-              <button
-                onClick={handleDeleteSelectedQueries}
-                className="text-xs px-3 py-1.5 rounded flex items-center gap-1 text-red-400"
-                style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)' }}
-              >
-                <Trash2 className="w-3 h-3" />
-                Delete {selectedQueryIds.size} selected
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={copySelectedQueries}
+                  className="text-xs px-3 py-1.5 rounded flex items-center gap-1 transition-colors"
+                  style={{ 
+                    backgroundColor: copiedAllSelected ? 'rgba(16, 191, 204, 0.15)' : 'rgba(16, 191, 204, 0.1)', 
+                    color: '#10BFCC' 
+                  }}
+                >
+                  {copiedAllSelected ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                  {copiedAllSelected ? 'Copied!' : `Copy ${selectedQueryIds.size} selected`}
+                </button>
+                <button
+                  onClick={handleDeleteSelectedQueries}
+                  className="text-xs px-3 py-1.5 rounded flex items-center gap-1 text-red-400"
+                  style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)' }}
+                >
+                  <Trash2 className="w-3 h-3" />
+                  Delete {selectedQueryIds.size} selected
+                </button>
+              </div>
             )}
           </div>
 
           {selectedBatch && selectedBatch.queries && selectedBatch.queries.length > 0 ? (
-            <div className="space-y-2 max-h-[calc(100vh-450px)] overflow-y-auto">
+            <div className="space-y-2 flex-1 overflow-y-auto pr-1">
               {/* Select All */}
               <label 
                 className="flex items-center gap-2 p-2 rounded cursor-pointer sticky top-0 z-10"
                 style={{ backgroundColor: '#252830' }}
               >
-                  <input
-                    type="checkbox"
+                <input
+                  type="checkbox"
                   checked={selectedQueryIds.size === selectedBatch.queries.length}
-                    onChange={(e) => {
-                      if (e.target.checked) setSelectedQueryIds(new Set(selectedBatch.queries.map((q) => q.id)));
-                      else setSelectedQueryIds(new Set());
-                    }}
+                  onChange={(e) => {
+                    if (e.target.checked) setSelectedQueryIds(new Set(selectedBatch.queries.map((q) => q.id)));
+                    else setSelectedQueryIds(new Set());
+                  }}
                   className="w-4 h-4 rounded"
                   style={{ accentColor: '#FCBC32' }}
-                  />
+                />
                 <span className="text-sm" style={{ color: '#8F949E' }}>Select all</span>
-                </label>
+              </label>
 
               {/* Query Cards */}
               {selectedBatch.queries.map((query, idx) => (
@@ -629,17 +708,28 @@ export function SyntheticTab() {
                       style={{ accentColor: '#FCBC32' }}
                     />
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-2 flex-wrap">
-                        <span className="text-xs" style={{ color: '#8F949E' }}>{idx + 1}</span>
-                        {Object.entries(query.tuple_values || {}).map(([key, val]) => (
-                          <span 
-                            key={key} 
-                            className="text-xs px-1.5 py-0.5 rounded"
-                            style={{ backgroundColor: 'rgba(16, 191, 204, 0.15)', color: '#10BFCC' }}
-                          >
-                            {val}
-                          </span>
-                        ))}
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs" style={{ color: '#8F949E' }}>{idx + 1}</span>
+                          {Object.entries(query.tuple_values || {}).map(([key, val]) => (
+                            <span 
+                              key={key} 
+                              className="text-xs px-1.5 py-0.5 rounded"
+                              style={{ backgroundColor: 'rgba(16, 191, 204, 0.15)', color: '#10BFCC' }}
+                            >
+                              {val}
+                            </span>
+                          ))}
+                        </div>
+                        {/* Copy button */}
+                        <button
+                          onClick={(e) => { e.stopPropagation(); copyQueryText(query.id, query.query_text); }}
+                          className="p-1 rounded transition-colors hover:bg-opacity-80"
+                          style={{ color: copiedQueryId === query.id ? '#10BFCC' : '#8F949E' }}
+                          title="Copy query text"
+                        >
+                          {copiedQueryId === query.id ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                        </button>
                       </div>
                       {editingQueryId === query.id ? (
                         <div className="space-y-2">
@@ -677,7 +767,7 @@ export function SyntheticTab() {
                           onClick={() => setEditingQueryId(query.id)}
                         >
                           <p className="text-sm leading-relaxed" style={{ color: '#FDFDFD' }}>
-                            "{query.query_text}"
+                            {query.query_text}
                           </p>
                           <span 
                             className="text-xs opacity-0 group-hover:opacity-100 transition-opacity"
@@ -693,10 +783,12 @@ export function SyntheticTab() {
               ))}
             </div>
           ) : (
-            <div className="text-center py-16" style={{ color: '#8F949E' }}>
-              <MessageSquare className="w-10 h-10 mx-auto mb-3 opacity-40" />
-              <p className="text-sm mb-2">No queries yet</p>
-              <p className="text-xs">Generate a batch to see queries here</p>
+            <div className="flex-1 flex items-center justify-center" style={{ color: '#8F949E' }}>
+              <div className="text-center">
+                <MessageSquare className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                <p className="text-sm mb-2">No queries yet</p>
+                <p className="text-xs">Generate a batch to see queries here</p>
+              </div>
             </div>
           )}
         </div>
@@ -752,21 +844,27 @@ export function SyntheticTab() {
                   >
                     <div className="flex items-start justify-between mb-2">
                       <div className="flex-1 min-w-0">
-                        <p className="font-medium text-sm truncate" style={{ color: '#FDFDFD' }}>{batch.name}</p>
-                        <div className="flex items-center gap-2 mt-1">
+                        {/* Batch ID as primary identifier */}
+                        <div className="flex items-center gap-2">
+                          <code 
+                            className="font-mono text-sm font-medium px-1.5 py-0.5 rounded"
+                            style={{ backgroundColor: '#333333', color: '#FCBC32' }}
+                          >
+                            {batch.id.slice(0, 12)}
+                          </code>
                           <button
                             onClick={(e) => { e.stopPropagation(); copyBatchId(batch.id); }}
-                            className="text-xs flex items-center gap-1 hover:opacity-80"
-                            style={{ color: '#8F949E' }}
-                            title="Copy batch ID"
+                            className="p-1 rounded transition-colors hover:bg-opacity-80"
+                            style={{ color: copiedBatchId === batch.id ? '#10BFCC' : '#8F949E' }}
+                            title="Copy full batch ID"
                           >
-                            {copiedBatchId === batch.id ? (
-                              <><Check className="w-3 h-3" style={{ color: '#10BFCC' }} /> Copied</>
-                            ) : (
-                              <><Copy className="w-3 h-3" /> {batch.id.slice(0, 8)}...</>
-                            )}
+                            {copiedBatchId === batch.id ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                           </button>
                         </div>
+                        {/* Date/name as subtext */}
+                        <p className="text-xs mt-1 truncate" style={{ color: '#8F949E' }}>
+                          {batch.name} • {formatRelativeTime(batch.created_at)}
+                        </p>
                       </div>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDeleteBatch(batch.id); }}
@@ -775,12 +873,9 @@ export function SyntheticTab() {
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <StatusBadge status={batch.status} />
-                        <span className="text-xs" style={{ color: '#8F949E' }}>{batch.query_count} queries</span>
-                      </div>
-                      <span className="text-xs" style={{ color: '#8F949E' }}>{formatRelativeTime(batch.created_at)}</span>
+                    <div className="flex items-center gap-2">
+                      <StatusBadge status={batch.status} />
+                      <span className="text-xs" style={{ color: '#8F949E' }}>{batch.query_count} queries</span>
                     </div>
                     {(batch.status === "ready" || batch.status === "pending" || batch.status === "completed") && (
                       <button

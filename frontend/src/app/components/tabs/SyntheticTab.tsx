@@ -324,7 +324,7 @@ export function SyntheticTab() {
           onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
           className="flex items-center gap-1 px-3 py-1.5 rounded text-sm transition-colors"
           style={{ color: showAdvancedSettings ? '#FCBC32' : '#8F949E' }}
-        >
+                >
           <Settings2 className="w-4 h-4" />
           <span>Advanced</span>
           {showAdvancedSettings ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
@@ -429,18 +429,20 @@ export function SyntheticTab() {
         </div>
       )}
 
-      {/* ========== MAIN CONTENT: Two Columns ========== */}
-      <div className="grid grid-cols-2 gap-4" style={{ height: '420px' }}>
-        {/* LEFT: Testing Dimensions */}
-        <div 
-          className="rounded-lg p-4 flex flex-col min-h-0 overflow-hidden"
-          style={{ backgroundColor: '#1C1E24', border: '1px solid #333333' }}
-        >
+      {/* ========== MAIN CONTENT ========== */}
+      <div className="flex flex-col gap-4">
+        {/* TOP ROW: Testing Dimensions + Generated Batches (side by side) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* LEFT: Testing Dimensions */}
+          <div 
+            className="rounded-lg p-4 flex flex-col overflow-hidden"
+            style={{ backgroundColor: '#1C1E24', border: '1px solid #333333', height: '300px' }}
+          >
           <div className="flex items-center justify-between mb-4 flex-shrink-0">
             <h2 className="font-display text-lg flex items-center gap-2" style={{ color: '#FDFDFD' }}>
               <Target className="w-5 h-5" style={{ color: '#FCBC32' }} />
               Testing dimensions
-            </h2>
+              </h2>
             <div className="flex gap-2 items-center">
               <div 
                 className="relative"
@@ -482,7 +484,7 @@ export function SyntheticTab() {
                       >
                         <Copy className="w-3 h-3" />
                         Copy template
-                      </button>
+                </button>
                     </div>
                     <pre 
                       className="p-3 rounded text-xs overflow-x-auto mb-3 select-all"
@@ -505,8 +507,8 @@ export function SyntheticTab() {
               >
                 <Plus className="w-4 h-4" />
               </button>
+              </div>
             </div>
-          </div>
 
           {/* Add Dimension Form */}
             {showAddDimension && (
@@ -624,74 +626,156 @@ export function SyntheticTab() {
           </div>
         </div>
 
-        {/* RIGHT: Query Preview */}
+          {/* RIGHT: Generated Batches */}
+          <div 
+            className="rounded-lg p-4 flex flex-col overflow-hidden"
+            style={{ backgroundColor: '#1C1E24', border: '1px solid #333333', height: '300px' }}
+          >
+            <div className="flex items-center justify-between mb-3 flex-shrink-0">
+              <h2 className="font-display text-lg flex items-center gap-2" style={{ color: '#FDFDFD' }}>
+                <Zap className="w-5 h-5" style={{ color: '#FCBC32' }} />
+                Generated batches
+                <span 
+                  className="text-xs px-2 py-0.5 rounded"
+                  style={{ backgroundColor: '#333333', color: '#8F949E' }}
+                >
+                  {syntheticBatches.length}
+                </span>
+              </h2>
+              {executingBatch && (
+                <span className="text-xs flex items-center gap-1" style={{ color: '#10BFCC' }}>
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                  Running...
+                </span>
+              )}
+            </div>
+            
+            {syntheticBatches.length > 0 ? (
+              <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                {syntheticBatches.map((batch) => (
+                  <button
+                    key={batch.id}
+                    onClick={() => fetchBatchDetail(batch.id)}
+                    className={`w-full rounded-lg p-3 transition-all text-left ${
+                      selectedBatch?.id === batch.id ? 'ring-1' : ''
+                    }`}
+                    style={{ 
+                      backgroundColor: selectedBatch?.id === batch.id ? 'rgba(252, 188, 50, 0.15)' : '#252830',
+                      border: '1px solid #333333',
+                      ringColor: '#FCBC32'
+                    }}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <code 
+                        className="font-mono text-sm font-medium px-1.5 py-0.5 rounded"
+                        style={{ backgroundColor: '#333333', color: '#FCBC32' }}
+                      >
+                        {batch.id.slice(0, 12)}
+                      </code>
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); copyBatchId(batch.id); }}
+                          className="p-1 rounded transition-colors"
+                          style={{ color: copiedBatchId === batch.id ? '#10BFCC' : '#8F949E' }}
+                          title="Copy batch ID"
+                        >
+                          {copiedBatchId === batch.id ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteBatch(batch.id); }}
+                          className="p-1 rounded text-red-400 hover:text-red-300"
+                          title="Delete batch"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <StatusBadge status={batch.status} />
+                        <span className="text-xs" style={{ color: '#8F949E' }}>{batch.query_count} queries</span>
+                      </div>
+                      <span className="text-xs" style={{ color: '#8F949E' }}>{formatRelativeTime(batch.created_at)}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="flex-1 flex items-center justify-center" style={{ color: '#8F949E' }}>
+                <div className="text-center">
+                  <Zap className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                  <p className="text-sm">No batches yet</p>
+                  <p className="text-xs">Generate one using the button above</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* BOTTOM: Batch Data Preview (full width) */}
         <div 
-          className="rounded-lg p-4 flex flex-col min-h-0 overflow-hidden"
-          style={{ backgroundColor: '#1C1E24', border: '1px solid #333333' }}
+          className="rounded-lg p-4 flex flex-col"
+          style={{ backgroundColor: '#1C1E24', border: '1px solid #333333', height: '400px' }}
         >
-          <div className="flex items-center justify-between mb-4 flex-shrink-0">
+          <div className="flex items-center justify-between mb-3 flex-shrink-0">
             <h2 className="font-display text-lg flex items-center gap-2" style={{ color: '#FDFDFD' }}>
               <MessageSquare className="w-5 h-5" style={{ color: '#10BFCC' }} />
-              Query preview
+              Batch data preview
               {selectedBatch && (
-                <span className="text-xs px-2 py-0.5 rounded ml-2" style={{ backgroundColor: '#333333', color: '#8F949E' }}>
-                  {selectedBatch.queries?.length || 0} queries
+                <span className="text-xs px-2 py-0.5 rounded ml-1" style={{ backgroundColor: '#333333', color: '#8F949E' }}>
+                  {selectedBatch.queries?.length || 0} items
                 </span>
               )}
             </h2>
-            {selectedBatch && selectedQueryIds.size > 0 && (
+            {/* Actions bar - shows Select All when 1+ selected */}
+            {selectedBatch && selectedBatch.queries && selectedBatch.queries.length > 0 && selectedQueryIds.size > 0 && (
               <div className="flex items-center gap-2">
+                <label className="flex items-center gap-1.5 cursor-pointer text-xs" style={{ color: '#8F949E' }}>
+                  <input
+                    type="checkbox"
+                    checked={selectedQueryIds.size === selectedBatch.queries.length}
+                    onChange={(e) => {
+                      if (e.target.checked) setSelectedQueryIds(new Set(selectedBatch.queries.map((q) => q.id)));
+                      else setSelectedQueryIds(new Set());
+                    }}
+                    className="w-3.5 h-3.5 rounded"
+                    style={{ accentColor: '#FCBC32' }}
+                  />
+                  Select all
+                </label>
+                <div className="w-px h-4" style={{ backgroundColor: '#333333' }} />
                 <button
                   onClick={copySelectedQueries}
-                  className="text-xs px-3 py-1.5 rounded flex items-center gap-1 transition-colors"
+                  className="text-xs px-2 py-1 rounded flex items-center gap-1 transition-colors"
                   style={{ 
                     backgroundColor: copiedAllSelected ? 'rgba(16, 191, 204, 0.15)' : 'rgba(16, 191, 204, 0.1)', 
                     color: '#10BFCC' 
                   }}
                 >
                   {copiedAllSelected ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                  {copiedAllSelected ? 'Copied!' : `Copy ${selectedQueryIds.size} selected`}
+                  {copiedAllSelected ? 'Copied!' : `Copy ${selectedQueryIds.size}`}
                 </button>
                 <button
                   onClick={handleDeleteSelectedQueries}
-                  className="text-xs px-3 py-1.5 rounded flex items-center gap-1 text-red-400"
+                  className="text-xs px-2 py-1 rounded flex items-center gap-1 text-red-400"
                   style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)' }}
                 >
                   <Trash2 className="w-3 h-3" />
-                  Delete {selectedQueryIds.size} selected
+                  Delete {selectedQueryIds.size}
                 </button>
               </div>
             )}
           </div>
 
           {selectedBatch && selectedBatch.queries && selectedBatch.queries.length > 0 ? (
-            <div className="space-y-2 flex-1 overflow-y-auto pr-1">
-              {/* Select All */}
-              <label 
-                className="flex items-center gap-2 p-2 rounded cursor-pointer sticky top-0 z-10"
-                style={{ backgroundColor: '#252830' }}
-              >
-                <input
-                  type="checkbox"
-                  checked={selectedQueryIds.size === selectedBatch.queries.length}
-                  onChange={(e) => {
-                    if (e.target.checked) setSelectedQueryIds(new Set(selectedBatch.queries.map((q) => q.id)));
-                    else setSelectedQueryIds(new Set());
-                  }}
-                  className="w-4 h-4 rounded"
-                  style={{ accentColor: '#FCBC32' }}
-                />
-                <span className="text-sm" style={{ color: '#8F949E' }}>Select all</span>
-              </label>
-
-              {/* Query Cards */}
+            <div className="flex-1 overflow-y-auto space-y-3 pr-2">
               {selectedBatch.queries.map((query, idx) => (
                 <div
                   key={query.id}
-                  className="rounded-lg p-3 transition-all"
+                  className="rounded-lg p-4 transition-all"
                   style={{ 
                     backgroundColor: selectedQueryIds.has(query.id) ? 'rgba(16, 191, 204, 0.1)' : '#252830',
-                    border: selectedQueryIds.has(query.id) ? '1px solid rgba(16, 191, 204, 0.3)' : '1px solid transparent'
+                    border: selectedQueryIds.has(query.id) ? '1px solid rgba(16, 191, 204, 0.3)' : '1px solid #333333'
                   }}
                 >
                   <div className="flex items-start gap-3">
@@ -704,13 +788,15 @@ export function SyntheticTab() {
                         else newSet.delete(query.id);
                         setSelectedQueryIds(newSet);
                       }}
-                      className="w-4 h-4 mt-1 rounded"
+                      className="w-4 h-4 mt-1 rounded flex-shrink-0"
                       style={{ accentColor: '#FCBC32' }}
                     />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center justify-between mb-2">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs" style={{ color: '#8F949E' }}>{idx + 1}</span>
+                          <span className="text-xs font-medium px-2 py-0.5 rounded" style={{ backgroundColor: '#333333', color: '#FDFDFD' }}>
+                            #{idx + 1}
+                          </span>
                           {Object.entries(query.tuple_values || {}).map(([key, val]) => (
                             <span 
                               key={key} 
@@ -721,14 +807,13 @@ export function SyntheticTab() {
                             </span>
                           ))}
                         </div>
-                        {/* Copy button */}
                         <button
                           onClick={(e) => { e.stopPropagation(); copyQueryText(query.id, query.query_text); }}
-                          className="p-1 rounded transition-colors hover:bg-opacity-80"
+                          className="p-1.5 rounded transition-colors hover:bg-opacity-80 flex-shrink-0"
                           style={{ color: copiedQueryId === query.id ? '#10BFCC' : '#8F949E' }}
                           title="Copy query text"
                         >
-                          {copiedQueryId === query.id ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                          {copiedQueryId === query.id ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                         </button>
                       </div>
                       {editingQueryId === query.id ? (
@@ -736,7 +821,7 @@ export function SyntheticTab() {
                           <textarea
                             defaultValue={query.query_text}
                             id={`textarea-${query.id}`}
-                            rows={3}
+                            rows={4}
                             autoFocus
                             className="w-full px-3 py-2 rounded text-sm"
                             style={{ backgroundColor: '#171A1F', border: '1px solid #FCBC32', color: '#FDFDFD' }}
@@ -770,7 +855,7 @@ export function SyntheticTab() {
                             {query.query_text}
                           </p>
                           <span 
-                            className="text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="text-xs opacity-0 group-hover:opacity-100 transition-opacity mt-1 inline-block"
                             style={{ color: '#8F949E' }}
                           >
                             Click to edit
@@ -785,118 +870,13 @@ export function SyntheticTab() {
           ) : (
             <div className="flex-1 flex items-center justify-center" style={{ color: '#8F949E' }}>
               <div className="text-center">
-                <MessageSquare className="w-10 h-10 mx-auto mb-3 opacity-40" />
-                <p className="text-sm mb-2">No queries yet</p>
-                <p className="text-xs">Generate a batch to see queries here</p>
+                <MessageSquare className="w-16 h-16 mx-auto mb-4 opacity-30" />
+                <p className="text-lg mb-2" style={{ color: '#FDFDFD' }}>Select a batch to preview</p>
+                <p className="text-sm">Choose a batch from the "Generated batches" section above to review and edit its data.</p>
               </div>
             </div>
           )}
         </div>
-      </div>
-
-      {/* ========== BATCHES PANEL (Collapsible) ========== */}
-      <div 
-        className="rounded-lg overflow-hidden"
-        style={{ backgroundColor: '#1C1E24', border: '1px solid #333333' }}
-      >
-        <button
-          onClick={() => setShowBatches(!showBatches)}
-          className="w-full flex items-center justify-between p-4 transition-colors hover:bg-opacity-80"
-          style={{ backgroundColor: '#252830' }}
-        >
-          <div className="flex items-center gap-3">
-            <Zap className="w-5 h-5" style={{ color: '#FCBC32' }} />
-            <span className="font-medium" style={{ color: '#FDFDFD' }}>Generated batches</span>
-            <span 
-              className="text-xs px-2 py-0.5 rounded"
-              style={{ backgroundColor: '#333333', color: '#8F949E' }}
-            >
-              {syntheticBatches.length}
-            </span>
-          </div>
-          <div className="flex items-center gap-3">
-            {executingBatch && (
-              <span className="text-xs flex items-center gap-1" style={{ color: '#10BFCC' }}>
-                <RefreshCw className="w-3 h-3 animate-spin" />
-                Running...
-              </span>
-            )}
-            {showBatches ? <ChevronUp className="w-4 h-4" style={{ color: '#8F949E' }} /> : <ChevronDown className="w-4 h-4" style={{ color: '#8F949E' }} />}
-          </div>
-        </button>
-
-        {showBatches && (
-          <div className="p-4 border-t" style={{ borderColor: '#333333' }}>
-            {syntheticBatches.length > 0 ? (
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-                {syntheticBatches.map((batch) => (
-                  <div
-                    key={batch.id}
-                    className={`rounded-lg p-3 transition-all cursor-pointer ${
-                      selectedBatch?.id === batch.id ? 'ring-2' : ''
-                    }`}
-                    style={{ 
-                      backgroundColor: selectedBatch?.id === batch.id ? 'rgba(252, 188, 50, 0.1)' : '#252830',
-                      border: '1px solid #333333',
-                      ringColor: '#FCBC32'
-                    }}
-                    onClick={() => fetchBatchDetail(batch.id)}
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex-1 min-w-0">
-                        {/* Batch ID as primary identifier */}
-                        <div className="flex items-center gap-2">
-                          <code 
-                            className="font-mono text-sm font-medium px-1.5 py-0.5 rounded"
-                            style={{ backgroundColor: '#333333', color: '#FCBC32' }}
-                          >
-                            {batch.id.slice(0, 12)}
-                          </code>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); copyBatchId(batch.id); }}
-                            className="p-1 rounded transition-colors hover:bg-opacity-80"
-                            style={{ color: copiedBatchId === batch.id ? '#10BFCC' : '#8F949E' }}
-                            title="Copy full batch ID"
-                          >
-                            {copiedBatchId === batch.id ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                          </button>
-                        </div>
-                        {/* Date/name as subtext */}
-                        <p className="text-xs mt-1 truncate" style={{ color: '#8F949E' }}>
-                          {batch.name} • {formatRelativeTime(batch.created_at)}
-                        </p>
-                      </div>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDeleteBatch(batch.id); }}
-                        className="p-1 rounded text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <StatusBadge status={batch.status} />
-                      <span className="text-xs" style={{ color: '#8F949E' }}>{batch.query_count} queries</span>
-                    </div>
-                    {(batch.status === "ready" || batch.status === "pending" || batch.status === "completed") && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setActiveTab("runs"); }}
-                        className="w-full mt-3 text-xs py-1.5 rounded flex items-center justify-center gap-1 transition-colors"
-                        style={{ backgroundColor: '#333333', color: '#FCBC32' }}
-                      >
-                        <Play className="w-3 h-3" />
-                        Go to Runs
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="text-center text-sm py-4" style={{ color: '#8F949E' }}>
-                No batches generated yet
-              </p>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );

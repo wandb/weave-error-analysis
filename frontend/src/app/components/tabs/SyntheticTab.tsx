@@ -802,19 +802,18 @@ export function SyntheticTab() {
                 {syntheticBatches.map((batch) => (
                   <div
                     key={batch.id}
-                    className={`rounded-lg p-3 transition-all ${
-                      selectedBatch?.id === batch.id ? 'ring-1' : ''
-                    }`}
+                    className="rounded-lg p-3 transition-all"
                     style={{ 
-                      backgroundColor: selectedBatchIds.has(batch.id) 
-                        ? 'rgba(16, 191, 204, 0.1)' 
+                      backgroundColor: selectedBatchIds.has(batch.id)
+                        ? 'rgba(16, 191, 204, 0.1)'
                         : selectedBatch?.id === batch.id 
-                          ? 'rgba(252, 188, 50, 0.15)' 
+                          ? 'rgba(16, 191, 204, 0.1)' 
                           : '#252830',
-                      border: selectedBatchIds.has(batch.id) 
-                        ? '1px solid rgba(16, 191, 204, 0.3)' 
-                        : '1px solid #333333',
-                      ringColor: '#FCBC32'
+                      border: selectedBatchIds.has(batch.id)
+                        ? '1px solid rgba(16, 191, 204, 0.3)'
+                        : selectedBatch?.id === batch.id 
+                          ? '1px solid rgba(16, 191, 204, 0.4)' 
+                          : '1px solid #333333'
                     }}
                   >
                     <div className="flex items-start gap-3">
@@ -829,10 +828,17 @@ export function SyntheticTab() {
                           setSelectedBatchIds(newSet);
                         }}
                         className="w-4 h-4 mt-0.5 rounded flex-shrink-0"
-                        style={{ accentColor: '#FCBC32' }}
+                        style={{ accentColor: '#10BFCC' }}
                       />
                       <button
-                        onClick={() => fetchBatchDetail(batch.id)}
+                        onClick={() => {
+                          // Toggle: clicking again deselects
+                          if (selectedBatch?.id === batch.id) {
+                            setSelectedBatch(null);
+                          } else {
+                            fetchBatchDetail(batch.id);
+                          }
+                        }}
                         className="flex-1 text-left"
                       >
                         <div className="flex items-center justify-between mb-1">

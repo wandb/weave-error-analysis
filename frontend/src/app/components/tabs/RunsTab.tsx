@@ -608,7 +608,14 @@ export function RunsTab() {
                             style={{ accentColor: '#10BFCC' }}
                           />
                           <button
-                            onClick={() => fetchBatchDetail(batch.id)}
+                            onClick={() => {
+                              // Toggle: clicking again deselects
+                              if (selectedBatch?.id === batch.id) {
+                                setSelectedBatch(null);
+                              } else {
+                                fetchBatchDetail(batch.id);
+                              }
+                            }}
                             className="flex-1 text-left"
                           >
                             <div className="flex items-center justify-between mb-2">

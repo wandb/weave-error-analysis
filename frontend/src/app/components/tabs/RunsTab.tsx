@@ -12,17 +12,14 @@ import {
   AlertTriangle,
   ClipboardList,
   Bot,
-  Sparkles,
-  FileText,
   ChevronDown,
-  ChevronRight,
+  ChevronUp,
   Tag,
-  X,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { formatRelativeTime, calculateETA } from "../../utils/formatters";
-import { Panel, PanelHeader, Badge, StatusBadge, SelectPrompt, ProgressBar } from "../ui";
-import type { ExecutionProgress, BatchDetail, AutoReview } from "../../types";
+import { StatusBadge } from "../ui";
+import type { ExecutionProgress, BatchDetail } from "../../types";
 import * as api from "../../lib/api";
 
 export function RunsTab() {
@@ -44,11 +41,12 @@ export function RunsTab() {
   const [executingBatch, setExecutingBatch] = useState(false);
   const [executionProgress, setExecutionProgress] = useState<ExecutionProgress | null>(null);
   
-  // Auto-review state
-  const [runningAutoReview, setRunningAutoReview] = useState(false);
-  const [autoReview, setAutoReview] = useState<AutoReview | null>(null);
-  const [showReviewPanel, setShowReviewPanel] = useState(false);
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
+  // Dropdown state
+  const [agentDropdownOpen, setAgentDropdownOpen] = useState(false);
+
+  // Collapsible sections
+  const [pendingCollapsed, setPendingCollapsed] = useState(false);
+  const [completedCollapsed, setCompletedCollapsed] = useState(false);
 
   const pendingBatches = syntheticBatches.filter((b) => b.status === "ready" || b.status === "pending");
   const completedBatches = syntheticBatches.filter((b) => b.status === "completed" || b.status === "failed");
@@ -117,336 +115,419 @@ export function RunsTab() {
     setActiveTab("sessions");
   };
 
-  const runAutoReview = async (batchId: string) => {
-    setRunningAutoReview(true);
-    setAutoReview(null);
-    
-    try {
-      const result = await api.runAutoReview(batchId);
-      setAutoReview(result);
-      setShowReviewPanel(true);
-    } catch (error) {
-      console.error("Error running auto-review:", error);
-    } finally {
-      setRunningAutoReview(false);
-    }
-  };
-
-  const fetchExistingReview = async (batchId: string) => {
-    try {
-      const review = await api.fetchLatestReview(batchId);
-      if (review) {
-        setAutoReview(review);
-        setShowReviewPanel(true);
-      }
-    } catch (error) {
-      console.error("Error fetching review:", error);
-    }
-  };
-
-  const toggleCategory = (categoryName: string) => {
-    setExpandedCategories((prev) => {
-      const next = new Set(prev);
-      if (next.has(categoryName)) {
-        next.delete(categoryName);
-      } else {
-        next.add(categoryName);
-      }
-      return next;
-    });
-  };
+  // If no agent selected, show prompt pointing to Agents tab
+  if (!selectedAgent) {
+    return (
+      <div className="flex items-center justify-center h-[calc(100vh-200px)]">
+        <div className="text-center" style={{ color: '#8F949E' }}>
+          <Cpu className="w-16 h-16 mx-auto mb-4 opacity-40" />
+          <h2 className="text-xl font-display mb-2" style={{ color: '#FDFDFD' }}>Select an agent to get started</h2>
+          <p className="mb-4">
+            {agents.length === 0 
+              ? "Register an agent first to run batch executions."
+              : "Select an agent from the Agents tab to run batch executions."
+            }
+          </p>
+          <button 
+            onClick={() => setActiveTab("agents")} 
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-md font-medium transition-all"
+            style={{ backgroundColor: '#FCBC32', color: '#171A1F' }}
+          >
+            <Cpu className="w-4 h-4" />
+            {agents.length === 0 ? "REGISTER AN AGENT" : "GO TO AGENTS TAB"}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="max-w-[1600px] mx-auto px-6 py-6">
-      <div className="grid grid-cols-12 gap-6">
-        {/* Left Panel - Agent Selection */}
-        <div className="col-span-3 space-y-4">
-          <Panel>
-            <PanelHeader icon={<Cpu className="w-5 h-5 text-accent-teal" />} title="Select Agent" />
-            {agents.length > 0 ? (
-              <div className="space-y-2">
-                {agents.map((agent) => (
-                  <button
-                    key={agent.id}
-                    onClick={async () => {
-                      setSelectedAgent(agent as any);
-                      await fetchBatches(agent.id);
-                    }}
-                    className={`w-full text-left p-3 rounded-lg transition-all ${
-                      selectedAgent?.id === agent.id
-                        ? "bg-accent-teal/20 border border-accent-teal/50"
-                        : "bg-ink-800/50 hover:bg-ink-800 border border-transparent"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-sand-200 font-medium">{agent.name}</span>
-                      <StatusBadge status={agent.connection_status} />
-                    </div>
-                  </button>
-                ))}
+    <div className="space-y-4">
+      {/* ========== TOP CONTROL BAR ========== */}
+      <div 
+        className="rounded-lg p-4 flex flex-wrap items-center gap-4"
+        style={{ backgroundColor: '#252830', border: '1px solid #333333' }}
+      >
+        {/* Agent Dropdown */}
+        <div className="flex items-center gap-2">
+          <Cpu className="w-4 h-4" style={{ color: '#8F949E' }} />
+          <div className="relative">
+            <button
+              onClick={() => setAgentDropdownOpen(!agentDropdownOpen)}
+              className="flex items-center gap-2 px-3 py-2 rounded-md text-sm min-w-[200px] text-left"
+              style={{ backgroundColor: '#171A1F', border: '1px solid #333333', color: '#FDFDFD' }}
+            >
+              <div className="flex-1 truncate">
+                {selectedAgent ? (
+                  <span>{selectedAgent.name}</span>
+                ) : (
+                  <span style={{ color: '#8F949E' }}>Choose an agent...</span>
+                )}
               </div>
-            ) : (
-              <div className="text-center py-8 text-ink-400">
-                <Cpu className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                <p className="text-sm">No agents registered.</p>
-                <button onClick={() => setActiveTab("agents")} className="mt-2 text-xs text-accent-teal hover:underline">
-                  Register an agent →
-                </button>
-              </div>
-            )}
-          </Panel>
-        </div>
+              <ChevronDown className={`w-4 h-4 transition-transform ${agentDropdownOpen ? 'rotate-180' : ''}`} style={{ color: '#8F949E' }} />
+            </button>
 
-        {/* Middle Panel - Batch Execution */}
-        <div className="col-span-5 space-y-4">
-          {/* Active Execution */}
-          {executingBatch && executionProgress && (
-            <div className="bg-gradient-to-r from-accent-teal/10 to-accent-plum/10 rounded-xl border border-accent-teal/30 p-6">
-              <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 rounded-full bg-accent-teal/20 flex items-center justify-center">
-                  <RefreshCw className="w-5 h-5 text-accent-teal animate-spin" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-sand-100">Executing Batch</h3>
-                  <p className="text-sm text-ink-400">{selectedBatch?.name || "Running..."}</p>
-                </div>
-              </div>
-
-              <ProgressBar
-                value={executionProgress.progress_percent}
-                label={`Query ${executionProgress.completed_queries} of ${executionProgress.total_queries}`}
-                sublabel={`${Math.round(executionProgress.progress_percent)}%`}
-                gradientFrom="from-accent-teal"
-                gradientTo="to-accent-plum"
-                className="mb-4"
-              />
-
-              <div className="flex items-center gap-6 text-sm">
-                <div className="flex items-center gap-2 text-green-400">
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>{executionProgress.success_count} success</span>
-                </div>
-                <div className="flex items-center gap-2 text-red-400">
-                  <AlertTriangle className="w-4 h-4" />
-                  <span>{executionProgress.failure_count} failed</span>
-                </div>
-                {executionProgress.start_time &&
-                  executionProgress.completed_queries > 0 &&
-                  executionProgress.completed_queries < executionProgress.total_queries && (
-                    <div className="flex items-center gap-2 text-ink-400">
-                      <Clock className="w-4 h-4" />
-                      <span>~{calculateETA(executionProgress.start_time, executionProgress.completed_queries, executionProgress.total_queries)}s remaining</span>
-                    </div>
-                  )}
-              </div>
-
-              {executionProgress.current_query_text && (
-                <div className="mt-4 p-3 bg-ink-900/50 rounded-lg">
-                  <p className="text-xs text-ink-500 mb-1">Currently processing:</p>
-                  <p className="text-sm text-sand-300 italic">&quot;{executionProgress.current_query_text}&quot;</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Pending Runs */}
-          <Panel>
-            <PanelHeader
-              icon={<Clock className="w-5 h-5 text-accent-amber" />}
-              title="Pending Runs"
-              badge={pendingBatches.length > 0 ? <span className="text-xs text-ink-400">({pendingBatches.length})</span> : null}
-            />
-
-            {selectedAgent ? (
-              pendingBatches.length > 0 ? (
-                <div className="space-y-3">
-                  {pendingBatches.map((batch) => (
-                    <div key={batch.id} className="p-4 bg-ink-800/50 rounded-lg border border-ink-700 hover:border-ink-600">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-sand-200 font-medium">{batch.name}</span>
-                        <Badge variant="amber" className="text-xs">{batch.query_count} queries</Badge>
+            {/* Dropdown Menu */}
+            {agentDropdownOpen && (
+              <>
+                <div 
+                  className="fixed inset-0 z-10" 
+                  onClick={() => setAgentDropdownOpen(false)} 
+                />
+                <div 
+                  className="absolute top-full left-0 right-0 mt-1 rounded-lg shadow-xl z-20 overflow-hidden"
+                  style={{ backgroundColor: '#1C1E24', border: '1px solid #333333' }}
+                >
+                  {agents.map((agent) => (
+                    <button
+                      key={agent.id}
+                      onClick={async () => {
+                        setSelectedAgent(agent as any);
+                        await fetchBatches(agent.id);
+                        setAgentDropdownOpen(false);
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors"
+                      style={{ 
+                        backgroundColor: selectedAgent?.id === agent.id ? 'rgba(252, 188, 50, 0.1)' : 'transparent',
+                        borderLeft: selectedAgent?.id === agent.id ? '2px solid #FCBC32' : '2px solid transparent'
+                      }}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <span className="font-medium block truncate" style={{ color: '#FDFDFD' }}>{agent.name}</span>
+                        <StatusBadge status={agent.connection_status} className="mt-0.5" />
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs text-ink-500">Created {formatRelativeTime(batch.created_at)}</span>
-                        <button
-                          onClick={() => {
-                            setSelectedBatch({ id: batch.id, name: batch.name, queries: [] });
-                            executeBatch(batch.id, selectedAgent.id);
-                          }}
-                          disabled={executingBatch}
-                          className="btn-primary py-1.5 px-4 text-sm flex items-center gap-2"
-                        >
-                          <Play className="w-4 h-4" />
-                          Run
-                        </button>
-                      </div>
-                    </div>
+                      {selectedAgent?.id === agent.id && (
+                        <CheckCircle2 className="w-4 h-4 flex-shrink-0" style={{ color: '#FCBC32' }} />
+                      )}
+                    </button>
                   ))}
                 </div>
-              ) : (
-                <div className="text-center py-8 text-ink-400">
-                  <CheckCircle2 className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm">No pending batches.</p>
-                  <button onClick={() => setActiveTab("synthetic")} className="mt-2 text-xs text-accent-amber hover:underline">
-                    Generate synthetic data →
-                  </button>
-                </div>
-              )
-            ) : (
-              <SelectPrompt icon={<Cpu className="w-8 h-8" />} title="Select an agent to view runs" description="" />
+              </>
             )}
-          </Panel>
+          </div>
+        </div>
 
-          {/* Completed Runs */}
-          <Panel>
-            <PanelHeader
-              icon={<CheckCircle2 className="w-5 h-5 text-green-400" />}
-              title="Completed Runs"
-              badge={completedBatches.length > 0 ? <span className="text-xs text-ink-400">({completedBatches.length})</span> : null}
+        {/* Divider */}
+        <div className="h-8 w-px" style={{ backgroundColor: '#333333' }} />
+
+        {/* Status Info */}
+        <div className="flex items-center gap-4 text-sm">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4" style={{ color: '#FCBC32' }} />
+            <span style={{ color: '#8F949E' }}>Pending:</span>
+            <span 
+              className="px-2 py-0.5 rounded text-xs font-medium"
+              style={{ backgroundColor: pendingBatches.length > 0 ? 'rgba(252, 188, 50, 0.15)' : '#333333', color: pendingBatches.length > 0 ? '#FCBC32' : '#8F949E' }}
+            >
+              {pendingBatches.length}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4" style={{ color: '#10BFCC' }} />
+            <span style={{ color: '#8F949E' }}>Completed:</span>
+            <span 
+              className="px-2 py-0.5 rounded text-xs font-medium"
+              style={{ backgroundColor: completedBatches.length > 0 ? 'rgba(16, 191, 204, 0.15)' : '#333333', color: completedBatches.length > 0 ? '#10BFCC' : '#8F949E' }}
+            >
+              {completedBatches.length}
+            </span>
+          </div>
+        </div>
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* Go to Data Tab */}
+        <button
+          onClick={() => setActiveTab("synthetic")}
+          className="flex items-center gap-2 px-4 py-2 rounded-md text-sm transition-colors"
+          style={{ backgroundColor: '#333333', color: '#8F949E' }}
+        >
+          <ExternalLink className="w-4 h-4" />
+          <span>GENERATE DATA</span>
+        </button>
+      </div>
+
+      {/* Execution Progress */}
+      {executingBatch && executionProgress && (
+        <div 
+          className="rounded-lg p-4"
+          style={{ backgroundColor: 'rgba(16, 191, 204, 0.1)', border: '1px solid rgba(16, 191, 204, 0.3)' }}
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-3">
+              <RefreshCw className="w-5 h-5 animate-spin" style={{ color: '#10BFCC' }} />
+              <div>
+                <span className="font-medium" style={{ color: '#FDFDFD' }}>Executing Batch</span>
+                <span className="text-sm ml-2" style={{ color: '#8F949E' }}>{selectedBatch?.name}</span>
+              </div>
+            </div>
+            <span className="text-sm" style={{ color: '#10BFCC' }}>
+              {executionProgress.completed_queries} / {executionProgress.total_queries}
+            </span>
+          </div>
+
+          <div className="w-full rounded-full h-2 mb-3 overflow-hidden" style={{ backgroundColor: '#333333' }}>
+            <div
+              className="h-2 rounded-full transition-all duration-300"
+              style={{ width: `${executionProgress.progress_percent}%`, background: 'linear-gradient(to right, #10BFCC, #FCBC32)' }}
             />
+          </div>
 
-            {selectedAgent && completedBatches.length > 0 ? (
-              <div className="space-y-3">
-                {completedBatches.map((batch) => (
-                  <div
-                    key={batch.id}
-                    className={`p-4 rounded-lg border transition-all cursor-pointer ${
-                      selectedBatch?.id === batch.id
-                        ? "bg-accent-teal/10 border-accent-teal/30"
-                        : "bg-ink-800/50 border-ink-700 hover:border-ink-600"
-                    }`}
-                    onClick={() => fetchBatchDetail(batch.id)}
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sand-200 font-medium">{batch.name}</span>
-                      <StatusBadge status={batch.status} />
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-ink-500">{batch.query_count} queries • {formatRelativeTime(batch.created_at)}</span>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          resetBatch(batch.id, selectedAgent.id, false);
-                        }}
-                        className="text-xs text-ink-400 hover:text-sand-200 flex items-center gap-1"
+          <div className="flex items-center gap-6 text-sm">
+            <div className="flex items-center gap-2" style={{ color: '#10BFCC' }}>
+              <CheckCircle2 className="w-4 h-4" />
+              <span>{executionProgress.success_count} success</span>
+            </div>
+            <div className="flex items-center gap-2" style={{ color: '#EF4444' }}>
+              <AlertTriangle className="w-4 h-4" />
+              <span>{executionProgress.failure_count} failed</span>
+            </div>
+            {executionProgress.start_time &&
+              executionProgress.completed_queries > 0 &&
+              executionProgress.completed_queries < executionProgress.total_queries && (
+                <div className="flex items-center gap-2" style={{ color: '#8F949E' }}>
+                  <Clock className="w-4 h-4" />
+                  <span>~{calculateETA(executionProgress.start_time, executionProgress.completed_queries, executionProgress.total_queries)}s remaining</span>
+                </div>
+              )}
+          </div>
+
+          {executionProgress.current_query_text && (
+            <div 
+              className="mt-3 p-3 rounded-lg"
+              style={{ backgroundColor: '#171A1F' }}
+            >
+              <p className="text-xs mb-1" style={{ color: '#8F949E' }}>Currently processing:</p>
+              <p className="text-sm italic" style={{ color: '#FDFDFD' }}>&quot;{executionProgress.current_query_text}&quot;</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ========== MAIN CONTENT ========== */}
+      <div className="flex flex-col gap-4">
+        {/* TOP ROW: Pending + Completed Runs (side by side) */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* LEFT: Pending Runs */}
+          <div 
+            className="rounded-lg p-4 flex flex-col overflow-hidden transition-all duration-200"
+            style={{ 
+              backgroundColor: '#1C1E24', 
+              border: '1px solid #333333', 
+              height: pendingCollapsed ? 'auto' : '320px' 
+            }}
+          >
+            <div className="flex items-center justify-between flex-shrink-0">
+              <button
+                onClick={() => setPendingCollapsed(!pendingCollapsed)}
+                className="font-display text-lg flex items-center gap-2 hover:opacity-80 transition-opacity"
+                style={{ color: '#FDFDFD' }}
+              >
+                {pendingCollapsed ? (
+                  <ChevronDown className="w-4 h-4" style={{ color: '#8F949E' }} />
+                ) : (
+                  <ChevronUp className="w-4 h-4" style={{ color: '#8F949E' }} />
+                )}
+                <Clock className="w-5 h-5" style={{ color: '#FCBC32' }} />
+                Pending runs
+                <span 
+                  className="text-xs px-2 py-0.5 rounded ml-1"
+                  style={{ backgroundColor: pendingBatches.length > 0 ? 'rgba(252, 188, 50, 0.15)' : '#333333', color: pendingBatches.length > 0 ? '#FCBC32' : '#8F949E' }}
+                >
+                  {pendingBatches.length}
+                </span>
+              </button>
+            </div>
+
+            {!pendingCollapsed && (
+              <div className="mt-4 flex-1 flex flex-col overflow-hidden">
+                {pendingBatches.length > 0 ? (
+                  <div className="space-y-3 flex-1 overflow-y-auto pr-1">
+                    {pendingBatches.map((batch) => (
+                      <div 
+                        key={batch.id} 
+                        className="rounded-lg p-4 transition-colors"
+                        style={{ backgroundColor: '#252830', border: '1px solid #333333' }}
                       >
-                        <RefreshCw className="w-3 h-3" />
-                        Re-run
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-medium" style={{ color: '#FDFDFD' }}>{batch.name}</span>
+                          <span 
+                            className="text-xs px-2 py-0.5 rounded"
+                            style={{ backgroundColor: 'rgba(252, 188, 50, 0.15)', color: '#FCBC32' }}
+                          >
+                            {batch.query_count} queries
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs" style={{ color: '#8F949E' }}>Created {formatRelativeTime(batch.created_at)}</span>
+                          <button
+                            onClick={() => {
+                              setSelectedBatch({ id: batch.id, name: batch.name, queries: [] });
+                              executeBatch(batch.id, selectedAgent.id);
+                            }}
+                            disabled={executingBatch}
+                            className="flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all disabled:opacity-50"
+                            style={{ backgroundColor: '#FCBC32', color: '#171A1F' }}
+                          >
+                            <Play className="w-4 h-4" />
+                            Run
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex-1 flex items-center justify-center" style={{ color: '#8F949E' }}>
+                    <div className="text-center">
+                      <CheckCircle2 className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                      <p className="text-sm font-medium">No pending batches</p>
+                      <p className="text-xs mt-1" style={{ color: '#8F949E' }}>All batches have been executed</p>
+                      <button 
+                        onClick={() => setActiveTab("synthetic")} 
+                        className="mt-3 text-xs hover:underline"
+                        style={{ color: '#FCBC32' }}
+                      >
+                        Generate synthetic data →
                       </button>
                     </div>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8 text-ink-400">
-                <ClipboardList className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                <p className="text-sm">No completed runs yet.</p>
-              </div>
-            )}
-          </Panel>
-        </div>
-
-        {/* Right Panel - Run Details & Auto Review */}
-        <div className="col-span-4 space-y-4">
-          {/* Auto Review Panel */}
-          {selectedBatch && selectedBatch.status === "completed" && (
-            <Panel>
-              <div className="flex items-center justify-between mb-4">
-                <PanelHeader icon={<Sparkles className="w-5 h-5 text-accent-amber" />} title="AI Review" />
-                {autoReview && (
-                  <button
-                    onClick={() => setShowReviewPanel(!showReviewPanel)}
-                    className="text-xs text-ink-400 hover:text-sand-200"
-                  >
-                    {showReviewPanel ? "Hide" : "Show"} Results
-                  </button>
                 )}
               </div>
+            )}
+          </div>
 
-              {!autoReview && !runningAutoReview && (
-                <div className="text-center py-6">
-                  <Sparkles className="w-10 h-10 mx-auto mb-3 text-accent-amber opacity-60" />
-                  <p className="text-sm text-ink-400 mb-4">
-                    Analyze this batch with AI to discover failure patterns and categorize issues.
-                  </p>
-                  <button
-                    onClick={() => runAutoReview(selectedBatch.id)}
-                    className="btn-primary py-2 px-6 flex items-center gap-2 mx-auto"
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    Run Auto Review
-                  </button>
-                </div>
-              )}
-
-              {runningAutoReview && (
-                <div className="text-center py-8">
-                  <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-accent-amber/20 flex items-center justify-center">
-                    <RefreshCw className="w-6 h-6 text-accent-amber animate-spin" />
-                  </div>
-                  <p className="text-sand-200 font-medium mb-2">Analyzing traces...</p>
-                  <p className="text-xs text-ink-500">
-                    This may take a few minutes depending on the number of traces.
-                  </p>
-                </div>
-              )}
-
-              {autoReview && showReviewPanel && (
-                <AutoReviewResults
-                  review={autoReview}
-                  expandedCategories={expandedCategories}
-                  toggleCategory={toggleCategory}
-                  onClose={() => setShowReviewPanel(false)}
-                  onRerun={() => runAutoReview(selectedBatch.id)}
-                />
-              )}
-
-              {autoReview && !showReviewPanel && (
-                <div className="p-3 bg-ink-800/50 rounded-lg border border-ink-700">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`w-2 h-2 rounded-full ${
-                        autoReview.status === "completed" ? "bg-green-400" : 
-                        autoReview.status === "failed" ? "bg-red-400" : "bg-amber-400"
-                      }`} />
-                      <span className="text-sm text-sand-200">
-                        {autoReview.failure_categories.filter(c => c.count > 0).length} categories found
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => setShowReviewPanel(true)}
-                      className="text-xs text-accent-amber hover:underline"
-                    >
-                      View details →
-                    </button>
-                  </div>
-                </div>
-              )}
-            </Panel>
-          )}
-
-          {/* Run Results Panel */}
-          <Panel className="sticky top-24">
-            <div className="flex items-center justify-between mb-4">
-              <PanelHeader icon={<Eye className="w-5 h-5 text-accent-plum" />} title="Run Results" />
-              {selectedBatch && (
-                <button onClick={viewInSessions} className="text-xs text-accent-teal hover:underline flex items-center gap-1">
-                  <ExternalLink className="w-3 h-3" />
-                  View in Sessions
-                </button>
-              )}
+          {/* RIGHT: Completed Runs */}
+          <div 
+            className="rounded-lg p-4 flex flex-col overflow-hidden transition-all duration-200"
+            style={{ 
+              backgroundColor: '#1C1E24', 
+              border: '1px solid #333333', 
+              height: completedCollapsed ? 'auto' : '320px' 
+            }}
+          >
+            <div className="flex items-center justify-between flex-shrink-0">
+              <button
+                onClick={() => setCompletedCollapsed(!completedCollapsed)}
+                className="font-display text-lg flex items-center gap-2 hover:opacity-80 transition-opacity"
+                style={{ color: '#FDFDFD' }}
+              >
+                {completedCollapsed ? (
+                  <ChevronDown className="w-4 h-4" style={{ color: '#8F949E' }} />
+                ) : (
+                  <ChevronUp className="w-4 h-4" style={{ color: '#8F949E' }} />
+                )}
+                <CheckCircle2 className="w-5 h-5" style={{ color: '#10BFCC' }} />
+                Completed runs
+                <span 
+                  className="text-xs px-2 py-0.5 rounded ml-1"
+                  style={{ backgroundColor: completedBatches.length > 0 ? 'rgba(16, 191, 204, 0.15)' : '#333333', color: completedBatches.length > 0 ? '#10BFCC' : '#8F949E' }}
+                >
+                  {completedBatches.length}
+                </span>
+              </button>
             </div>
 
-            {selectedBatch && selectedBatch.queries && selectedBatch.queries.length > 0 ? (
-              <div className="space-y-3 max-h-[500px] overflow-y-auto">
-                {selectedBatch.queries.map((query, idx) => (
-                  <QueryResultCard key={query.id} query={query} index={idx} total={selectedBatch.queries.length} />
-                ))}
+            {!completedCollapsed && (
+              <div className="mt-4 flex-1 flex flex-col overflow-hidden">
+                {completedBatches.length > 0 ? (
+                  <div className="space-y-3 flex-1 overflow-y-auto pr-1">
+                    {completedBatches.map((batch) => (
+                      <div
+                        key={batch.id}
+                        className="rounded-lg p-4 transition-all cursor-pointer"
+                        style={{ 
+                          backgroundColor: selectedBatch?.id === batch.id ? 'rgba(16, 191, 204, 0.1)' : '#252830',
+                          border: selectedBatch?.id === batch.id ? '1px solid rgba(16, 191, 204, 0.4)' : '1px solid #333333'
+                        }}
+                        onClick={() => fetchBatchDetail(batch.id)}
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="font-medium" style={{ color: '#FDFDFD' }}>{batch.name}</span>
+                          <StatusBadge status={batch.status} />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs" style={{ color: '#8F949E' }}>{batch.query_count} queries • {formatRelativeTime(batch.created_at)}</span>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              resetBatch(batch.id, selectedAgent.id, false);
+                            }}
+                            className="text-xs flex items-center gap-1 hover:opacity-80"
+                            style={{ color: '#8F949E' }}
+                          >
+                            <RefreshCw className="w-3 h-3" />
+                            Re-run
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex-1 flex items-center justify-center" style={{ color: '#8F949E' }}>
+                    <div className="text-center">
+                      <ClipboardList className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                      <p className="text-sm font-medium">No completed runs yet</p>
+                      <p className="text-xs mt-1">Execute a batch to see results</p>
+                    </div>
+                  </div>
+                )}
               </div>
-            ) : (
-              <SelectPrompt icon={<Eye className="w-8 h-8" />} title="Select a completed run to view results" description="" />
             )}
-          </Panel>
+          </div>
+        </div>
+
+        {/* BOTTOM: Run Results (full width) */}
+        <div 
+          className="rounded-lg p-4 flex flex-col flex-1"
+          style={{ 
+            backgroundColor: '#1C1E24', 
+            border: '1px solid #333333', 
+            minHeight: '400px',
+            maxHeight: pendingCollapsed && completedCollapsed ? '70vh' : '500px'
+          }}
+        >
+          <div className="flex items-center justify-between mb-4 flex-shrink-0">
+            <h2 className="font-display text-lg flex items-center gap-2" style={{ color: '#FDFDFD' }}>
+              <Eye className="w-5 h-5" style={{ color: '#FCBC32' }} />
+              Run results
+              {selectedBatch?.queries?.length && (
+                <span className="text-xs px-2 py-0.5 rounded ml-1" style={{ backgroundColor: '#333333', color: '#8F949E' }}>
+                  {selectedBatch.queries.length} queries
+                </span>
+              )}
+            </h2>
+            {selectedBatch && selectedBatch.queries && selectedBatch.queries.length > 0 && (
+              <button 
+                onClick={viewInSessions} 
+                className="flex items-center gap-2 text-sm transition-colors hover:opacity-80"
+                style={{ color: '#10BFCC' }}
+              >
+                <ExternalLink className="w-4 h-4" />
+                View in Sessions
+              </button>
+            )}
+          </div>
+
+          {selectedBatch && selectedBatch.queries && selectedBatch.queries.length > 0 ? (
+            <div className="grid grid-cols-2 gap-4 flex-1 overflow-y-auto pr-2">
+              {selectedBatch.queries.map((query, idx) => (
+                <QueryResultCard key={query.id} query={query} index={idx} total={selectedBatch.queries.length} />
+              ))}
+            </div>
+          ) : (
+            <div className="flex-1 flex items-center justify-center" style={{ color: '#8F949E' }}>
+              <div className="text-center">
+                <Eye className="w-16 h-16 mx-auto mb-4 opacity-30" />
+                <p className="text-lg mb-2" style={{ color: '#FDFDFD' }}>No results to display</p>
+                <p className="text-sm">
+                  {selectedAgent 
+                    ? "Select a completed run above to view its results" 
+                    : "Select an agent and run a batch to see results here"}
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -462,223 +543,80 @@ function QueryResultCard({
   index: number;
   total: number;
 }) {
-  const borderClass =
+  const borderColor =
     query.execution_status === "success"
-      ? "bg-green-900/10 border-green-900/30"
+      ? '#10B981'
       : query.execution_status === "error"
-      ? "bg-red-900/10 border-red-900/30"
-      : "bg-ink-800/50 border-ink-700";
+      ? '#EF4444'
+      : '#333333';
+
+  const bgColor =
+    query.execution_status === "success"
+      ? 'rgba(16, 185, 129, 0.05)'
+      : query.execution_status === "error"
+      ? 'rgba(239, 68, 68, 0.05)'
+      : '#252830';
 
   return (
-    <div className={`p-3 rounded-lg border ${borderClass}`}>
-      <div className="flex items-center gap-2 mb-2 flex-wrap">
-        <span className="text-xs text-ink-500">{index + 1}/{total}</span>
+    <div 
+      className="rounded-lg p-4"
+      style={{ 
+        backgroundColor: bgColor, 
+        border: '1px solid #333333',
+        borderLeftWidth: '4px',
+        borderLeftColor: borderColor
+      }}
+    >
+      <div className="flex items-center gap-2 mb-3 flex-wrap">
+        <span 
+          className="text-xs font-mono px-1.5 py-0.5 rounded"
+          style={{ backgroundColor: '#333333', color: '#8F949E' }}
+        >
+          {index + 1}/{total}
+        </span>
         {query.execution_status && <StatusBadge status={query.execution_status} />}
-        {Object.entries(query.tuple_values || {}).slice(0, 2).map(([key, val]) => (
-          <Badge key={key} variant="plum" className="text-xs">{val}</Badge>
+        {Object.entries(query.tuple_values || {}).slice(0, 3).map(([key, val]) => (
+          <span 
+            key={key} 
+            className="text-xs px-2 py-0.5 rounded flex items-center gap-1"
+            style={{ backgroundColor: 'rgba(16, 191, 204, 0.15)', color: '#10BFCC' }}
+          >
+            <Tag className="w-3 h-3 opacity-50" />{val}
+          </span>
         ))}
       </div>
 
-      <p className="text-sm text-sand-300 mb-2">
-        &quot;{query.query_text.slice(0, 100)}{query.query_text.length > 100 ? "..." : ""}&quot;
+      <p className="text-sm mb-3 leading-relaxed" style={{ color: '#FDFDFD' }}>
+        &quot;{query.query_text.slice(0, 150)}{query.query_text.length > 150 ? "..." : ""}&quot;
       </p>
 
       {query.response_text && (
-        <div className="p-2 bg-ink-900/50 rounded border border-ink-700">
-          <div className="flex items-center gap-1 mb-1">
-            <Bot className="w-3 h-3 text-accent-teal" />
-            <span className="text-xs text-ink-500">Response</span>
+        <div 
+          className="p-3 rounded-lg"
+          style={{ backgroundColor: '#171A1F', border: '1px solid #333333' }}
+        >
+          <div className="flex items-center gap-1.5 mb-2">
+            <Bot className="w-3.5 h-3.5" style={{ color: '#10BFCC' }} />
+            <span className="text-xs font-medium" style={{ color: '#10BFCC' }}>Response</span>
           </div>
-          <p className="text-xs text-sand-400 line-clamp-3">
-            {query.response_text.slice(0, 200)}{query.response_text.length > 200 ? "..." : ""}
+          <p className="text-xs line-clamp-4 leading-relaxed" style={{ color: '#8F949E' }}>
+            {query.response_text.slice(0, 300)}{query.response_text.length > 300 ? "..." : ""}
           </p>
         </div>
       )}
 
       {query.error_message && (
-        <div className="p-2 bg-red-900/20 rounded border border-red-900/30 mt-2">
-          <p className="text-xs text-red-300">{query.error_message}</p>
+        <div 
+          className="p-3 rounded-lg mt-3"
+          style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)' }}
+        >
+          <div className="flex items-center gap-1.5 mb-1">
+            <AlertTriangle className="w-3.5 h-3.5" style={{ color: '#EF4444' }} />
+            <span className="text-xs font-medium" style={{ color: '#EF4444' }}>Error</span>
+          </div>
+          <p className="text-xs" style={{ color: '#FCA5A5' }}>{query.error_message}</p>
         </div>
       )}
     </div>
   );
 }
-
-// =============================================================================
-// Auto Review Results Component
-// =============================================================================
-
-function AutoReviewResults({
-  review,
-  expandedCategories,
-  toggleCategory,
-  onClose,
-  onRerun,
-}: {
-  review: AutoReview;
-  expandedCategories: Set<string>;
-  toggleCategory: (name: string) => void;
-  onClose: () => void;
-  onRerun: () => void;
-}) {
-  const [showReport, setShowReport] = useState(false);
-  
-  // Sort categories by count
-  const sortedCategories = [...review.failure_categories]
-    .filter(c => c.count > 0)
-    .sort((a, b) => b.count - a.count);
-  
-  // Calculate percentages
-  const total = review.classifications.length;
-
-  return (
-    <div className="space-y-4">
-      {/* Header with actions */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <StatusBadge status={review.status} />
-          <span className="text-xs text-ink-500">
-            {total} traces analyzed
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowReport(!showReport)}
-            className="text-xs text-ink-400 hover:text-sand-200 flex items-center gap-1"
-          >
-            <FileText className="w-3 h-3" />
-            {showReport ? "Hide" : "Show"} Report
-          </button>
-          <button
-            onClick={onRerun}
-            className="text-xs text-accent-amber hover:underline flex items-center gap-1"
-          >
-            <RefreshCw className="w-3 h-3" />
-            Re-run
-          </button>
-        </div>
-      </div>
-
-      {/* Failure Categories */}
-      {sortedCategories.length > 0 ? (
-        <div className="space-y-2">
-          <h4 className="text-xs font-medium text-ink-400 uppercase tracking-wide">
-            Failure Categories
-          </h4>
-          {sortedCategories.map((category) => {
-            const percentage = total > 0 ? (category.count / total * 100).toFixed(1) : 0;
-            const isExpanded = expandedCategories.has(category.name);
-            const categoryTraces = review.classifications.filter(
-              c => c.failure_category === category.name
-            );
-
-            return (
-              <div key={category.name} className="border border-ink-700 rounded-lg overflow-hidden">
-                {/* Category Header */}
-                <button
-                  onClick={() => toggleCategory(category.name)}
-                  className="w-full p-3 bg-ink-800/50 hover:bg-ink-800 flex items-center justify-between"
-                >
-                  <div className="flex items-center gap-3">
-                    {isExpanded ? (
-                      <ChevronDown className="w-4 h-4 text-ink-500" />
-                    ) : (
-                      <ChevronRight className="w-4 h-4 text-ink-500" />
-                    )}
-                    <div className="text-left">
-                      <span className="text-sm font-medium text-sand-200">
-                        {category.name.replace(/_/g, " ")}
-                      </span>
-                      <p className="text-xs text-ink-500 mt-0.5 line-clamp-1">
-                        {category.definition}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Badge variant="amber" className="text-xs">
-                      {category.count} ({percentage}%)
-                    </Badge>
-                  </div>
-                </button>
-
-                {/* Category Details */}
-                {isExpanded && (
-                  <div className="p-3 border-t border-ink-700 bg-ink-900/30 space-y-3">
-                    {category.notes && (
-                      <p className="text-xs text-ink-400">{category.notes}</p>
-                    )}
-                    
-                    {/* Traces in this category */}
-                    <div className="space-y-2">
-                      {categoryTraces.slice(0, 5).map((trace, idx) => (
-                        <div
-                          key={trace.trace_id}
-                          className="p-2 bg-ink-800/50 rounded border border-ink-700"
-                        >
-                          <div className="flex items-center gap-2 mb-1">
-                            <Tag className="w-3 h-3 text-ink-500" />
-                            <span className="text-xs text-ink-500">Trace {idx + 1}</span>
-                          </div>
-                          {trace.query_text && (
-                            <p className="text-xs text-sand-300 mb-1 line-clamp-2">
-                              &quot;{trace.query_text}&quot;
-                            </p>
-                          )}
-                          <p className="text-xs text-ink-400">
-                            {trace.categorization_reason}
-                          </p>
-                        </div>
-                      ))}
-                      {categoryTraces.length > 5 && (
-                        <p className="text-xs text-ink-500 text-center">
-                          +{categoryTraces.length - 5} more traces
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <div className="text-center py-4 text-ink-400">
-          <CheckCircle2 className="w-8 h-8 mx-auto mb-2 opacity-50" />
-          <p className="text-sm">No failure categories identified.</p>
-        </div>
-      )}
-
-      {/* Markdown Report */}
-      {showReport && review.report_markdown && (
-        <div className="mt-4 p-4 bg-ink-900/50 rounded-lg border border-ink-700 max-h-96 overflow-y-auto">
-          <div className="flex items-center justify-between mb-3">
-            <h4 className="text-sm font-medium text-sand-200">Full Report</h4>
-            <button
-              onClick={() => {
-                navigator.clipboard.writeText(review.report_markdown || "");
-              }}
-              className="text-xs text-accent-teal hover:underline"
-            >
-              Copy to clipboard
-            </button>
-          </div>
-          <pre className="text-xs text-sand-400 whitespace-pre-wrap font-mono">
-            {review.report_markdown}
-          </pre>
-        </div>
-      )}
-
-      {/* Error message */}
-      {review.error_message && (
-        <div className="p-3 bg-red-900/20 rounded-lg border border-red-900/30">
-          <div className="flex items-center gap-2 mb-1">
-            <AlertTriangle className="w-4 h-4 text-red-400" />
-            <span className="text-sm text-red-300">Review Error</span>
-          </div>
-          <p className="text-xs text-red-400">{review.error_message}</p>
-        </div>
-      )}
-    </div>
-  );
-}
-

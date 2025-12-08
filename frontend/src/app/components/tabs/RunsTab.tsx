@@ -510,10 +510,28 @@ export function RunsTab() {
           </div>
 
           {selectedBatch && selectedBatch.queries && selectedBatch.queries.length > 0 ? (
-            <div className="grid grid-cols-2 gap-4 flex-1 overflow-y-auto pr-2">
-              {selectedBatch.queries.map((query, idx) => (
-                <QueryResultCard key={query.id} query={query} index={idx} total={selectedBatch.queries.length} />
-              ))}
+            <div className="flex flex-col flex-1 overflow-hidden">
+              {/* Table Header */}
+              <div 
+                className="grid gap-4 px-4 py-2 text-xs font-medium uppercase tracking-wider flex-shrink-0"
+                style={{ 
+                  gridTemplateColumns: '60px 80px 1fr auto',
+                  color: '#8F949E',
+                  borderBottom: '1px solid #333333'
+                }}
+              >
+                <span>#</span>
+                <span>Status</span>
+                <span>Query</span>
+                <span>Tags</span>
+              </div>
+              
+              {/* Table Body */}
+              <div className="flex flex-col flex-1 overflow-y-auto">
+                {selectedBatch.queries.map((query, idx) => (
+                  <QueryResultRow key={query.id} query={query} index={idx} total={selectedBatch.queries.length} />
+                ))}
+              </div>
             </div>
           ) : (
             <div className="flex-1 flex items-center justify-center" style={{ color: '#8F949E' }}>
@@ -534,7 +552,7 @@ export function RunsTab() {
   );
 }
 
-function QueryResultCard({
+function QueryResultRow({
   query,
   index,
   total,
@@ -543,78 +561,153 @@ function QueryResultCard({
   index: number;
   total: number;
 }) {
-  const borderColor =
+  const [expanded, setExpanded] = useState(false);
+  
+  const statusColor =
     query.execution_status === "success"
       ? '#10B981'
       : query.execution_status === "error"
       ? '#EF4444'
-      : '#333333';
+      : '#8F949E';
 
-  const bgColor =
-    query.execution_status === "success"
-      ? 'rgba(16, 185, 129, 0.05)'
-      : query.execution_status === "error"
-      ? 'rgba(239, 68, 68, 0.05)'
-      : '#252830';
+  const tags = Object.entries(query.tuple_values || {});
 
   return (
     <div 
-      className="rounded-lg p-4"
-      style={{ 
-        backgroundColor: bgColor, 
-        border: '1px solid #333333',
-        borderLeftWidth: '4px',
-        borderLeftColor: borderColor
-      }}
+      className="border-b transition-colors"
+      style={{ borderColor: '#333333' }}
     >
-      <div className="flex items-center gap-2 mb-3 flex-wrap">
+      {/* Collapsed Row - Table-like layout */}
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="w-full grid gap-4 px-4 py-3 text-left transition-colors hover:bg-white/5 items-center"
+        style={{ gridTemplateColumns: '60px 80px 1fr auto' }}
+      >
+        {/* Index */}
         <span 
-          className="text-xs font-mono px-1.5 py-0.5 rounded"
+          className="text-xs font-mono px-2 py-1 rounded text-center"
           style={{ backgroundColor: '#333333', color: '#8F949E' }}
         >
           {index + 1}/{total}
         </span>
-        {query.execution_status && <StatusBadge status={query.execution_status} />}
-        {Object.entries(query.tuple_values || {}).slice(0, 3).map(([key, val]) => (
+        
+        {/* Status */}
+        <StatusBadge status={query.execution_status || 'pending'} />
+        
+        {/* Query Preview */}
+        <div className="min-w-0 flex items-center gap-2">
+          <ChevronDown 
+            className={`w-4 h-4 flex-shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} 
+            style={{ color: '#8F949E' }} 
+          />
           <span 
-            key={key} 
-            className="text-xs px-2 py-0.5 rounded flex items-center gap-1"
-            style={{ backgroundColor: 'rgba(16, 191, 204, 0.15)', color: '#10BFCC' }}
+            className="text-sm truncate"
+            style={{ color: '#FDFDFD' }}
           >
-            <Tag className="w-3 h-3 opacity-50" />{val}
+            {query.query_text.slice(0, 100)}{query.query_text.length > 100 ? "..." : ""}
           </span>
-        ))}
-      </div>
-
-      <p className="text-sm mb-3 leading-relaxed" style={{ color: '#FDFDFD' }}>
-        &quot;{query.query_text.slice(0, 150)}{query.query_text.length > 150 ? "..." : ""}&quot;
-      </p>
-
-      {query.response_text && (
-        <div 
-          className="p-3 rounded-lg"
-          style={{ backgroundColor: '#171A1F', border: '1px solid #333333' }}
-        >
-          <div className="flex items-center gap-1.5 mb-2">
-            <Bot className="w-3.5 h-3.5" style={{ color: '#10BFCC' }} />
-            <span className="text-xs font-medium" style={{ color: '#10BFCC' }}>Response</span>
-          </div>
-          <p className="text-xs line-clamp-4 leading-relaxed" style={{ color: '#8F949E' }}>
-            {query.response_text.slice(0, 300)}{query.response_text.length > 300 ? "..." : ""}
-          </p>
         </div>
-      )}
+        
+        {/* Tags */}
+        <div className="flex items-center gap-1.5 flex-shrink-0">
+          {tags.slice(0, 3).map(([key, val]) => (
+            <span 
+              key={key} 
+              className="text-xs px-2 py-0.5 rounded"
+              style={{ backgroundColor: 'rgba(16, 191, 204, 0.15)', color: '#10BFCC' }}
+            >
+              {val}
+            </span>
+          ))}
+          {tags.length > 3 && (
+            <span className="text-xs" style={{ color: '#8F949E' }}>+{tags.length - 3}</span>
+          )}
+        </div>
+      </button>
 
-      {query.error_message && (
+      {/* Expanded Content */}
+      {expanded && (
         <div 
-          className="p-3 rounded-lg mt-3"
-          style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)' }}
+          className="px-4 pb-4 space-y-4"
+          style={{ backgroundColor: 'rgba(23, 26, 31, 0.5)' }}
         >
-          <div className="flex items-center gap-1.5 mb-1">
-            <AlertTriangle className="w-3.5 h-3.5" style={{ color: '#EF4444' }} />
-            <span className="text-xs font-medium" style={{ color: '#EF4444' }}>Error</span>
+          {/* Full Query */}
+          <div 
+            className="p-4 rounded-lg"
+            style={{ backgroundColor: '#171A1F', border: '1px solid #333333' }}
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <div 
+                className="w-6 h-6 rounded flex items-center justify-center"
+                style={{ backgroundColor: '#333333' }}
+              >
+                <span className="text-xs" style={{ color: '#FDFDFD' }}>Q</span>
+              </div>
+              <span className="text-xs font-medium uppercase tracking-wider" style={{ color: '#8F949E' }}>User Query</span>
+            </div>
+            <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: '#FDFDFD' }}>
+              {query.query_text}
+            </p>
           </div>
-          <p className="text-xs" style={{ color: '#FCA5A5' }}>{query.error_message}</p>
+
+          {/* Full Response */}
+          {query.response_text && (
+            <div 
+              className="p-4 rounded-lg"
+              style={{ backgroundColor: '#171A1F', border: '1px solid rgba(16, 191, 204, 0.3)' }}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <div 
+                  className="w-6 h-6 rounded flex items-center justify-center"
+                  style={{ backgroundColor: 'rgba(16, 191, 204, 0.2)' }}
+                >
+                  <Bot className="w-3.5 h-3.5" style={{ color: '#10BFCC' }} />
+                </div>
+                <span className="text-xs font-medium uppercase tracking-wider" style={{ color: '#10BFCC' }}>Agent Response</span>
+              </div>
+              <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: '#FDFDFD' }}>
+                {query.response_text}
+              </p>
+            </div>
+          )}
+
+          {/* Error Message */}
+          {query.error_message && (
+            <div 
+              className="p-4 rounded-lg"
+              style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)' }}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <div 
+                  className="w-6 h-6 rounded flex items-center justify-center"
+                  style={{ backgroundColor: 'rgba(239, 68, 68, 0.2)' }}
+                >
+                  <AlertTriangle className="w-3.5 h-3.5" style={{ color: '#EF4444' }} />
+                </div>
+                <span className="text-xs font-medium uppercase tracking-wider" style={{ color: '#EF4444' }}>Error</span>
+              </div>
+              <p className="text-sm leading-relaxed" style={{ color: '#FCA5A5' }}>
+                {query.error_message}
+              </p>
+            </div>
+          )}
+
+          {/* All Tags */}
+          {tags.length > 0 && (
+            <div className="flex items-center gap-2 flex-wrap pt-2">
+              <span className="text-xs uppercase tracking-wider" style={{ color: '#8F949E' }}>Tags:</span>
+              {tags.map(([key, val]) => (
+                <span 
+                  key={key} 
+                  className="text-xs px-2 py-1 rounded flex items-center gap-1"
+                  style={{ backgroundColor: 'rgba(16, 191, 204, 0.15)', color: '#10BFCC' }}
+                >
+                  <Tag className="w-3 h-3 opacity-50" />
+                  <span style={{ color: '#8F949E' }}>{key}:</span> {val}
+                </span>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

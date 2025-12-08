@@ -32,6 +32,7 @@ export function AgentsTab() {
   const {
     agents,
     selectedAgent,
+    setSelectedAgent,
     loadingAgents,
     connectionResult,
     fetchAgents,
@@ -323,6 +324,7 @@ export function AgentsTab() {
               setShowAgentForm(true);
             }}
             onDelete={handleDeleteAgent}
+            onClose={() => setSelectedAgent(null)}
             onPlaygroundMessageChange={setPlaygroundMessage}
             onRunQuery={runAgentQuery}
             onGoToSynthetic={() => setActiveTab("synthetic")}
@@ -488,6 +490,7 @@ function AgentDetailView({
   onTestConnection,
   onEdit,
   onDelete,
+  onClose,
   onPlaygroundMessageChange,
   onRunQuery,
   onGoToSynthetic,
@@ -507,6 +510,7 @@ function AgentDetailView({
   onTestConnection: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onClose: () => void;
   onPlaygroundMessageChange: (v: string) => void;
   onRunQuery: (message: string) => void;
   onGoToSynthetic: () => void;
@@ -541,6 +545,9 @@ function AgentDetailView({
           </button>
           <button onClick={onDelete} className="btn-ghost text-sm text-red-400 hover:text-red-300">
             <Trash2 className="w-4 h-4" />
+          </button>
+          <button onClick={onClose} className="btn-ghost text-sm text-ink-400 hover:text-sand-200" title="Close">
+            <X className="w-5 h-5" />
           </button>
         </div>
       </div>

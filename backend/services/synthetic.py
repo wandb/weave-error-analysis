@@ -16,6 +16,9 @@ from datetime import datetime
 from pydantic import BaseModel
 
 from services.agent_info import AgentInfo, TestingDimension
+from logger import get_logger, log_event, LOG_LLM_CONTENT
+
+logger = get_logger("synthetic")
 
 
 class DimensionTuple(BaseModel):
@@ -304,12 +307,20 @@ Return ONLY the JSON array, no other text."""
             Natural language query string
         """
         if not use_llm:
+            log_event(logger, "llm.skipped", level="debug",
+                tuple_id=dimension_tuple.id,
+                reason="use_llm=False"
+            )
             return self.tuple_to_query_template(dimension_tuple)
         
         try:
             from litellm import acompletion
             from services.settings import get_litellm_kwargs
         except ImportError:
+            log_event(logger, "llm.skipped", level="warning",
+                tuple_id=dimension_tuple.id,
+                reason="litellm not available"
+            )
             return self.tuple_to_query_template(dimension_tuple)
         
         # Get dimension descriptions if available
@@ -347,8 +358,15 @@ Guidelines:
 Return ONLY the user message, nothing else. No quotes around it."""
 
         try:
-            # Get LLM settings
+            # Get LLM settings (this logs the resolved config)
             llm_kwargs = get_litellm_kwargs()
+            
+            log_event(logger, "llm.request_start",
+                operation="query_generation",
+                model=llm_kwargs.get("model"),
+                tuple_id=dimension_tuple.id,
+                dimensions=list(dimension_tuple.values.keys())
+            )
             
             response = await acompletion(
                 messages=[{"role": "user", "content": prompt}],
@@ -361,10 +379,28 @@ Return ONLY the user message, nothing else. No quotes around it."""
             if query_text.startswith('"') and query_text.endswith('"'):
                 query_text = query_text[1:-1]
             
+            # Log success with actual model used
+            log_extra = {
+                "operation": "query_generation",
+                "requested_model": llm_kwargs.get("model"),
+                "actual_model": getattr(response, "model", "unknown"),
+                "tuple_id": dimension_tuple.id,
+                "response_chars": len(query_text)
+            }
+            if LOG_LLM_CONTENT:
+                log_extra["response_preview"] = query_text[:100]
+            
+            log_event(logger, "llm.request_complete", **log_extra)
+            
             return query_text
         except Exception as e:
-            # Fallback to template if LLM fails
-            print(f"LLM query generation failed: {e}, using template")
+            # Log failure with fallback
+            log_event(logger, "llm.request_failed", level="warning",
+                operation="query_generation",
+                tuple_id=dimension_tuple.id,
+                error=str(e),
+                fallback="template"
+            )
             return self.tuple_to_query_template(dimension_tuple)
     
     async def generate_queries_from_tuples(

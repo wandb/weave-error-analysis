@@ -8,6 +8,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from config import CORS_ORIGINS, CORS_ALLOW_ALL, PROJECT_ID
+from logger import setup_logging, get_logger
+
+# Initialize logging before anything else
+setup_logging()
+logger = get_logger("main")
+
 from routers import (
     threads_router,
     traces_router,

@@ -115,20 +115,15 @@ cursor.execute("""
 
 ---
 
-### 2.4 Unsafe Exception Swallowing
+### 2.4 ~~Unsafe Exception Swallowing~~ ✅ FIXED
 
-**Files:** `routers/synthetic.py:137-138`, `routers/synthetic.py:299-300`
+**File:** `routers/synthetic.py`
 
-Empty `except` blocks hide real errors:
+~~Empty `except` blocks hid real errors.~~
 
-```python
-try:
-    parsed = parse_agent_info(agent_row["agent_info_raw"])
-except:
-    pass  # Silent failure - no logging
-```
-
-**Fix:** Log exceptions or handle specific exception types.
+**Fixed:** All bare `except:` blocks now:
+- Catch specific exception types (`Exception`, `json.JSONDecodeError`)
+- Log warnings with error details using `print(f"[Warning] ...")`
 
 ---
 
@@ -190,24 +185,18 @@ Both components now import and use this utility.
 
 ---
 
-### 3.4 SSE Parsing Vulnerability
+### 3.4 ~~SSE Parsing Vulnerability~~ ✅ NOT AN ISSUE
 
-**Files:** `SyntheticTab.tsx:162-209`, `RunsTab.tsx:106-145`
+**Files:** `SyntheticTab.tsx`, `RunsTab.tsx`
 
-Both parse SSE events without proper line boundary handling:
+~~Concern was that `lines.pop()` might lose data at chunk boundaries.~~
 
-```typescript
-buffer += decoder.decode(value, { stream: true });
-const lines = buffer.split("\n");
-buffer = lines.pop() || "";  // May lose data if last line is complete
-```
+**Analysis:** The current implementation is actually correct:
+- `"data: {}\n".split("\n")` → `["data: {}", ""]`
+- `lines.pop()` returns `""`, leaving complete lines for processing ✓
+- If buffer doesn't end with `\n`, the incomplete line is correctly kept in buffer
 
-If a complete SSE message ends exactly at chunk boundary, `lines.pop()` removes it.
-
-**Fix:**
-```typescript
-buffer = lines[lines.length - 1].endsWith('\n') ? '' : lines.pop() || '';
-```
+No fix needed - the original implementation handles all edge cases correctly.
 
 ---
 
@@ -256,25 +245,16 @@ useEffect(() => {
 
 ---
 
-### 4.2 Missing Request Validation
+### 4.2 ~~Missing Request Validation~~ ✅ FIXED
 
-**File:** `routers/synthetic.py:889-897`
+**File:** `routers/synthetic.py`
 
-`execute_synthetic_batch()` doesn't validate batch status before execution:
+~~`execute_synthetic_batch()` didn't validate batch status before execution.~~
 
-```python
-async def execute_synthetic_batch(batch_id: str, request: ExecuteBatchRequest = None):
-    # Missing: Check if batch is already running
-    # Missing: Check if batch has any pending queries
-```
-
-**Fix:** Add status validation:
-```python
-if row["status"] == "running":
-    raise HTTPException(status_code=409, detail="Batch is already running")
-if row["status"] == "completed" and not has_pending_queries:
-    raise HTTPException(status_code=400, detail="No pending queries to execute")
-```
+**Fixed:** Added status validation:
+- Returns 409 Conflict if batch is already running
+- Returns 400 Bad Request if no pending queries to execute
+- Checks for queries with status `'pending'` or `'error'` (allows retry)
 
 ---
 
@@ -303,25 +283,16 @@ const timeout = setTimeout(() => {
 
 ---
 
-### 5.2 Stale Closure in Execution Callbacks
+### 5.2 ~~Stale Closure in Execution Callbacks~~ ✅ FIXED
 
-**File:** `RunsTab.tsx:131-134`
+**File:** `RunsTab.tsx`
 
-`lastCompletedCount` inside `executeBatch` is captured in closure but updated:
+~~`lastCompletedCount` variable could cause stale closure issues.~~
 
-```typescript
-let lastCompletedCount = 0;
-// Inside async loop - closure captures initial value
-if (data.completed_queries > lastCompletedCount) {
-  lastCompletedCount = data.completed_queries;
-```
-
-This works but is fragile. A refactor could break it.
-
-**Fix:** Use ref:
-```typescript
-const lastCompletedCountRef = useRef(0);
-```
+**Fixed:** Now uses `lastFetchedCountRef = useRef<number>(0)`:
+- Ref persists across renders without stale closure issues
+- Properly reset at start of each batch execution
+- Used for batching `fetchBatchDetail` calls every 5 completed queries
 
 ---
 
@@ -378,15 +349,15 @@ BACKEND_PORT = os.environ.get("BACKEND_PORT", "8000")
 
 ---
 
-### 7.2 No CORS Configuration for SSE
+### 7.2 ~~No CORS Configuration for SSE~~ ✅ FIXED
 
-SSE endpoints bypass Next.js proxy, requiring direct backend access. No CORS headers are set for this scenario.
+~~SSE endpoints bypass Next.js proxy, requiring direct backend access. No CORS headers were set for this scenario.~~
 
-**Fix:** Add CORS middleware for SSE endpoints:
-```python
-from fastapi.middleware.cors import CORSMiddleware
-app.add_middleware(CORSMiddleware, allow_origins=["*"], ...)
-```
+**Fixed:** 
+- Added configurable CORS origins in `config.py` with `CORS_ORIGINS` env var
+- Added `CORS_ALLOW_ALL` flag for development (allows wildcard origins)
+- Configured `expose_headers` for SSE streaming (Content-Type, Cache-Control, Connection)
+- Updated README with CORS configuration documentation
 
 ---
 
@@ -403,16 +374,17 @@ WAL mode helps but SQLite still can't handle high concurrent writes. Batch execu
 | Priority | Issue | Impact | Status |
 |----------|-------|--------|--------|
 | **P0** | ~~Hardcoded backend URLs~~ | ~~Breaks deployment~~ | ✅ Fixed |
-| **P0** | CORS for SSE | Breaks SSE in production | |
+| **P0** | ~~CORS for SSE~~ | ~~Breaks SSE in production~~ | ✅ Fixed |
 | **P1** | ~~Sequential batch execution~~ | ~~10x slower than needed~~ | ✅ Fixed |
 | **P1** | ~~Full batch refetch per query~~ | ~~Performance~~ | ✅ Fixed |
-| **P1** | Exception swallowing | Hidden failures | |
+| **P1** | ~~Exception swallowing~~ | ~~Hidden failures~~ | ✅ Fixed |
 | **P1** | ~~Inconsistent error responses~~ | ~~API contract~~ | ✅ Fixed |
 | **P2** | ~~Duplicate code paths~~ | ~~Maintenance~~ | ✅ Fixed |
 | **P2** | ~~Missing indexes~~ | ~~DB performance~~ | ✅ Fixed |
 | **P2** | ~~Redundant agent fetches~~ | ~~UI performance~~ | ✅ Fixed |
 | **P2** | ~~Agent data not loaded on tab switch~~ | ~~UX~~ | ✅ Fixed |
 | **P2** | ~~Re-render storms~~ | ~~UI jank~~ | ✅ Fixed |
+| **P2** | ~~Request validation~~ | ~~Data integrity~~ | ✅ Fixed |
 | **P3** | ~~Memory leaks~~ | ~~Long sessions~~ | ✅ Fixed |
-| **P3** | Stale closures | Bug risk | |
+| **P3** | ~~Stale closures~~ | ~~Bug risk~~ | ✅ Fixed |Z<<<<ZZ<ZZZZZZ>>>>>>
 

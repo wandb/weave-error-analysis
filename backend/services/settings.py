@@ -11,6 +11,9 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime
 from pydantic import BaseModel
 from database import get_db, get_db_readonly, now_iso
+from logger import get_logger, log_event
+
+logger = get_logger("settings")
 
 
 # Simple encoding for API keys (not true encryption, but obfuscates in DB)
@@ -314,6 +317,7 @@ def get_litellm_kwargs() -> Dict[str, Any]:
     Get kwargs for litellm calls based on current settings.
     
     This allows synthetic generation and auto-review to use the configured LLM.
+    Logs the resolved configuration for visibility.
     """
     kwargs = {}
     
@@ -321,11 +325,27 @@ def get_litellm_kwargs() -> Dict[str, Any]:
     api_key = get_setting("llm_api_key")
     api_base = get_setting("llm_api_base")
     
+    # Determine the source of the API key
+    api_key_source = "none"
     if api_key:
         kwargs["api_key"] = api_key
+        # Check if it came from DB or env
+        with get_db_readonly() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1 FROM app_settings WHERE key = 'llm_api_key' AND value != ''")
+            api_key_source = "settings" if cursor.fetchone() else "environment"
     
     if api_base:
         kwargs["api_base"] = api_base
+    
+    # Log the resolved configuration - this answers "is my model being used?"
+    log_event(logger, "llm.config_resolved",
+        model=model,
+        has_api_key=bool(api_key),
+        api_key_source=api_key_source,
+        api_key_suffix=api_key[-4:] if api_key and len(api_key) >= 4 else None,
+        api_base=api_base or "default"
+    )
     
     return {
         "model": model,

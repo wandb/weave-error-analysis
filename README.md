@@ -156,6 +156,41 @@ CORS_ORIGINS=https://app.yourdomain.com,https://www.yourdomain.com
 CORS_ALLOW_ALL=true
 ```
 
+**Logging Configuration**
+
+The application includes structured logging to help debug LLM configuration, batch execution, and agent communication.
+
+Backend logging (in `backend/.env`):
+```bash
+# Log level: DEBUG, INFO, WARNING, ERROR (default: INFO)
+LOG_LEVEL=INFO
+
+# Opt-in to log LLM prompt/response previews (privacy risk in production!)
+LOG_LLM_CONTENT=false
+```
+
+Frontend logging (in `frontend/.env.local`):
+```bash
+# Log level: debug, info, warn, error (default: info)
+NEXT_PUBLIC_LOG_LEVEL=info
+
+# Send frontend errors to backend (optional)
+NEXT_PUBLIC_SEND_ERRORS=false
+```
+
+Sample backend log output:
+```
+2025-12-08 14:32:01 | INFO    | weave.settings | llm.config_resolved | model=gpt-4o-mini has_api_key=True api_key_source=settings
+2025-12-08 14:32:01 | INFO    | weave.synthetic | llm.request_start | operation=query_generation model=gpt-4o-mini
+2025-12-08 14:32:02 | INFO    | weave.synthetic | llm.request_complete | actual_model=gpt-4o-mini-2024-07-18 response_chars=142
+2025-12-08 14:32:05 | INFO    | weave.batch | batch.execution_started | batch_id=xyz total_queries=100
+```
+
+This answers common debugging questions:
+- **"Is my model being used?"** → Check `llm.config_resolved` for the model name
+- **"Is my API key from settings?"** → Check `api_key_source=settings` vs `environment`
+- **"What's executing?"** → Check `batch.execution_started` with endpoint and query count
+
 ### Quick Start
 
 ```bash

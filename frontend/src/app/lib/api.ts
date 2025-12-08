@@ -16,8 +16,10 @@ import type {
   ConfigStatus,
   TestConnectionResult,
 } from "../types";
+import { createLogger } from "./logger";
 
 const API_BASE = "/api";
+const logger = createLogger("API");
 
 /**
  * Get the direct backend URL for SSE streaming endpoints.
@@ -451,6 +453,8 @@ export async function fetchConfigStatus(): Promise<ConfigStatus> {
 }
 
 export async function updateSetting(key: string, value: string): Promise<void> {
+  logger.info("setting.update_start", { key });
+  
   const response = await fetch(`${API_BASE}/settings/${key}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
@@ -459,8 +463,11 @@ export async function updateSetting(key: string, value: string): Promise<void> {
 
   if (!response.ok) {
     const error = await response.json();
+    logger.error("setting.update_failed", { key, error: error.detail });
     throw new Error(error.detail || "Failed to update setting");
   }
+  
+  logger.info("setting.update_complete", { key });
 }
 
 export async function bulkUpdateSettings(settings: Record<string, string>): Promise<void> {
@@ -481,10 +488,20 @@ export async function resetSetting(key: string): Promise<void> {
 }
 
 export async function testLLMConnection(): Promise<TestConnectionResult> {
+  logger.info("llm.test_start");
+  
   const response = await fetch(`${API_BASE}/settings/test-llm`, {
     method: "POST",
   });
-  return response.json();
+  const result = await response.json();
+  
+  logger.info("llm.test_complete", { 
+    success: result.success, 
+    model: result.model,
+    latency_ms: result.latency_ms 
+  });
+  
+  return result;
 }
 
 export async function testWeaveConnection(): Promise<TestConnectionResult> {

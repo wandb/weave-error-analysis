@@ -17,6 +17,9 @@ from enum import Enum
 
 from database import get_db, now_iso
 from services.agui_client import AGUIClient, AGUIEvent
+from logger import get_logger, log_event, generate_correlation_id
+
+logger = get_logger("batch")
 
 
 class ExecutionStatus(str, Enum):
@@ -73,7 +76,8 @@ class BatchExecutor:
         batch_id: str,
         max_concurrent: int = 1,  # Default to sequential for easier debugging
         timeout_per_query: float = 60.0,
-        batch_info: Optional[Dict[str, Any]] = None  # Pre-fetched batch data to avoid redundant query
+        batch_info: Optional[Dict[str, Any]] = None,  # Pre-fetched batch data to avoid redundant query
+        correlation_id: Optional[str] = None  # For tracing related operations
     ):
         self.agent_endpoint = agent_endpoint
         self.batch_id = batch_id
@@ -83,6 +87,7 @@ class BatchExecutor:
         self._cancelled = False
         self._start_times: Dict[str, datetime] = {}
         self._batch_info = batch_info  # Use pre-fetched data if available
+        self.correlation_id = correlation_id or generate_correlation_id()
     
     def cancel(self):
         """Cancel the batch execution."""
@@ -132,9 +137,17 @@ class BatchExecutor:
         success_count = 0
         failure_count = 0
         execution_times: List[float] = []
+        last_progress_log = 0  # Track last logged progress for batching
         
-        # Initial progress
-        print(f"[BatchExecutor] Starting batch {self.batch_id} with {total_queries} queries")
+        # Log batch start
+        log_event(logger, "batch.execution_started",
+            correlation_id=self.correlation_id,
+            batch_id=self.batch_id,
+            endpoint=self.agent_endpoint,
+            total_queries=total_queries,
+            max_concurrent=self.max_concurrent,
+            timeout_per_query=self.timeout_per_query
+        )
         yield BatchExecutionProgress(
             batch_id=self.batch_id,
             status="running",
@@ -190,7 +203,19 @@ class BatchExecutor:
                         # Adjust for concurrency
                         estimated_remaining = int((avg_time * remaining_queries) / self.max_concurrent)
                     
-                    print(f"[BatchExecutor] Completed query {completed}/{total_queries}: {result.status}")
+                    # Log progress every 10% or every 10 queries (whichever is smaller)
+                    progress_interval = max(1, min(10, total_queries // 10))
+                    if completed - last_progress_log >= progress_interval:
+                        log_event(logger, "batch.execution_progress",
+                            correlation_id=self.correlation_id,
+                            batch_id=self.batch_id,
+                            completed=completed,
+                            total=total_queries,
+                            success=success_count,
+                            failed=failure_count
+                        )
+                        last_progress_log = completed
+                    
                     yield BatchExecutionProgress(
                         batch_id=self.batch_id,
                         status="running",
@@ -253,8 +278,20 @@ class BatchExecutor:
                     remaining_queries = total_queries - completed
                     estimated_remaining = int(avg_time * remaining_queries)
                 
+                # Log progress every 10% or every 10 queries (whichever is smaller)
+                progress_interval = max(1, min(10, total_queries // 10))
+                if completed - last_progress_log >= progress_interval:
+                    log_event(logger, "batch.execution_progress",
+                        correlation_id=self.correlation_id,
+                        batch_id=self.batch_id,
+                        completed=completed,
+                        total=total_queries,
+                        success=success_count,
+                        failed=failure_count
+                    )
+                    last_progress_log = completed
+                
                 # Yield progress
-                print(f"[BatchExecutor] Completed query {completed}/{total_queries}: {result.status}")
                 yield BatchExecutionProgress(
                     batch_id=self.batch_id,
                     status="running",
@@ -269,6 +306,20 @@ class BatchExecutor:
         # Final status
         final_status = "cancelled" if self._cancelled else "completed"
         self._update_batch_status(final_status, success_count, failure_count)
+        
+        # Calculate total duration
+        total_duration_ms = int(sum(execution_times) * 1000) if execution_times else 0
+        
+        # Log batch completion
+        log_event(logger, "batch.execution_complete",
+            correlation_id=self.correlation_id,
+            batch_id=self.batch_id,
+            status=final_status,
+            total_queries=total_queries,
+            success_count=success_count,
+            failure_count=failure_count,
+            duration_ms=total_duration_ms
+        )
         
         yield BatchExecutionProgress(
             batch_id=self.batch_id,

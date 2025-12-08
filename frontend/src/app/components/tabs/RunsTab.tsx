@@ -16,6 +16,7 @@ import {
   Tag,
   ExternalLink,
   Square,
+  Trash2,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { formatRelativeTime } from "../../utils/formatters";
@@ -37,6 +38,7 @@ export function RunsTab() {
     setFilterBatchName,
     setActiveTab,
     setSelectedAgent,
+    deleteBatch,
   } = useApp();
 
   // Local execution state
@@ -58,6 +60,9 @@ export function RunsTab() {
   // Collapsible sections
   const [pendingCollapsed, setPendingCollapsed] = useState(false);
   const [completedCollapsed, setCompletedCollapsed] = useState(false);
+
+  // Selection state for bulk operations
+  const [selectedBatchIds, setSelectedBatchIds] = useState<Set<string>>(new Set());
 
   // Include "running" status in completed/active batches so user can see progress
   const pendingBatches = syntheticBatches.filter((b) => b.status === "ready" || b.status === "pending");
@@ -181,6 +186,19 @@ export function RunsTab() {
     setFilterBatchId(selectedBatch.id);
     setFilterBatchName(selectedBatch.name);
     setActiveTab("sessions");
+  };
+
+  const handleDeleteSelectedBatches = async () => {
+    if (!selectedAgent || selectedBatchIds.size === 0) return;
+    if (!confirm(`Delete ${selectedBatchIds.size} selected batches and all their queries?`)) return;
+    
+    for (const batchId of selectedBatchIds) {
+      await deleteBatch(batchId, selectedAgent.id);
+      if (selectedBatch?.id === batchId) {
+        setSelectedBatch(null);
+      }
+    }
+    setSelectedBatchIds(new Set());
   };
 
   // If no agent selected, show prompt pointing to Agents tab
@@ -521,6 +539,33 @@ export function RunsTab() {
                   {activeBatches.length}
                 </span>
               </button>
+              <div className="flex items-center gap-2">
+                {selectedBatchIds.size > 0 && (
+                  <>
+                    <label className="flex items-center gap-1.5 cursor-pointer text-xs" style={{ color: '#8F949E' }}>
+                      <input
+                        type="checkbox"
+                        checked={selectedBatchIds.size === activeBatches.length}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedBatchIds(new Set(activeBatches.map(b => b.id)));
+                          else setSelectedBatchIds(new Set());
+                        }}
+                        className="w-3.5 h-3.5 rounded"
+                        style={{ accentColor: '#10BFCC' }}
+                      />
+                      All
+                    </label>
+                    <button
+                      onClick={handleDeleteSelectedBatches}
+                      className="text-xs px-2 py-1 rounded flex items-center gap-1 text-red-400"
+                      style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)' }}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                      Delete {selectedBatchIds.size}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
 
             {!completedCollapsed && (
@@ -530,45 +575,68 @@ export function RunsTab() {
                     {activeBatches.map((batch) => (
                       <div
                         key={batch.id}
-                        className="rounded-lg p-4 transition-all cursor-pointer"
+                        className="rounded-lg p-4 transition-all"
                         style={{ 
-                          backgroundColor: selectedBatch?.id === batch.id 
+                          backgroundColor: selectedBatchIds.has(batch.id)
+                            ? 'rgba(16, 191, 204, 0.1)'
+                            : selectedBatch?.id === batch.id 
                             ? 'rgba(16, 191, 204, 0.1)' 
                             : batch.status === 'running' 
                             ? 'rgba(252, 188, 50, 0.05)'
                             : '#252830',
-                          border: selectedBatch?.id === batch.id 
+                          border: selectedBatchIds.has(batch.id)
+                            ? '1px solid rgba(16, 191, 204, 0.3)'
+                            : selectedBatch?.id === batch.id 
                             ? '1px solid rgba(16, 191, 204, 0.4)' 
                             : batch.status === 'running'
                             ? '1px solid rgba(252, 188, 50, 0.3)'
                             : '1px solid #333333'
                         }}
-                        onClick={() => fetchBatchDetail(batch.id)}
                       >
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium" style={{ color: '#FDFDFD' }}>{batch.name}</span>
-                            {batch.status === 'running' && (
-                              <RefreshCw className="w-3 h-3 animate-spin" style={{ color: '#FCBC32' }} />
-                            )}
-                          </div>
-                          <StatusBadge status={batch.status} />
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-xs" style={{ color: '#8F949E' }}>{batch.query_count} queries • {formatRelativeTime(batch.created_at)}</span>
-                          {batch.status !== 'running' && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                resetBatch(batch.id, selectedAgent.id, false);
-                              }}
-                              className="text-xs flex items-center gap-1 hover:opacity-80"
-                              style={{ color: '#8F949E' }}
-                            >
-                              <RefreshCw className="w-3 h-3" />
-                              Re-run
-                            </button>
-                          )}
+                        <div className="flex items-start gap-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedBatchIds.has(batch.id)}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              const newSet = new Set(selectedBatchIds);
+                              if (e.target.checked) newSet.add(batch.id);
+                              else newSet.delete(batch.id);
+                              setSelectedBatchIds(newSet);
+                            }}
+                            className="w-4 h-4 mt-0.5 rounded flex-shrink-0"
+                            style={{ accentColor: '#10BFCC' }}
+                          />
+                          <button
+                            onClick={() => fetchBatchDetail(batch.id)}
+                            className="flex-1 text-left"
+                          >
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium" style={{ color: '#FDFDFD' }}>{batch.name}</span>
+                                {batch.status === 'running' && (
+                                  <RefreshCw className="w-3 h-3 animate-spin" style={{ color: '#FCBC32' }} />
+                                )}
+                              </div>
+                              <StatusBadge status={batch.status} />
+                            </div>
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs" style={{ color: '#8F949E' }}>{batch.query_count} queries • {formatRelativeTime(batch.created_at)}</span>
+                              {batch.status !== 'running' && (
+                                <span
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    resetBatch(batch.id, selectedAgent.id, false);
+                                  }}
+                                  className="text-xs flex items-center gap-1 hover:opacity-80 cursor-pointer"
+                                  style={{ color: '#8F949E' }}
+                                >
+                                  <RefreshCw className="w-3 h-3" />
+                                  Re-run
+                                </span>
+                              )}
+                            </div>
+                          </button>
                         </div>
                       </div>
                     ))}

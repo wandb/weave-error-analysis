@@ -23,6 +23,10 @@ from typing import AsyncGenerator, Optional, Dict, Any
 from datetime import datetime
 from pydantic import BaseModel
 
+from logger import get_logger, log_event, generate_correlation_id
+
+logger = get_logger("agent")
+
 
 class AGUIEvent(BaseModel):
     """Parsed AG-UI event."""
@@ -117,7 +121,8 @@ class AGUIClient:
         self, 
         message: str, 
         thread_id: Optional[str] = None,
-        context: Optional[Dict[str, Any]] = None
+        context: Optional[Dict[str, Any]] = None,
+        correlation_id: Optional[str] = None
     ) -> AsyncGenerator[AGUIEvent, None]:
         """
         Send a message to the agent and stream AG-UI events.
@@ -128,10 +133,21 @@ class AGUIClient:
             message: The user message to send to the agent
             thread_id: Optional thread ID for conversation continuity
             context: Optional additional context to pass to the agent
+            correlation_id: Optional correlation ID for tracing
             
         Yields:
             AGUIEvent objects representing parsed events from the agent
         """
+        request_id = correlation_id or generate_correlation_id()[:8]
+        start_time = datetime.utcnow()
+        
+        log_event(logger, "agent.request_start",
+            correlation_id=request_id,
+            endpoint=self.endpoint_url,
+            message_length=len(message),
+            has_thread_id=bool(thread_id)
+        )
+        
         # Yield a started event
         yield AGUIEvent(type="started", content=f"Connecting to agent...")
         
@@ -188,8 +204,23 @@ class AGUIClient:
                                     event = self._parse_event(data)
                                     yield event
                                     
-                                    # Check for completion
-                                    if event.type in ("complete", "error"):
+                                    # Check for completion and log
+                                    if event.type == "complete":
+                                        duration_ms = int((datetime.utcnow() - start_time).total_seconds() * 1000)
+                                        log_event(logger, "agent.request_complete",
+                                            correlation_id=request_id,
+                                            endpoint=self.endpoint_url,
+                                            trace_id=event.trace_id,
+                                            thread_id=event.thread_id,
+                                            duration_ms=duration_ms
+                                        )
+                                        return
+                                    elif event.type == "error":
+                                        log_event(logger, "agent.request_failed", level="error",
+                                            correlation_id=request_id,
+                                            endpoint=self.endpoint_url,
+                                            error=event.error
+                                        )
                                         return
                                         
                                 except json.JSONDecodeError as e:
@@ -218,6 +249,11 @@ class AGUIClient:
                 continue
         
         # All endpoints failed
+        log_event(logger, "agent.connection_failed", level="error",
+            correlation_id=request_id,
+            endpoint=self.endpoint_url,
+            error=last_error or "Failed to connect to agent"
+        )
         yield AGUIEvent(
             type="error",
             error=last_error or "Failed to connect to agent"

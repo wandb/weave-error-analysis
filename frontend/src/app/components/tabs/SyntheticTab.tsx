@@ -953,6 +953,22 @@ export function SyntheticTab() {
                 </span>
               )}
             </h2>
+            <div className="flex items-center gap-3">
+              {/* Execute in Runs CTA - show when batch has queries and is ready for execution */}
+              {selectedBatch && selectedBatch.queries && selectedBatch.queries.length > 0 && (
+                <button
+                  onClick={() => setActiveTab("runs")}
+                  className="flex items-center gap-2 text-sm transition-all hover:opacity-80"
+                  style={{ color: '#10BFCC' }}
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                    <polyline points="15 3 21 3 21 9" />
+                    <line x1="10" y1="14" x2="21" y2="3" />
+                  </svg>
+                  View in Runs
+                </button>
+              )}
             {/* Actions bar - shows Select All when 1+ selected */}
             {selectedBatch && selectedBatch.queries && selectedBatch.queries.length > 0 && selectedQueryIds.size > 0 && (
               <div className="flex items-center gap-2">
@@ -991,6 +1007,7 @@ export function SyntheticTab() {
                 </button>
               </div>
             )}
+            </div>
           </div>
 
           {selectedBatch && selectedBatch.queries && selectedBatch.queries.length > 0 ? (

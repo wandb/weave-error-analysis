@@ -16,7 +16,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from database import get_db
+from database import get_db, now_iso
 
 router = APIRouter(prefix="/api", tags=["synthetic"])
 
@@ -97,10 +97,6 @@ class BatchResponse(BaseModel):
 # Helper Functions
 # =============================================================================
 
-def now_iso() -> str:
-    return datetime.utcnow().isoformat() + "Z"
-
-
 async def get_agent_info_for_generation(agent_id: str):
     """Get parsed AgentInfo for synthetic generation."""
     from services.agent_info import AgentInfo, TestingDimension, parse_agent_info
@@ -134,8 +130,8 @@ async def get_agent_info_for_generation(agent_id: str):
         try:
             parsed = parse_agent_info(agent_row["agent_info_raw"])
             dimensions = parsed.testing_dimensions
-        except:
-            pass
+        except Exception as e:
+            print(f"[Warning] Failed to parse agent_info_raw for dimensions: {e}")
     
     # Build minimal AgentInfo for generation
     # Parse purpose from agent_info_parsed if available
@@ -144,8 +140,8 @@ async def get_agent_info_for_generation(agent_id: str):
         try:
             parsed = json.loads(agent_row["agent_info_parsed"])
             purpose = parsed.get("purpose", purpose)
-        except:
-            pass
+        except json.JSONDecodeError as e:
+            print(f"[Warning] Failed to parse agent_info_parsed JSON: {e}")
     
     agent_info = AgentInfo(
         name=agent_row["name"] or "Unknown Agent",
@@ -296,8 +292,8 @@ async def import_dimensions_from_agent(agent_id: str):
                         "values": dim.get("values", []),
                         "descriptions": dim.get("descriptions")
                     })
-        except:
-            pass
+        except Exception as e:
+            print(f"[Warning] Failed to fetch dimensions from remote agent: {e}")
     
     # Fallback to stored agent_info_raw
     if not dimensions and row["agent_info_raw"]:
@@ -309,8 +305,8 @@ async def import_dimensions_from_agent(agent_id: str):
                     "values": dim.values,
                     "descriptions": dim.descriptions
                 })
-        except:
-            pass
+        except Exception as e:
+            print(f"[Warning] Failed to parse agent_info_raw for dimensions: {e}")
     
     if not dimensions:
         raise HTTPException(status_code=400, detail="No testing dimensions found in AGENT_INFO")
@@ -819,12 +815,12 @@ async def delete_query(query_id: str):
         # Delete the query
         cursor.execute("DELETE FROM synthetic_queries WHERE id = ?", (query_id,))
         
-        # Update the batch query count
+        # Update the batch query count (decrement by 1 instead of recounting)
         cursor.execute("""
             UPDATE synthetic_batches 
-            SET query_count = (SELECT COUNT(*) FROM synthetic_queries WHERE batch_id = ?)
+            SET query_count = query_count - 1
             WHERE id = ?
-        """, (batch_id, batch_id))
+        """, (batch_id,))
     
     return {"status": "deleted", "query_id": query_id, "batch_id": batch_id}
 
@@ -884,6 +880,7 @@ from services.batch_executor import (
 
 class ExecuteBatchRequest(BaseModel):
     timeout_per_query: float = 60.0
+    max_concurrent: int = 5  # Execute up to 5 queries concurrently
 
 
 @router.post("/synthetic/batches/{batch_id}/execute")
@@ -911,6 +908,22 @@ async def execute_synthetic_batch(batch_id: str, request: ExecuteBatchRequest = 
             raise HTTPException(status_code=404, detail="Batch not found")
         
         batch_data = dict(row)
+        
+        # Validate batch status before execution
+        if batch_data["status"] == "running":
+            raise HTTPException(status_code=409, detail="Batch is already running")
+        
+        # Check if there are any pending queries to execute
+        cursor.execute("""
+            SELECT COUNT(*) as pending_count 
+            FROM synthetic_queries 
+            WHERE batch_id = ? AND execution_status IN ('pending', 'error')
+        """, (batch_id,))
+        pending_row = cursor.fetchone()
+        pending_count = pending_row["pending_count"] if pending_row else 0
+        
+        if pending_count == 0:
+            raise HTTPException(status_code=400, detail="No pending queries to execute")
     
     agent_endpoint = batch_data["endpoint_url"]
     
@@ -920,7 +933,9 @@ async def execute_synthetic_batch(batch_id: str, request: ExecuteBatchRequest = 
             async for progress in execute_batch(
                 agent_endpoint=agent_endpoint,
                 batch_id=batch_id,
-                timeout_per_query=request.timeout_per_query
+                timeout_per_query=request.timeout_per_query,
+                max_concurrent=request.max_concurrent,
+                batch_info=batch_data  # Pass pre-fetched data to avoid redundant query
             ):
                 event_data = f"data: {progress.model_dump_json()}\n\n"
                 print(f"[SSE] Sending progress: {progress.completed_queries}/{progress.total_queries} - {progress.status}")
@@ -1027,7 +1042,9 @@ async def execute_synthetic_batch_sync(batch_id: str, request: ExecuteBatchReque
     async for progress in execute_batch(
         agent_endpoint=agent_endpoint,
         batch_id=batch_id,
-        timeout_per_query=request.timeout_per_query
+        timeout_per_query=request.timeout_per_query,
+        max_concurrent=request.max_concurrent,
+        batch_info=batch_data  # Pass pre-fetched data to avoid redundant query
     ):
         final_progress = progress
     

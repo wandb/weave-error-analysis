@@ -71,6 +71,21 @@ WEAVE_API_BASE = "https://trace.wandb.ai"
 # LLM Configuration
 CATEGORIZATION_MODEL = os.getenv("CATEGORIZATION_MODEL", "gpt-4o-mini")
 
-# CORS Origins - Allow all for development to support SSE streaming direct to backend
-CORS_ORIGINS = ["*"]
+# CORS Origins - Configure for SSE streaming direct to backend
+# In production, set CORS_ORIGINS env var to comma-separated list of allowed origins
+# e.g., CORS_ORIGINS=https://app.example.com,https://www.example.com
+_cors_env = os.getenv("CORS_ORIGINS", "")
+if _cors_env:
+    CORS_ORIGINS = [origin.strip() for origin in _cors_env.split(",") if origin.strip()]
+else:
+    # Default: allow common development origins
+    CORS_ORIGINS = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ]
+
+# For SSE streaming, we also need to handle dynamic origins (same hostname, different port)
+CORS_ALLOW_ALL = os.getenv("CORS_ALLOW_ALL", "false").lower() == "true"
 

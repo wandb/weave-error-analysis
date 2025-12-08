@@ -312,6 +312,16 @@ def init_db():
                 ON synthetic_queries(batch_id)
             """)
             
+            # Composite indexes for common query patterns
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_batches_agent_status 
+                ON synthetic_batches(agent_id, status)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_queries_batch_status 
+                ON synthetic_queries(batch_id, execution_status)
+            """)
+            
             # Migration: Add thread_id column if it doesn't exist (for existing databases)
             cursor.execute("PRAGMA table_info(synthetic_queries)")
             columns = [col[1] for col in cursor.fetchall()]

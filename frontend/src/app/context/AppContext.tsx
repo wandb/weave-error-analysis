@@ -78,6 +78,7 @@ interface AppState {
   // Agent Actions
   fetchAgents: () => Promise<void>;
   fetchAgentDetail: (agentId: string) => Promise<void>;
+  selectAgentWithData: (agent: Agent) => Promise<void>;
   testAgentConnection: (agentId: string) => Promise<void>;
   createAgent: (name: string, endpoint: string, info: string) => Promise<void>;
   updateAgent: (id: string, name: string, endpoint: string, info: string) => Promise<void>;
@@ -311,11 +312,32 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const data = await api.fetchAgentDetail(agentId);
       setSelectedAgent(data);
-      await fetchDimensionsData(agentId);
-      await fetchBatchesData(agentId);
+      // Load dimensions and batches in parallel for faster loading
+      await Promise.all([
+        fetchDimensionsData(agentId),
+        fetchBatchesData(agentId)
+      ]);
     } catch (error) {
       console.error("Error fetching agent detail:", error);
     }
+  };
+
+  // Unified agent selection with automatic data loading
+  // Use this when selecting an agent from a list (not fetching full details)
+  const selectAgentWithData = async (agent: Agent) => {
+    // If we already have this agent selected with full details, just ensure data is loaded
+    if (selectedAgent?.id === agent.id) {
+      // Already selected, but ensure dimensions and batches are loaded
+      if (dimensions.length === 0 || syntheticBatches.length === 0) {
+        await Promise.all([
+          fetchDimensionsData(agent.id),
+          fetchBatchesData(agent.id)
+        ]);
+      }
+      return;
+    }
+    // Fetch full agent details and related data
+    await fetchAgentDetailData(agent.id);
   };
 
   const testAgentConnectionAction = async (agentId: string) => {
@@ -502,9 +524,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (activeTab === "taxonomy") {
       fetchTaxonomyData();
     } else if (activeTab === "agents" || activeTab === "synthetic" || activeTab === "runs") {
-      fetchAgentsData();
+      // Only fetch agents if not already loaded (avoid redundant fetches on tab switch)
+      if (agents.length === 0) {
+        fetchAgentsData();
+      }
     }
-  }, [activeTab, fetchTaxonomyData, fetchAgentsData]);
+  }, [activeTab, fetchTaxonomyData, fetchAgentsData, agents.length]);
+
+  // Automatically load agent data when switching to synthetic/runs tabs with a selected agent
+  useEffect(() => {
+    if ((activeTab === "synthetic" || activeTab === "runs") && selectedAgent) {
+      // Load dimensions and batches if not already loaded
+      const needsDimensions = dimensions.length === 0;
+      const needsBatches = syntheticBatches.length === 0;
+      
+      if (needsDimensions || needsBatches) {
+        Promise.all([
+          needsDimensions ? fetchDimensionsData(selectedAgent.id) : Promise.resolve(),
+          needsBatches ? fetchBatchesData(selectedAgent.id) : Promise.resolve()
+        ]);
+      }
+    }
+  }, [activeTab, selectedAgent, dimensions.length, syntheticBatches.length]);
 
   // ============================================================================
   // Context Value
@@ -550,6 +591,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     fetchAgents: fetchAgentsData,
     fetchAgentDetail: fetchAgentDetailData,
+    selectAgentWithData,
     testAgentConnection: testAgentConnectionAction,
     createAgent: createAgentAction,
     updateAgent: updateAgentAction,

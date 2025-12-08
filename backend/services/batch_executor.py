@@ -72,7 +72,8 @@ class BatchExecutor:
         agent_endpoint: str,
         batch_id: str,
         max_concurrent: int = 1,  # Default to sequential for easier debugging
-        timeout_per_query: float = 60.0
+        timeout_per_query: float = 60.0,
+        batch_info: Optional[Dict[str, Any]] = None  # Pre-fetched batch data to avoid redundant query
     ):
         self.agent_endpoint = agent_endpoint
         self.batch_id = batch_id
@@ -81,6 +82,7 @@ class BatchExecutor:
         self.client = AGUIClient(agent_endpoint, timeout=timeout_per_query)
         self._cancelled = False
         self._start_times: Dict[str, datetime] = {}
+        self._batch_info = batch_info  # Use pre-fetched data if available
     
     def cancel(self):
         """Cancel the batch execution."""
@@ -93,8 +95,8 @@ class BatchExecutor:
         Yields:
             BatchExecutionProgress objects with current execution status
         """
-        # Load batch info
-        batch_info = self._get_batch_info()
+        # Use pre-fetched batch info or load from DB
+        batch_info = self._batch_info if self._batch_info else self._get_batch_info()
         if not batch_info:
             yield BatchExecutionProgress(
                 batch_id=self.batch_id,
@@ -145,60 +147,124 @@ class BatchExecutor:
             progress_percent=0.0
         )
         
-        # Execute queries (sequentially for now, can add concurrency later)
-        for query in queries:
+        # Execute queries with concurrency control
+        if self.max_concurrent > 1:
+            # Concurrent execution using semaphore
+            semaphore = asyncio.Semaphore(self.max_concurrent)
+            results_queue: asyncio.Queue[QueryExecutionResult] = asyncio.Queue()
+            
+            async def execute_with_semaphore(query: Dict[str, Any]):
+                """Execute a query with semaphore-controlled concurrency."""
+                if self._cancelled:
+                    return
+                async with semaphore:
+                    if self._cancelled:
+                        return
+                    result = await self._execute_query(query["id"], query["query_text"])
+                    await results_queue.put(result)
+            
+            # Start all query tasks
+            tasks = [asyncio.create_task(execute_with_semaphore(q)) for q in queries]
+            
+            # Collect results as they complete
+            while completed < total_queries and not self._cancelled:
+                try:
+                    result = await asyncio.wait_for(results_queue.get(), timeout=1.0)
+                    
+                    # Update counts
+                    completed += 1
+                    if result.status == ExecutionStatus.SUCCESS:
+                        success_count += 1
+                    else:
+                        failure_count += 1
+                    
+                    # Track execution time
+                    if result.duration_ms:
+                        execution_times.append(result.duration_ms / 1000)
+                    
+                    # Calculate estimated remaining time
+                    estimated_remaining = None
+                    if execution_times and completed < total_queries:
+                        avg_time = sum(execution_times) / len(execution_times)
+                        remaining_queries = total_queries - completed
+                        # Adjust for concurrency
+                        estimated_remaining = int((avg_time * remaining_queries) / self.max_concurrent)
+                    
+                    print(f"[BatchExecutor] Completed query {completed}/{total_queries}: {result.status}")
+                    yield BatchExecutionProgress(
+                        batch_id=self.batch_id,
+                        status="running",
+                        total_queries=total_queries,
+                        completed_queries=completed,
+                        success_count=success_count,
+                        failure_count=failure_count,
+                        progress_percent=(completed / total_queries) * 100,
+                        estimated_remaining_seconds=estimated_remaining
+                    )
+                except asyncio.TimeoutError:
+                    # No result yet, continue waiting
+                    continue
+            
+            # Cancel any remaining tasks if cancelled
             if self._cancelled:
-                break
-            
-            query_id = query["id"]
-            query_text = query["query_text"]
-            
-            # Update current query
-            yield BatchExecutionProgress(
-                batch_id=self.batch_id,
-                status="running",
-                total_queries=total_queries,
-                completed_queries=completed,
-                success_count=success_count,
-                failure_count=failure_count,
-                current_query_id=query_id,
-                current_query_text=query_text[:100] if query_text else None,
-                progress_percent=(completed / total_queries) * 100
-            )
-            
-            # Execute the query
-            result = await self._execute_query(query_id, query_text)
-            
-            # Update counts
-            completed += 1
-            if result.status == ExecutionStatus.SUCCESS:
-                success_count += 1
-            else:
-                failure_count += 1
-            
-            # Track execution time for estimation
-            if result.duration_ms:
-                execution_times.append(result.duration_ms / 1000)
-            
-            # Calculate estimated remaining time
-            estimated_remaining = None
-            if execution_times and completed < total_queries:
-                avg_time = sum(execution_times) / len(execution_times)
-                remaining_queries = total_queries - completed
-                estimated_remaining = int(avg_time * remaining_queries)
-            
-            # Yield progress
-            print(f"[BatchExecutor] Completed query {completed}/{total_queries}: {result.status}")
-            yield BatchExecutionProgress(
-                batch_id=self.batch_id,
-                status="running",
-                total_queries=total_queries,
-                completed_queries=completed,
-                success_count=success_count,
-                failure_count=failure_count,
-                progress_percent=(completed / total_queries) * 100,
-                estimated_remaining_seconds=estimated_remaining
-            )
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+        else:
+            # Sequential execution (original behavior)
+            for query in queries:
+                if self._cancelled:
+                    break
+                
+                query_id = query["id"]
+                query_text = query["query_text"]
+                
+                # Update current query
+                yield BatchExecutionProgress(
+                    batch_id=self.batch_id,
+                    status="running",
+                    total_queries=total_queries,
+                    completed_queries=completed,
+                    success_count=success_count,
+                    failure_count=failure_count,
+                    current_query_id=query_id,
+                    current_query_text=query_text[:100] if query_text else None,
+                    progress_percent=(completed / total_queries) * 100
+                )
+                
+                # Execute the query
+                result = await self._execute_query(query_id, query_text)
+                
+                # Update counts
+                completed += 1
+                if result.status == ExecutionStatus.SUCCESS:
+                    success_count += 1
+                else:
+                    failure_count += 1
+                
+                # Track execution time for estimation
+                if result.duration_ms:
+                    execution_times.append(result.duration_ms / 1000)
+                
+                # Calculate estimated remaining time
+                estimated_remaining = None
+                if execution_times and completed < total_queries:
+                    avg_time = sum(execution_times) / len(execution_times)
+                    remaining_queries = total_queries - completed
+                    estimated_remaining = int(avg_time * remaining_queries)
+                
+                # Yield progress
+                print(f"[BatchExecutor] Completed query {completed}/{total_queries}: {result.status}")
+                yield BatchExecutionProgress(
+                    batch_id=self.batch_id,
+                    status="running",
+                    total_queries=total_queries,
+                    completed_queries=completed,
+                    success_count=success_count,
+                    failure_count=failure_count,
+                    progress_percent=(completed / total_queries) * 100,
+                    estimated_remaining_seconds=estimated_remaining
+                )
         
         # Final status
         final_status = "cancelled" if self._cancelled else "completed"
@@ -424,7 +490,9 @@ class BatchExecutor:
 async def execute_batch(
     agent_endpoint: str,
     batch_id: str,
-    timeout_per_query: float = 60.0
+    timeout_per_query: float = 60.0,
+    max_concurrent: int = 5,
+    batch_info: Optional[Dict[str, Any]] = None
 ) -> AsyncGenerator[BatchExecutionProgress, None]:
     """
     Convenience function to execute a batch.
@@ -433,6 +501,8 @@ async def execute_batch(
         agent_endpoint: AG-UI endpoint URL of the agent
         batch_id: ID of the batch to execute
         timeout_per_query: Timeout in seconds for each query
+        max_concurrent: Maximum concurrent query executions (default 5)
+        batch_info: Pre-fetched batch data to avoid redundant DB query
         
     Yields:
         BatchExecutionProgress updates
@@ -440,7 +510,9 @@ async def execute_batch(
     executor = BatchExecutor(
         agent_endpoint=agent_endpoint,
         batch_id=batch_id,
-        timeout_per_query=timeout_per_query
+        max_concurrent=max_concurrent,
+        timeout_per_query=timeout_per_query,
+        batch_info=batch_info
     )
     async for progress in executor.execute():
         yield progress

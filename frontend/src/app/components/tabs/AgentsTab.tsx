@@ -334,16 +334,16 @@ export function AgentsTab() {
               title="Select an Agent"
               description="Choose an agent from the list to view details, or register a new one."
             />
-            <div className="text-center">
+            <div className="flex justify-center pb-6">
               <button
                 onClick={() => {
                   setAgentFormMode("create");
                   setShowAgentForm(true);
                 }}
-                className="btn-primary"
+                className="btn-primary flex items-center gap-2"
               >
-                <Plus className="w-4 h-4 mr-2" />
-                Register New Agent
+                <Plus className="w-4 h-4" />
+                <span>REGISTER NEW AGENT</span>
               </button>
             </div>
           </Panel>

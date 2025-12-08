@@ -144,6 +144,18 @@ NEXT_PUBLIC_BACKEND_URL=https://api.yourdomain.com
 NEXT_PUBLIC_BACKEND_PORT=8000
 ```
 
+**Backend CORS Configuration**
+
+For production, set allowed origins for SSE streaming. Create `backend/.env`:
+
+```bash
+# Comma-separated list of allowed frontend origins
+CORS_ORIGINS=https://app.yourdomain.com,https://www.yourdomain.com
+
+# Or allow all origins (for development/testing only)
+CORS_ALLOW_ALL=true
+```
+
 ### Quick Start
 
 ```bash

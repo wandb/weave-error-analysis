@@ -380,6 +380,17 @@ async def delete_agent(agent_id: str):
     return {"status": "deleted", "agent_id": agent_id}
 
 
+def _update_agent_connection_status(agent_id: str, status: str) -> None:
+    """Helper to update agent connection status in a single DB call."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE agents 
+            SET connection_status = ?, last_connection_test = ?
+            WHERE id = ?
+        """, (status, now_iso(), agent_id))
+
+
 @router.post("/agents/{agent_id}/test-connection", response_model=ConnectionTestResult)
 async def test_agent_connection(agent_id: str):
     """
@@ -417,14 +428,7 @@ async def test_agent_connection(agent_id: str):
                 success = response.status_code in [200, 404]  # 404 is ok for root
                 status = "connected" if success else "error"
         
-        # Update connection status in database
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE agents 
-                SET connection_status = ?, last_connection_test = ?
-                WHERE id = ?
-            """, (status, now_iso(), agent_id))
+        _update_agent_connection_status(agent_id, status)
         
         return ConnectionTestResult(
             success=success,
@@ -434,28 +438,14 @@ async def test_agent_connection(agent_id: str):
         )
         
     except httpx.TimeoutException:
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE agents 
-                SET connection_status = 'error', last_connection_test = ?
-                WHERE id = ?
-            """, (now_iso(), agent_id))
-        
+        _update_agent_connection_status(agent_id, "error")
         return ConnectionTestResult(
             success=False,
             error="Connection timed out"
         )
         
     except Exception as e:
-        with get_db() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE agents 
-                SET connection_status = 'error', last_connection_test = ?
-                WHERE id = ?
-            """, (now_iso(), agent_id))
-        
+        _update_agent_connection_status(agent_id, "error")
         return ConnectionTestResult(
             success=False,
             error=str(e)

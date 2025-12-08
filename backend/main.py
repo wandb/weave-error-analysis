@@ -7,7 +7,7 @@ Uses Weave Trace API (https://trace.wandb.ai) to query traces and feedback.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from config import CORS_ORIGINS, PROJECT_ID
+from config import CORS_ORIGINS, CORS_ALLOW_ALL, PROJECT_ID
 from routers import (
     threads_router,
     traces_router,
@@ -25,13 +25,19 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# CORS for frontend
+# CORS configuration for SSE streaming support
+# SSE endpoints are called directly from frontend to backend (bypassing Next.js proxy)
+# This requires proper CORS headers to be set
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS,
-    allow_credentials=True,
+    # In development: explicit origins. Set CORS_ALLOW_ALL=true for wildcard.
+    allow_origins=["*"] if CORS_ALLOW_ALL else CORS_ORIGINS,
+    # Credentials not needed for SSE, disable to allow wildcard origins
+    allow_credentials=not CORS_ALLOW_ALL,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Expose headers needed for SSE streaming
+    expose_headers=["Content-Type", "Cache-Control", "Connection"],
 )
 
 # Register routers

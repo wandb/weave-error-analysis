@@ -84,10 +84,10 @@ export function NoAgentsRegistered({ onRegister }: { onRegister?: () => void }) 
 
 export function SelectPrompt({ icon, title, description }: { icon: ReactNode; title: string; description: string }) {
   return (
-    <div className="text-center py-16 text-moon-450">
-      <div className="mx-auto mb-3 opacity-50">{icon}</div>
-      <p className="text-moon-50">{title}</p>
-      {description && <p className="text-sm mt-1 text-moon-450">{description}</p>}
+    <div className="flex flex-col items-center justify-center py-12 text-moon-450">
+      <div className="mb-4 opacity-40">{icon}</div>
+      <h2 className="text-xl font-display text-moon-50 mb-2">{title}</h2>
+      {description && <p className="text-sm text-moon-450 max-w-md text-center">{description}</p>}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Cpu,
   Target,
@@ -56,6 +56,14 @@ export function SyntheticTab() {
   const [generating, setGenerating] = useState(false);
   const [genProgress, setGenProgress] = useState<{ completed: number; total: number; percent: number; currentQuery?: string } | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const streamingQueriesRef = useRef<Array<{ id: string; query_text: string; tuple_values: Record<string, string> }>>([]);
+
+  // Cleanup AbortController on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
 
   // Query editing
   const [selectedQueryIds, setSelectedQueryIds] = useState<Set<string>>(new Set());
@@ -124,6 +132,8 @@ export function SyntheticTab() {
     
     // Create new abort controller for this generation
     abortControllerRef.current = new AbortController();
+    // Reset streaming queries ref to avoid re-render storms
+    streamingQueriesRef.current = [];
     
     setGenerating(true);
     setGenProgress({ total: batchSize, completed: 0, percent: 0 });
@@ -131,6 +141,8 @@ export function SyntheticTab() {
     // Generate unique batch name with ID
     const batchId = Math.random().toString(36).substring(2, 8).toUpperCase();
     const batchName = `Batch ${new Date().toLocaleDateString()} #${batchId}`;
+    let currentBatchId = "";
+    let currentBatchName = "";
 
     try {
       // Use direct backend URL for SSE streaming to bypass Next.js proxy buffering
@@ -171,6 +183,8 @@ export function SyntheticTab() {
             try {
               const event = JSON.parse(line.slice(6));
               if (event.type === "batch_started") {
+                currentBatchId = event.batch_id;
+                currentBatchName = event.name;
                 setSelectedBatch({ id: event.batch_id, name: event.name, queries: [] });
                 // Show initial progress with "preparing" state
                 setGenProgress({
@@ -187,17 +201,26 @@ export function SyntheticTab() {
                   currentQuery: "Generating queries...",
                 } : null);
               } else if (event.type === "query_generated") {
+                // Accumulate queries in ref to avoid re-render storms
+                streamingQueriesRef.current.push(event.query);
+                
+                // Only update progress UI (lightweight update)
                 setGenProgress({
                   total: event.total,
                   completed: event.completed,
                   percent: event.progress_percent,
                   currentQuery: event.query.query_text.slice(0, 60) + "...",
                 });
-                setSelectedBatch((prev) =>
-                  prev ? { ...prev, queries: [...(prev.queries || []), event.query] } : null
-                );
+                
+                // Batch update UI every 10 queries to show progress without excessive re-renders
+                if (streamingQueriesRef.current.length % 10 === 0) {
+                  setSelectedBatch((prev) =>
+                    prev ? { ...prev, queries: [...streamingQueriesRef.current] } : null
+                  );
+                }
               } else if (event.type === "batch_complete") {
                 await fetchBatches(selectedAgent.id);
+                // Final update with all queries from the event (authoritative source)
                 setSelectedBatch({ id: event.batch_id, name: event.name, queries: event.queries });
                 setShowBatches(true);
               }
@@ -207,11 +230,21 @@ export function SyntheticTab() {
           }
         }
       }
+      
+      // If stream ended without batch_complete, update with accumulated queries
+      if (streamingQueriesRef.current.length > 0 && currentBatchId) {
+        setSelectedBatch((prev) =>
+          prev?.id === currentBatchId 
+            ? { ...prev, queries: streamingQueriesRef.current } 
+            : prev
+        );
+      }
     } catch (error) {
       console.error("Error generating batch:", error);
     } finally {
       setGenerating(false);
       setGenProgress(null);
+      streamingQueriesRef.current = []; // Clean up ref
     }
   };
 

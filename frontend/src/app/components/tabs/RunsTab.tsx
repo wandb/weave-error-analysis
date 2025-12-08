@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Cpu,
   Clock,
@@ -43,6 +43,14 @@ export function RunsTab() {
   const [executingBatchId, setExecutingBatchId] = useState<string | null>(null);
   const [executionProgress, setExecutionProgress] = useState<ExecutionProgress | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const lastFetchedCountRef = useRef<number>(0);
+
+  // Cleanup AbortController on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
   
   // Dropdown state
   const [agentDropdownOpen, setAgentDropdownOpen] = useState(false);
@@ -68,6 +76,8 @@ export function RunsTab() {
   const executeBatch = async (batchId: string, batchName: string, agentId: string) => {
     // Create abort controller for this execution
     abortControllerRef.current = new AbortController();
+    // Reset last fetched count ref
+    lastFetchedCountRef.current = 0;
     
     setExecutingBatchId(batchId);
     const startTime = Date.now();
@@ -85,7 +95,6 @@ export function RunsTab() {
     // Immediately select this batch to show results as they come in
     setSelectedBatch({ id: batchId, name: batchName, queries: [] });
 
-    let lastCompletedCount = 0;
     let hasRefreshedBatches = false;
 
     try {
@@ -126,9 +135,10 @@ export function RunsTab() {
                 fetchBatches(agentId);
               }
               
-              // Refresh batch detail when completed_queries increases
-              if (data.completed_queries > lastCompletedCount) {
-                lastCompletedCount = data.completed_queries;
+              // Batch refresh: only fetch batch detail every 5 completed queries to reduce re-renders
+              const completedQueries = data.completed_queries || 0;
+              if (completedQueries > 0 && completedQueries - lastFetchedCountRef.current >= 5) {
+                lastFetchedCountRef.current = completedQueries;
                 fetchBatchDetail(batchId);
               }
 

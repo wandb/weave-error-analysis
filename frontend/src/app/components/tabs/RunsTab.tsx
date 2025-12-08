@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   Cpu,
   Clock,
@@ -8,16 +8,17 @@ import {
   RefreshCw,
   Play,
   Eye,
-  ExternalLink,
   AlertTriangle,
   ClipboardList,
   Bot,
   ChevronDown,
   ChevronUp,
   Tag,
+  ExternalLink,
+  Square,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
-import { formatRelativeTime, calculateETA } from "../../utils/formatters";
+import { formatRelativeTime } from "../../utils/formatters";
 import { StatusBadge } from "../ui";
 import type { ExecutionProgress, BatchDetail } from "../../types";
 import * as api from "../../lib/api";
@@ -38,8 +39,9 @@ export function RunsTab() {
   } = useApp();
 
   // Local execution state
-  const [executingBatch, setExecutingBatch] = useState(false);
+  const [executingBatchId, setExecutingBatchId] = useState<string | null>(null);
   const [executionProgress, setExecutionProgress] = useState<ExecutionProgress | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
   
   // Dropdown state
   const [agentDropdownOpen, setAgentDropdownOpen] = useState(false);
@@ -48,53 +50,110 @@ export function RunsTab() {
   const [pendingCollapsed, setPendingCollapsed] = useState(false);
   const [completedCollapsed, setCompletedCollapsed] = useState(false);
 
+  // Include "running" status in completed/active batches so user can see progress
   const pendingBatches = syntheticBatches.filter((b) => b.status === "ready" || b.status === "pending");
-  const completedBatches = syntheticBatches.filter((b) => b.status === "completed" || b.status === "failed");
+  const activeBatches = syntheticBatches.filter((b) => b.status === "running" || b.status === "completed" || b.status === "failed");
 
-  const executeBatch = async (batchId: string, agentId: string) => {
-    setExecutingBatch(true);
-    const startTime = Date.now();
+
+  const stopExecution = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setExecutingBatchId(null);
     setExecutionProgress(null);
+  };
+
+  const executeBatch = async (batchId: string, batchName: string, agentId: string) => {
+    // Create abort controller for this execution
+    abortControllerRef.current = new AbortController();
+    
+    setExecutingBatchId(batchId);
+    const startTime = Date.now();
+    setExecutionProgress({
+      batch_id: batchId,
+      status: "starting",
+      total_queries: 0,
+      completed_queries: 0,
+      success_count: 0,
+      failure_count: 0,
+      progress_percent: 0,
+      start_time: startTime,
+    });
+
+    // Immediately select this batch to show results as they come in
+    setSelectedBatch({ id: batchId, name: batchName, queries: [] });
+
+    let lastCompletedCount = 0;
+    let hasRefreshedBatches = false;
 
     try {
-      const response = await fetch(`/api/synthetic/batches/${batchId}/execute`, {
+      // Use direct backend URL to avoid Next.js proxy buffering SSE
+      const backendUrl = typeof window !== 'undefined' 
+        ? `http://${window.location.hostname}:8000` 
+        : 'http://localhost:8000';
+      
+      const response = await fetch(`${backendUrl}/api/synthetic/batches/${batchId}/execute`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ timeout_per_query: 60.0 }),
+        signal: abortControllerRef.current.signal,
       });
 
       if (!response.body) throw new Error("No response body");
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
+      let buffer = "";
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
 
-        const text = decoder.decode(value);
-        const lines = text.split("\n");
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || ""; // Keep incomplete line in buffer
 
         for (const line of lines) {
           if (line.startsWith("data: ")) {
             try {
               const data = JSON.parse(line.slice(6));
+              console.log("[Execute] Progress update:", data);
               setExecutionProgress({ ...data, start_time: startTime });
 
+              // Refresh batches once when status changes to running (to show in Active section)
+              if (data.status === "running" && !hasRefreshedBatches) {
+                hasRefreshedBatches = true;
+                fetchBatches(agentId);
+              }
+              
+              // Refresh batch detail when completed_queries increases
+              if (data.completed_queries > lastCompletedCount) {
+                lastCompletedCount = data.completed_queries;
+                fetchBatchDetail(batchId);
+              }
+
+              // Final refresh when done
               if (data.status === "completed" || data.status === "failed" || data.status === "cancelled") {
                 await fetchBatches(agentId);
                 await fetchBatchDetail(batchId);
               }
-            } catch {
-              // Skip malformed events
+            } catch (e) {
+              console.log("[Execute] Failed to parse:", line, e);
             }
           }
         }
       }
     } catch (error) {
-      console.error("Error executing batch:", error);
+      if ((error as Error).name !== 'AbortError') {
+        console.error("Error executing batch:", error);
+      }
     } finally {
-      setExecutingBatch(false);
+      setExecutingBatchId(null);
+      // Ensure final refresh
+      await fetchBatches(agentId);
+      // Don't clear progress immediately so user can see final state
+      setTimeout(() => setExecutionProgress(null), 3000);
     }
   };
 
@@ -227,9 +286,9 @@ export function RunsTab() {
             <span style={{ color: '#8F949E' }}>Completed:</span>
             <span 
               className="px-2 py-0.5 rounded text-xs font-medium"
-              style={{ backgroundColor: completedBatches.length > 0 ? 'rgba(16, 191, 204, 0.15)' : '#333333', color: completedBatches.length > 0 ? '#10BFCC' : '#8F949E' }}
+              style={{ backgroundColor: activeBatches.length > 0 ? 'rgba(16, 191, 204, 0.15)' : '#333333', color: activeBatches.length > 0 ? '#10BFCC' : '#8F949E' }}
             >
-              {completedBatches.length}
+              {activeBatches.length}
             </span>
           </div>
         </div>
@@ -248,66 +307,94 @@ export function RunsTab() {
         </button>
       </div>
 
-      {/* Execution Progress */}
-      {executingBatch && executionProgress && (
+      {/* ========== EXECUTION PROGRESS BAR ========== */}
+      {executionProgress && (
         <div 
           className="rounded-lg p-4"
           style={{ backgroundColor: 'rgba(16, 191, 204, 0.1)', border: '1px solid rgba(16, 191, 204, 0.3)' }}
         >
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              {(executionProgress.status === 'running' || executionProgress.status === 'starting') && (
+                <RefreshCw className="w-4 h-4 animate-spin" style={{ color: '#10BFCC' }} />
+              )}
+              <span className="font-medium" style={{ color: '#FDFDFD' }}>
+                {executionProgress.status === 'completed' 
+                  ? 'Execution complete!' 
+                  : executionProgress.status === 'failed'
+                  ? 'Execution failed'
+                  : executionProgress.status === 'starting' || executionProgress.total_queries === 0
+                  ? 'Starting execution...' 
+                  : `Running queries... (${executionProgress.completed_queries}/${executionProgress.total_queries})`}
+              </span>
+            </div>
             <div className="flex items-center gap-3">
-              <RefreshCw className="w-5 h-5 animate-spin" style={{ color: '#10BFCC' }} />
-              <div>
-                <span className="font-medium" style={{ color: '#FDFDFD' }}>Executing Batch</span>
-                <span className="text-sm ml-2" style={{ color: '#8F949E' }}>{selectedBatch?.name}</span>
+              <span className="text-sm font-mono" style={{ color: '#10BFCC' }}>
+                {executionProgress.completed_queries} / {executionProgress.total_queries || '?'}
+              </span>
+              {executingBatchId && (
+                <button
+                  onClick={stopExecution}
+                  className="p-1.5 rounded transition-colors hover:bg-red-500/20"
+                  style={{ color: '#EF4444' }}
+                  title="Stop execution"
+                >
+                  <Square className="w-4 h-4 fill-current" />
+                </button>
+              )}
+            </div>
+          </div>
+          
+          <div className="w-full rounded-full h-2 mb-2 overflow-hidden" style={{ backgroundColor: '#333333' }}>
+            {(executionProgress.status === 'starting' || executionProgress.total_queries === 0) ? (
+              <div 
+                className="h-2 rounded-full"
+                style={{ 
+                  width: '30%', 
+                  background: 'linear-gradient(to right, #10BFCC, #FCBC32)',
+                  animation: 'indeterminate 1.5s ease-in-out infinite'
+                }}
+              />
+            ) : (
+              <div
+                className="h-2 rounded-full transition-all duration-300"
+                style={{ 
+                  width: `${Math.max(executionProgress.progress_percent, 2)}%`, 
+                  background: 'linear-gradient(to right, #10BFCC, #FCBC32)' 
+                }}
+              />
+            )}
+          </div>
+          
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4 text-xs">
+              <div className="flex items-center gap-1" style={{ color: '#10BFCC' }}>
+                <CheckCircle2 className="w-3 h-3" />
+                <span>{executionProgress.success_count} success</span>
               </div>
-            </div>
-            <span className="text-sm" style={{ color: '#10BFCC' }}>
-              {executionProgress.completed_queries} / {executionProgress.total_queries}
-            </span>
-          </div>
-
-          <div className="w-full rounded-full h-2 mb-3 overflow-hidden" style={{ backgroundColor: '#333333' }}>
-            <div
-              className="h-2 rounded-full transition-all duration-300"
-              style={{ width: `${executionProgress.progress_percent}%`, background: 'linear-gradient(to right, #10BFCC, #FCBC32)' }}
-            />
-          </div>
-
-          <div className="flex items-center gap-6 text-sm">
-            <div className="flex items-center gap-2" style={{ color: '#10BFCC' }}>
-              <CheckCircle2 className="w-4 h-4" />
-              <span>{executionProgress.success_count} success</span>
-            </div>
-            <div className="flex items-center gap-2" style={{ color: '#EF4444' }}>
-              <AlertTriangle className="w-4 h-4" />
-              <span>{executionProgress.failure_count} failed</span>
-            </div>
-            {executionProgress.start_time &&
-              executionProgress.completed_queries > 0 &&
-              executionProgress.completed_queries < executionProgress.total_queries && (
-                <div className="flex items-center gap-2" style={{ color: '#8F949E' }}>
-                  <Clock className="w-4 h-4" />
-                  <span>~{calculateETA(executionProgress.start_time, executionProgress.completed_queries, executionProgress.total_queries)}s remaining</span>
+              <div className="flex items-center gap-1" style={{ color: '#EF4444' }}>
+                <AlertTriangle className="w-3 h-3" />
+                <span>{executionProgress.failure_count} failed</span>
+              </div>
+              {executionProgress.estimated_remaining_seconds && executionProgress.status === 'running' && (
+                <div className="flex items-center gap-1" style={{ color: '#8F949E' }}>
+                  <Clock className="w-3 h-3" />
+                  <span>~{executionProgress.estimated_remaining_seconds}s remaining</span>
                 </div>
               )}
-          </div>
-
-          {executionProgress.current_query_text && (
-            <div 
-              className="mt-3 p-3 rounded-lg"
-              style={{ backgroundColor: '#171A1F' }}
-            >
-              <p className="text-xs mb-1" style={{ color: '#8F949E' }}>Currently processing:</p>
-              <p className="text-sm italic" style={{ color: '#FDFDFD' }}>&quot;{executionProgress.current_query_text}&quot;</p>
             </div>
-          )}
+            {executionProgress.current_query_text && executionProgress.status === 'running' && (
+              <p className="text-xs truncate max-w-md" style={{ color: '#8F949E' }}>
+                &quot;{executionProgress.current_query_text}&quot;
+              </p>
+            )}
+          </div>
         </div>
       )}
 
       {/* ========== MAIN CONTENT ========== */}
       <div className="flex flex-col gap-4">
-        {/* TOP ROW: Pending + Completed Runs (side by side) */}
+        {/* TOP ROW: Pending + Active Runs (side by side) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* LEFT: Pending Runs */}
           <div 
@@ -363,10 +450,9 @@ export function RunsTab() {
                           <span className="text-xs" style={{ color: '#8F949E' }}>Created {formatRelativeTime(batch.created_at)}</span>
                           <button
                             onClick={() => {
-                              setSelectedBatch({ id: batch.id, name: batch.name, queries: [] });
-                              executeBatch(batch.id, selectedAgent.id);
+                              executeBatch(batch.id, batch.name, selectedAgent.id);
                             }}
-                            disabled={executingBatch}
+                            disabled={!!executingBatchId}
                             className="flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all disabled:opacity-50"
                             style={{ backgroundColor: '#FCBC32', color: '#171A1F' }}
                           >
@@ -397,7 +483,7 @@ export function RunsTab() {
             )}
           </div>
 
-          {/* RIGHT: Completed Runs */}
+          {/* RIGHT: Active/Completed Runs */}
           <div 
             className="rounded-lg p-4 flex flex-col overflow-hidden transition-all duration-200"
             style={{ 
@@ -418,47 +504,62 @@ export function RunsTab() {
                   <ChevronUp className="w-4 h-4" style={{ color: '#8F949E' }} />
                 )}
                 <CheckCircle2 className="w-5 h-5" style={{ color: '#10BFCC' }} />
-                Completed runs
+                Active & Completed runs
                 <span 
                   className="text-xs px-2 py-0.5 rounded ml-1"
-                  style={{ backgroundColor: completedBatches.length > 0 ? 'rgba(16, 191, 204, 0.15)' : '#333333', color: completedBatches.length > 0 ? '#10BFCC' : '#8F949E' }}
+                  style={{ backgroundColor: activeBatches.length > 0 ? 'rgba(16, 191, 204, 0.15)' : '#333333', color: activeBatches.length > 0 ? '#10BFCC' : '#8F949E' }}
                 >
-                  {completedBatches.length}
+                  {activeBatches.length}
                 </span>
               </button>
             </div>
 
             {!completedCollapsed && (
               <div className="mt-4 flex-1 flex flex-col overflow-hidden">
-                {completedBatches.length > 0 ? (
+                {activeBatches.length > 0 ? (
                   <div className="space-y-3 flex-1 overflow-y-auto pr-1">
-                    {completedBatches.map((batch) => (
+                    {activeBatches.map((batch) => (
                       <div
                         key={batch.id}
                         className="rounded-lg p-4 transition-all cursor-pointer"
                         style={{ 
-                          backgroundColor: selectedBatch?.id === batch.id ? 'rgba(16, 191, 204, 0.1)' : '#252830',
-                          border: selectedBatch?.id === batch.id ? '1px solid rgba(16, 191, 204, 0.4)' : '1px solid #333333'
+                          backgroundColor: selectedBatch?.id === batch.id 
+                            ? 'rgba(16, 191, 204, 0.1)' 
+                            : batch.status === 'running' 
+                            ? 'rgba(252, 188, 50, 0.05)'
+                            : '#252830',
+                          border: selectedBatch?.id === batch.id 
+                            ? '1px solid rgba(16, 191, 204, 0.4)' 
+                            : batch.status === 'running'
+                            ? '1px solid rgba(252, 188, 50, 0.3)'
+                            : '1px solid #333333'
                         }}
                         onClick={() => fetchBatchDetail(batch.id)}
                       >
                         <div className="flex items-center justify-between mb-2">
-                          <span className="font-medium" style={{ color: '#FDFDFD' }}>{batch.name}</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium" style={{ color: '#FDFDFD' }}>{batch.name}</span>
+                            {batch.status === 'running' && (
+                              <RefreshCw className="w-3 h-3 animate-spin" style={{ color: '#FCBC32' }} />
+                            )}
+                          </div>
                           <StatusBadge status={batch.status} />
                         </div>
                         <div className="flex items-center justify-between">
                           <span className="text-xs" style={{ color: '#8F949E' }}>{batch.query_count} queries • {formatRelativeTime(batch.created_at)}</span>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              resetBatch(batch.id, selectedAgent.id, false);
-                            }}
-                            className="text-xs flex items-center gap-1 hover:opacity-80"
-                            style={{ color: '#8F949E' }}
-                          >
-                            <RefreshCw className="w-3 h-3" />
-                            Re-run
-                          </button>
+                          {batch.status !== 'running' && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                resetBatch(batch.id, selectedAgent.id, false);
+                              }}
+                              className="text-xs flex items-center gap-1 hover:opacity-80"
+                              style={{ color: '#8F949E' }}
+                            >
+                              <RefreshCw className="w-3 h-3" />
+                              Re-run
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -491,10 +592,13 @@ export function RunsTab() {
             <h2 className="font-display text-lg flex items-center gap-2" style={{ color: '#FDFDFD' }}>
               <Eye className="w-5 h-5" style={{ color: '#FCBC32' }} />
               Run results
-              {selectedBatch?.queries?.length && (
+              {selectedBatch?.queries?.length ? (
                 <span className="text-xs px-2 py-0.5 rounded ml-1" style={{ backgroundColor: '#333333', color: '#8F949E' }}>
                   {selectedBatch.queries.length} queries
                 </span>
+              ) : null}
+              {executingBatchId && selectedBatch?.id === executingBatchId && (
+                <RefreshCw className="w-4 h-4 animate-spin ml-2" style={{ color: '#10BFCC' }} />
               )}
             </h2>
             {selectedBatch && selectedBatch.queries && selectedBatch.queries.length > 0 && (
@@ -568,6 +672,8 @@ function QueryResultRow({
       ? '#10B981'
       : query.execution_status === "error"
       ? '#EF4444'
+      : query.execution_status === "running"
+      ? '#FCBC32'
       : '#8F949E';
 
   const tags = Object.entries(query.tuple_values || {});
@@ -592,7 +698,12 @@ function QueryResultRow({
         </span>
         
         {/* Status */}
-        <StatusBadge status={query.execution_status || 'pending'} />
+        <div className="flex items-center gap-1">
+          {query.execution_status === "running" && (
+            <RefreshCw className="w-3 h-3 animate-spin" style={{ color: '#FCBC32' }} />
+          )}
+          <StatusBadge status={query.execution_status || 'pending'} />
+        </div>
         
         {/* Query Preview */}
         <div className="min-w-0 flex items-center gap-2">

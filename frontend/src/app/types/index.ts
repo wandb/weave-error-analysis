@@ -223,7 +223,9 @@ export interface ExecutionProgress {
   success_count: number;
   failure_count: number;
   progress_percent: number;
+  current_query_id?: string;
   current_query_text?: string;
+  estimated_remaining_seconds?: number;
   start_time?: number;
   last_response?: string;
 }

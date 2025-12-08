@@ -922,13 +922,16 @@ async def execute_synthetic_batch(batch_id: str, request: ExecuteBatchRequest = 
                 batch_id=batch_id,
                 timeout_per_query=request.timeout_per_query
             ):
-                yield f"data: {progress.model_dump_json()}\n\n"
+                event_data = f"data: {progress.model_dump_json()}\n\n"
+                print(f"[SSE] Sending progress: {progress.completed_queries}/{progress.total_queries} - {progress.status}")
+                yield event_data
         except Exception as e:
             error_data = json.dumps({
                 "batch_id": batch_id,
                 "status": "error",
                 "error": str(e)
             })
+            print(f"[SSE] Error: {e}")
             yield f"data: {error_data}\n\n"
     
     return StreamingResponse(

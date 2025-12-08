@@ -132,6 +132,7 @@ class BatchExecutor:
         execution_times: List[float] = []
         
         # Initial progress
+        print(f"[BatchExecutor] Starting batch {self.batch_id} with {total_queries} queries")
         yield BatchExecutionProgress(
             batch_id=self.batch_id,
             status="running",
@@ -187,6 +188,7 @@ class BatchExecutor:
                 estimated_remaining = int(avg_time * remaining_queries)
             
             # Yield progress
+            print(f"[BatchExecutor] Completed query {completed}/{total_queries}: {result.status}")
             yield BatchExecutionProgress(
                 batch_id=self.batch_id,
                 status="running",

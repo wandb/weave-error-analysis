@@ -128,16 +128,28 @@ async def get_threads(
             if is_root:
                 session["turn_count"] += 1
         
-        # If batch_id filter is provided, get the linked thread_ids
-        batch_thread_ids = None
+        # If batch_id filter is provided, get the linked thread_ids or trace_ids
+        batch_session_ids = None
         if batch_id:
             with get_db() as conn:
                 cursor = conn.cursor()
+                # Get both thread_id and trace_id from synthetic_queries for the batch
                 cursor.execute("""
-                    SELECT thread_id FROM synthetic_queries 
-                    WHERE batch_id = ? AND thread_id IS NOT NULL
+                    SELECT thread_id, trace_id 
+                    FROM synthetic_queries 
+                    WHERE batch_id = ?
                 """, (batch_id,))
-                batch_thread_ids = set(row[0] for row in cursor.fetchall())
+                rows = cursor.fetchall()
+                
+                # Collect all non-null session identifiers
+                batch_session_ids = set()
+                for row in rows:
+                    if row["thread_id"]:
+                        batch_session_ids.add(row["thread_id"])
+                    if row["trace_id"]:
+                        batch_session_ids.add(row["trace_id"])
+                
+                print(f"[DEBUG] Batch {batch_id}: Found {len(rows)} queries, session_ids: {batch_session_ids}")
         
         # Convert to list format - only include sessions with session_xxx format (real sessions)
         threads = []
@@ -152,11 +164,14 @@ async def get_threads(
             if not is_real_session:
                 continue
             
-            # If batch filter is active, only include sessions with matching thread_ids
-            if batch_thread_ids is not None:
-                # Check if this session_id matches any batch thread_id
-                if session_id not in batch_thread_ids:
-                    continue
+            # If batch filter is active, only include sessions with matching session_ids
+            if batch_session_ids is not None:
+                # Check if this session_id matches any batch session_id (thread_id or trace_id)
+                if session_id not in batch_session_ids:
+                    # Also check if any call's trace_id is in the batch
+                    call_trace_ids = set(c.get("trace_id") for c in session_data["calls"] if c.get("trace_id"))
+                    if not call_trace_ids.intersection(batch_session_ids):
+                        continue
                 
             threads.append({
                 "thread_id": session_id,

@@ -263,12 +263,11 @@ async def suggest_category_for_note(note_id: str):
     or suggests creating a new failure mode.
     """
     try:
-        result = await taxonomy_service.suggest_category_for_note(note_id)
-        if "error" in result:
-            raise HTTPException(status_code=500, detail=result["error"])
-        return result
-    except HTTPException:
-        raise
+        return await taxonomy_service.suggest_category_for_note(note_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -113,5 +113,5 @@ async def get_op_names():
         return {"op_names": sorted(list(op_names))}
 
     except Exception as e:
-        return {"op_names": [], "error": str(e)}
+        raise HTTPException(status_code=500, detail=f"Failed to fetch op names: {str(e)}")
 

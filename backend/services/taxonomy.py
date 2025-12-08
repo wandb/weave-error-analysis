@@ -447,7 +447,7 @@ class TaxonomyService:
             note_row = cursor.fetchone()
         
         if not note_row:
-            return {"error": "Note not found"}
+            raise ValueError("Note not found")
         
         note_content = note_row["content"]
         
@@ -502,7 +502,7 @@ Be conservative about creating new categories. Only suggest a new category if th
             return result
             
         except Exception as e:
-            return {"error": str(e), "note_id": note_id}
+            raise RuntimeError(f"Failed to suggest category for note {note_id}: {str(e)}")
     
     async def _suggest_new_category(self, note_content: str) -> dict:
         """Suggest a new failure mode category for a note."""
@@ -535,7 +535,7 @@ Respond in JSON format:
             )
             return json.loads(response.choices[0].message.content)
         except Exception as e:
-            return {"error": str(e)}
+            raise RuntimeError(f"Failed to suggest new category: {str(e)}")
     
     async def auto_categorize_notes(self, note_ids: Optional[list[str]] = None) -> dict:
         """

@@ -952,12 +952,10 @@ async def get_batch_status(batch_id: str):
     
     Returns detailed status including per-query results.
     """
-    status = get_batch_execution_status(batch_id)
-    
-    if "error" in status:
-        raise HTTPException(status_code=404, detail=status["error"])
-    
-    return status
+    try:
+        return get_batch_execution_status(batch_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.get("/synthetic/batches/{batch_id}/traces")
@@ -1036,7 +1034,7 @@ async def execute_synthetic_batch_sync(batch_id: str, request: ExecuteBatchReque
     if final_progress:
         return final_progress.model_dump()
     else:
-        return {"status": "error", "message": "Execution produced no results"}
+        raise HTTPException(status_code=500, detail="Execution produced no results")
 
 
 # =============================================================================

@@ -463,7 +463,7 @@ def get_batch_execution_status(batch_id: str) -> Dict[str, Any]:
         batch_row = cursor.fetchone()
         
         if not batch_row:
-            return {"error": "Batch not found"}
+            raise ValueError("Batch not found")
         
         batch = dict(batch_row)
         

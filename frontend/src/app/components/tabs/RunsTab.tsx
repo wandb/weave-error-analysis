@@ -22,6 +22,7 @@ import { formatRelativeTime } from "../../utils/formatters";
 import { StatusBadge } from "../ui";
 import type { ExecutionProgress, BatchDetail } from "../../types";
 import * as api from "../../lib/api";
+import { getBackendUrl } from "../../lib/api";
 
 export function RunsTab() {
   const {
@@ -89,9 +90,7 @@ export function RunsTab() {
 
     try {
       // Use direct backend URL to avoid Next.js proxy buffering SSE
-      const backendUrl = typeof window !== 'undefined' 
-        ? `http://${window.location.hostname}:8000` 
-        : 'http://localhost:8000';
+      const backendUrl = getBackendUrl();
       
       const response = await fetch(`${backendUrl}/api/synthetic/batches/${batchId}/execute`, {
         method: "POST",

@@ -132,6 +132,18 @@ OPENAI_API_KEY=your_openai_key
 
 Settings configured via the UI take priority over environment variables.
 
+**Frontend Environment Variables**
+
+For deployment, create `frontend/.env.local` to configure the backend URL for SSE streaming:
+
+```bash
+# Full backend URL (for production deployments)
+NEXT_PUBLIC_BACKEND_URL=https://api.yourdomain.com
+
+# Or just change the port (keeps hostname dynamic)
+NEXT_PUBLIC_BACKEND_PORT=8000
+```
+
 ### Quick Start
 
 ```bash

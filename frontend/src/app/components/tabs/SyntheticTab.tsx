@@ -24,6 +24,7 @@ import { useApp } from "../../context/AppContext";
 import { formatRelativeTime } from "../../utils/formatters";
 import { Panel, Badge, StatusBadge, SelectPrompt, ProgressBar } from "../ui";
 import * as api from "../../lib/api";
+import { getBackendUrl } from "../../lib/api";
 
 export function SyntheticTab() {
   const {
@@ -133,9 +134,7 @@ export function SyntheticTab() {
 
     try {
       // Use direct backend URL for SSE streaming to bypass Next.js proxy buffering
-      const backendUrl = typeof window !== 'undefined' 
-        ? `http://${window.location.hostname}:8000` 
-        : 'http://localhost:8000';
+      const backendUrl = getBackendUrl();
       
       const response = await fetch(`${backendUrl}/api/synthetic/batches/generate-stream`, {
         method: "POST",

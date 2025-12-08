@@ -19,6 +19,25 @@ import type {
 
 const API_BASE = "/api";
 
+/**
+ * Get the direct backend URL for SSE streaming endpoints.
+ * SSE requires direct backend access to avoid Next.js proxy buffering.
+ * 
+ * In production, this should be configured via environment variables.
+ */
+export function getBackendUrl(): string {
+  // Check for environment variable first (for deployment flexibility)
+  if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_BACKEND_URL) {
+    return process.env.NEXT_PUBLIC_BACKEND_URL;
+  }
+  // Default: construct from window location
+  if (typeof window !== 'undefined') {
+    const port = process.env.NEXT_PUBLIC_BACKEND_PORT || '8000';
+    return `http://${window.location.hostname}:${port}`;
+  }
+  return 'http://localhost:8000';
+}
+
 // ============================================================================
 // Thread API
 // ============================================================================

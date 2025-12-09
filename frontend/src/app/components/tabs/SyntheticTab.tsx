@@ -47,10 +47,51 @@ export function SyntheticTab() {
 
   // Generation settings
   const [batchSize, setBatchSize] = useState(20);
-  const [batchStrategy, setBatchStrategy] = useState<"cross_product" | "llm_guided">("cross_product");
+  const [batchStrategy, setBatchStrategy] = useState<"cross_product" | "llm_guided">("llm_guided");
   const [model, setModel] = useState("gpt-4o-mini");
   const [temperature, setTemperature] = useState(0.7);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+  
+  // Custom prompts (only used in llm_guided mode)
+  const [showPromptEditor, setShowPromptEditor] = useState(false);
+  const [customTuplePrompt, setCustomTuplePrompt] = useState(`You are generating test case combinations for testing an AI agent.
+
+Agent: {agent_name}
+Purpose: {agent_purpose}
+
+Available testing dimensions:
+{dimensions}
+{focus_instruction}
+
+Generate {count} diverse and realistic combinations. Each combination should represent 
+a plausible user interaction. Include a mix of:
+- Common/typical cases
+- Edge cases
+- Challenging scenarios
+
+Return as JSON array of objects, each with keys matching the dimension names.
+Example: [{"persona": "frustrated_customer", "scenario": "refund_request", "complexity": "multi_step"}]
+
+Return ONLY the JSON array, no other text.`);
+  const [customQueryPrompt, setCustomQueryPrompt] = useState(`You are generating a realistic user message for testing an AI agent.
+
+Agent: {agent_name}
+Purpose: {agent_purpose}
+Capabilities: {agent_capabilities}
+
+Generate a user message matching these characteristics:
+{dimension_values}
+
+Guidelines:
+- Sound natural and conversational, not formulaic
+- Match the persona's communication style
+- Reflect the scenario's topic and urgency
+- Include relevant details that the persona would provide
+- For multi_step complexity, may require multiple pieces of information or actions
+- For edge_case complexity, present unusual or boundary conditions
+- For adversarial, try to get something outside normal policy
+
+Return ONLY the user message, nothing else. No quotes around it.`);
   
   // Generation state
   const [generating, setGenerating] = useState(false);
@@ -192,6 +233,11 @@ export function SyntheticTab() {
           strategy: batchStrategy,
           model,
           temperature,
+          // Only send custom prompts for LLM guided mode
+          ...(batchStrategy === "llm_guided" && {
+            custom_tuple_prompt: customTuplePrompt,
+            custom_query_prompt: customQueryPrompt,
+          }),
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -502,48 +548,132 @@ export function SyntheticTab() {
       {/* Advanced Settings Panel */}
       {showAdvancedSettings && (
         <div 
-          className="rounded-lg p-4 grid grid-cols-3 gap-4"
+          className="rounded-lg p-4 space-y-4"
           style={{ backgroundColor: '#1C1E24', border: '1px solid #333333' }}
         >
-          <div>
-            <label className="text-xs mb-1 block" style={{ color: '#8F949E' }}>Model</label>
-            <select
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              className="w-full px-3 py-2 rounded text-sm"
-              style={{ backgroundColor: '#171A1F', border: '1px solid #333333', color: '#FDFDFD' }}
-            >
-              <option value="gpt-4o-mini">gpt-4o-mini</option>
-              <option value="gpt-4o">gpt-4o</option>
-              <option value="gpt-4-turbo">gpt-4-turbo</option>
-              <option value="claude-3-sonnet">claude-3-sonnet</option>
-              <option value="claude-3-haiku">claude-3-haiku</option>
-            </select>
+          {/* Basic Settings Row */}
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="text-xs mb-1 block" style={{ color: '#8F949E' }}>Model</label>
+              <select
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                className="w-full px-3 py-2 rounded text-sm"
+                style={{ backgroundColor: '#171A1F', border: '1px solid #333333', color: '#FDFDFD' }}
+              >
+                <option value="gpt-4o-mini">gpt-4o-mini</option>
+                <option value="gpt-4o">gpt-4o</option>
+                <option value="gpt-4-turbo">gpt-4-turbo</option>
+                <option value="claude-3-sonnet">claude-3-sonnet</option>
+                <option value="claude-3-haiku">claude-3-haiku</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs mb-1 block" style={{ color: '#8F949E' }}>
+                Temperature: {temperature}
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.1}
+                value={temperature}
+                onChange={(e) => setTemperature(Number(e.target.value))}
+                className="w-full accent-gold"
+                style={{ accentColor: '#FCBC32' }}
+              />
+            </div>
+            <div>
+              <label className="text-xs mb-1 block" style={{ color: '#8F949E' }}>API Key (optional override)</label>
+              <input
+                type="password"
+                placeholder="Uses default from Settings"
+                className="w-full px-3 py-2 rounded text-sm"
+                style={{ backgroundColor: '#171A1F', border: '1px solid #333333', color: '#FDFDFD' }}
+              />
+            </div>
           </div>
-          <div>
-            <label className="text-xs mb-1 block" style={{ color: '#8F949E' }}>
-              Temperature: {temperature}
-            </label>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.1}
-              value={temperature}
-              onChange={(e) => setTemperature(Number(e.target.value))}
-              className="w-full accent-gold"
-              style={{ accentColor: '#FCBC32' }}
-            />
-          </div>
-          <div>
-            <label className="text-xs mb-1 block" style={{ color: '#8F949E' }}>API Key (optional override)</label>
-            <input
-              type="password"
-              placeholder="Uses default from Settings"
-              className="w-full px-3 py-2 rounded text-sm"
-              style={{ backgroundColor: '#171A1F', border: '1px solid #333333', color: '#FDFDFD' }}
-            />
-          </div>
+          
+          {/* Prompt Editor Toggle - Only show for LLM guided */}
+          {batchStrategy === "llm_guided" && (
+            <div className="border-t pt-4" style={{ borderColor: '#333333' }}>
+              <button
+                onClick={() => setShowPromptEditor(!showPromptEditor)}
+                className="flex items-center gap-2 text-sm mb-3"
+                style={{ color: showPromptEditor ? '#FCBC32' : '#8F949E' }}
+              >
+                <Edit3 className="w-4 h-4" />
+                <span>Customize Generation Prompts</span>
+                {showPromptEditor ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              </button>
+              
+              {showPromptEditor && (
+                <div className="space-y-4">
+                  {/* Info Box */}
+                  <div 
+                    className="p-3 rounded-lg text-xs"
+                    style={{ backgroundColor: 'rgba(252, 188, 50, 0.1)', border: '1px solid rgba(252, 188, 50, 0.3)' }}
+                  >
+                    <p style={{ color: '#FCBC32' }}>
+                      <strong>Available placeholders:</strong>
+                    </p>
+                    <p className="mt-1" style={{ color: '#8F949E' }}>
+                      Tuple prompt: <code className="px-1 rounded" style={{ backgroundColor: '#333333' }}>{'{agent_name}'}</code>, <code className="px-1 rounded" style={{ backgroundColor: '#333333' }}>{'{agent_purpose}'}</code>, <code className="px-1 rounded" style={{ backgroundColor: '#333333' }}>{'{dimensions}'}</code>, <code className="px-1 rounded" style={{ backgroundColor: '#333333' }}>{'{count}'}</code>, <code className="px-1 rounded" style={{ backgroundColor: '#333333' }}>{'{focus_instruction}'}</code>
+                    </p>
+                    <p className="mt-1" style={{ color: '#8F949E' }}>
+                      Query prompt: <code className="px-1 rounded" style={{ backgroundColor: '#333333' }}>{'{agent_name}'}</code>, <code className="px-1 rounded" style={{ backgroundColor: '#333333' }}>{'{agent_purpose}'}</code>, <code className="px-1 rounded" style={{ backgroundColor: '#333333' }}>{'{agent_capabilities}'}</code>, <code className="px-1 rounded" style={{ backgroundColor: '#333333' }}>{'{dimension_values}'}</code>
+                    </p>
+                  </div>
+                  
+                  {/* Tuple Generation Prompt */}
+                  <div>
+                    <label className="text-xs mb-1 block font-medium" style={{ color: '#10BFCC' }}>
+                      1. Tuple Generation Prompt
+                      <span className="font-normal ml-2" style={{ color: '#8F949E' }}>
+                        (Generates combinations of test dimensions)
+                      </span>
+                    </label>
+                    <textarea
+                      value={customTuplePrompt}
+                      onChange={(e) => setCustomTuplePrompt(e.target.value)}
+                      rows={8}
+                      className="w-full px-3 py-2 rounded text-sm font-mono"
+                      style={{ 
+                        backgroundColor: '#171A1F', 
+                        border: '1px solid #333333', 
+                        color: '#FDFDFD',
+                        resize: 'vertical',
+                        minHeight: '150px'
+                      }}
+                    />
+                  </div>
+                  
+                  {/* Query Generation Prompt */}
+                  <div>
+                    <label className="text-xs mb-1 block font-medium" style={{ color: '#FCBC32' }}>
+                      2. Query Generation Prompt
+                      <span className="font-normal ml-2" style={{ color: '#8F949E' }}>
+                        (Converts each tuple into a realistic user message)
+                      </span>
+                    </label>
+                    <textarea
+                      value={customQueryPrompt}
+                      onChange={(e) => setCustomQueryPrompt(e.target.value)}
+                      rows={10}
+                      className="w-full px-3 py-2 rounded text-sm font-mono"
+                      style={{ 
+                        backgroundColor: '#171A1F', 
+                        border: '1px solid #333333', 
+                        color: '#FDFDFD',
+                        resize: 'vertical',
+                        minHeight: '200px'
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

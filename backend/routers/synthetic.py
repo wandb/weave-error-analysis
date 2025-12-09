@@ -80,6 +80,9 @@ class BatchCreateRequest(BaseModel):
     count: int = 20
     strategy: str = "llm_guided"
     focus_areas: Optional[List[str]] = None
+    # Custom prompts (optional - uses defaults if not provided)
+    custom_tuple_prompt: Optional[str] = None  # Prompt for generating tuples
+    custom_query_prompt: Optional[str] = None  # Prompt for generating queries
 
 
 class BatchResponse(BaseModel):
@@ -582,7 +585,9 @@ async def create_batch_streaming(request: BatchCreateRequest):
                 n=request.count,
                 name=request.name,
                 strategy=request.strategy,
-                focus_areas=request.focus_areas
+                focus_areas=request.focus_areas,
+                custom_tuple_prompt=request.custom_tuple_prompt,
+                custom_query_prompt=request.custom_query_prompt
             ):
                 if event["type"] == "batch_started":
                     batch_id = event["batch_id"]

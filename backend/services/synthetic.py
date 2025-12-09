@@ -185,7 +185,17 @@ class SyntheticGenerator:
         if focus_areas:
             focus_instruction = f"\nFocus on these areas: {', '.join(focus_areas)}"
         
-        prompt = f"""You are generating test case combinations for testing an AI agent.
+        # Use custom prompt if provided, otherwise use default
+        custom_prompt = getattr(self, '_custom_tuple_prompt', None)
+        if custom_prompt:
+            # Replace placeholders in custom prompt
+            prompt = custom_prompt.replace("{agent_name}", self.agent_info.name)
+            prompt = prompt.replace("{agent_purpose}", self.agent_info.purpose)
+            prompt = prompt.replace("{dimensions}", json.dumps(dim_values, indent=2))
+            prompt = prompt.replace("{count}", str(n))
+            prompt = prompt.replace("{focus_instruction}", focus_instruction)
+        else:
+            prompt = f"""You are generating test case combinations for testing an AI agent.
 
 Agent: {self.agent_info.name}
 Purpose: {self.agent_info.purpose}
@@ -337,7 +347,16 @@ Return ONLY the JSON array, no other text."""
                 desc = f" - {dim_descriptions[dim_name][dim_value]}"
             value_context.append(f"- {dim_name}: {dim_value}{desc}")
         
-        prompt = f"""You are generating a realistic user message for testing an AI agent.
+        # Use custom prompt if provided, otherwise use default
+        custom_prompt = getattr(self, '_custom_query_prompt', None)
+        if custom_prompt:
+            # Replace placeholders in custom prompt
+            prompt = custom_prompt.replace("{agent_name}", self.agent_info.name)
+            prompt = prompt.replace("{agent_purpose}", self.agent_info.purpose)
+            prompt = prompt.replace("{agent_capabilities}", ', '.join(self.agent_info.capabilities[:5]))
+            prompt = prompt.replace("{dimension_values}", chr(10).join(value_context))
+        else:
+            prompt = f"""You are generating a realistic user message for testing an AI agent.
 
 Agent: {self.agent_info.name}
 Purpose: {self.agent_info.purpose}
@@ -494,12 +513,22 @@ Return ONLY the user message, nothing else. No quotes around it."""
         n: int = 20,
         name: Optional[str] = None,
         strategy: str = "llm_guided",
-        focus_areas: Optional[List[str]] = None
+        focus_areas: Optional[List[str]] = None,
+        custom_tuple_prompt: Optional[str] = None,
+        custom_query_prompt: Optional[str] = None
     ) -> AsyncGenerator[Dict, None]:
         """
         Generate a batch of synthetic queries with streaming progress.
         
         Yields progress events as queries are generated, allowing real-time UI updates.
+        
+        Args:
+            n: Number of queries to generate
+            name: Batch name
+            strategy: "cross_product" or "llm_guided"
+            focus_areas: Optional areas to focus on
+            custom_tuple_prompt: Custom prompt for tuple generation (LLM guided only)
+            custom_query_prompt: Custom prompt for query generation
         
         Yields:
             Dict events:
@@ -508,6 +537,9 @@ Return ONLY the user message, nothing else. No quotes around it."""
                 - {"type": "query_generated", "index": int, "total": int, "query": dict}
                 - {"type": "batch_complete", "batch_id": str, "query_count": int}
         """
+        # Store custom prompts for use in generation methods
+        self._custom_tuple_prompt = custom_tuple_prompt
+        self._custom_query_prompt = custom_query_prompt
         import asyncio
         
         batch_id = f"batch_{uuid.uuid4().hex[:12]}"

@@ -8,9 +8,7 @@ import {
   ChevronRight,
   RefreshCw,
   AlertTriangle,
-  ExternalLink,
   SortDesc,
-  Shuffle,
   Clock,
   CheckSquare,
   Square,
@@ -23,7 +21,6 @@ import {
   DollarSign,
   Cpu,
   Cloud,
-  CloudOff,
   CheckCircle,
   AlertCircle,
 } from "lucide-react";
@@ -843,17 +840,6 @@ export function SessionsTab() {
                       )}
                       {selectedSession.is_reviewed ? "Reviewed" : "Mark Reviewed"}
                     </button>
-                    {selectedSession.weave_url && (
-                      <a
-                        href={selectedSession.weave_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn-ghost flex items-center gap-1 text-xs"
-                      >
-                        <ExternalLink className="w-3 h-3" />
-                        Weave
-                      </a>
-                    )}
                   </div>
                 </div>
 

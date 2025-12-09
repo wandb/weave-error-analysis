@@ -799,12 +799,6 @@ class SessionSyncService:
         """
         now = now_iso()
         
-        # Generate weave URL
-        # Format: weave:///{entity}/{project}/session/{session_id}
-        # We'll construct a generic URL - actual format may vary
-        from config import PROJECT_ID
-        weave_url = f"https://wandb.ai/{PROJECT_ID}/weave/calls?filter=%7B%22traceId%22%3A%22{metrics.root_trace_id or session_id}%22%7D"
-        
         with get_db() as conn:
             cursor = conn.cursor()
             
@@ -818,7 +812,6 @@ class SessionSyncService:
                     UPDATE sessions SET
                         weave_session_id = ?,
                         root_trace_id = ?,
-                        weave_url = ?,
                         batch_id = COALESCE(?, batch_id),
                         query_id = COALESCE(?, query_id),
                         turn_count = ?,
@@ -842,7 +835,6 @@ class SessionSyncService:
                 """, (
                     session_id,  # weave_session_id
                     metrics.root_trace_id,
-                    weave_url,
                     batch_id,
                     query_id,
                     metrics.turn_count,
@@ -868,7 +860,7 @@ class SessionSyncService:
                 # Insert new session
                 cursor.execute("""
                     INSERT INTO sessions (
-                        id, weave_session_id, root_trace_id, weave_url,
+                        id, weave_session_id, root_trace_id,
                         batch_id, query_id,
                         turn_count, call_count, total_latency_ms,
                         total_input_tokens, total_output_tokens, total_tokens,
@@ -878,12 +870,11 @@ class SessionSyncService:
                         last_synced_at, sync_status,
                         is_reviewed, reviewed_at,
                         created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     session_id,
                     session_id,  # weave_session_id
                     metrics.root_trace_id,
-                    weave_url,
                     batch_id,
                     query_id,
                     metrics.turn_count,

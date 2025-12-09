@@ -606,6 +606,9 @@ class SessionRepository:
         """
         Create a note for a session.
         
+        Also syncs the note to the taxonomy 'notes' table so it can be
+        used for failure mode categorization.
+        
         Returns:
             The created note dict, or None if session not found
         """
@@ -615,11 +618,18 @@ class SessionRepository:
         with get_db() as conn:
             cursor = conn.cursor()
             
-            # Verify session exists
-            cursor.execute("SELECT id FROM sessions WHERE id = ?", (session_id,))
-            if not cursor.fetchone():
+            # Get session with root_trace_id for taxonomy sync
+            cursor.execute(
+                "SELECT id, root_trace_id FROM sessions WHERE id = ?", 
+                (session_id,)
+            )
+            session_row = cursor.fetchone()
+            if not session_row:
                 return None
             
+            root_trace_id = session_row["root_trace_id"]
+            
+            # Insert into session_notes table
             cursor.execute("""
                 INSERT INTO session_notes (
                     id, session_id, call_id, content, note_type,
@@ -636,6 +646,21 @@ class SessionRepository:
                 created_by
             ))
             
+            # Also insert into taxonomy 'notes' table for failure mode categorization
+            # This allows session notes to be categorized alongside Weave feedback notes
+            cursor.execute("""
+                INSERT INTO notes (
+                    id, content, trace_id, created_at
+                ) VALUES (?, ?, ?, ?)
+            """, (
+                note_id,  # Use same ID to link them
+                content,
+                root_trace_id,
+                now
+            ))
+            
+            logger.info(f"Created session note {note_id} for session {session_id}, synced to taxonomy")
+            
             # Fetch and return the created note
             cursor.execute("SELECT * FROM session_notes WHERE id = ?", (note_id,))
             row = cursor.fetchone()
@@ -643,18 +668,27 @@ class SessionRepository:
     
     def delete_note(self, session_id: str, note_id: str) -> bool:
         """
-        Delete a note.
+        Delete a note from both session_notes and taxonomy notes tables.
         
         Returns:
             True if note was found and deleted
         """
         with get_db() as conn:
             cursor = conn.cursor()
+            
+            # Delete from session_notes
             cursor.execute(
                 "DELETE FROM session_notes WHERE id = ? AND session_id = ?",
                 (note_id, session_id)
             )
-            return cursor.rowcount > 0
+            deleted = cursor.rowcount > 0
+            
+            # Also delete from taxonomy notes table (same ID)
+            if deleted:
+                cursor.execute("DELETE FROM notes WHERE id = ?", (note_id,))
+                logger.info(f"Deleted note {note_id} from both session_notes and taxonomy notes")
+            
+            return deleted
     
     # =========================================================================
     # Batch Review Progress

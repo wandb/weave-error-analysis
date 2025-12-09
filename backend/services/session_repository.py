@@ -143,6 +143,25 @@ class SessionStats:
     avg_latency_ms: float = 0.0
 
 
+@dataclass
+class FilterRanges:
+    """Min/max ranges for filterable metrics across all sessions."""
+    # Turn count range
+    min_turns: int = 0
+    max_turns: int = 0
+    # Token range
+    min_tokens: int = 0
+    max_tokens: int = 0
+    # Cost range (USD)
+    min_cost: float = 0.0
+    max_cost: float = 0.0
+    # Latency range (ms)
+    min_latency: float = 0.0
+    max_latency: float = 0.0
+    # Session count (for context)
+    total_sessions: int = 0
+
+
 # =============================================================================
 # Session Repository
 # =============================================================================
@@ -304,6 +323,48 @@ class SessionRepository:
                 total_cost_usd=round(row["total_cost"] or 0, 4),
                 avg_turns=round(row["avg_turns"] or 0, 1),
                 avg_latency_ms=round(row["avg_latency"] or 0, 1)
+            )
+    
+    def get_filter_ranges(self) -> FilterRanges:
+        """
+        Get min/max ranges for all filterable numeric metrics.
+        
+        This is called when the user opens the filter panel to populate
+        the range sliders with actual data bounds.
+        
+        Note: Always queries ALL sessions (no filters) to give the full range.
+        This way users know the true data bounds regardless of current filters.
+        
+        Returns:
+            FilterRanges with min/max for turns, tokens, cost, latency
+        """
+        with get_db_readonly() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    COUNT(*) as total,
+                    COALESCE(MIN(turn_count), 0) as min_turns,
+                    COALESCE(MAX(turn_count), 0) as max_turns,
+                    COALESCE(MIN(total_tokens), 0) as min_tokens,
+                    COALESCE(MAX(total_tokens), 0) as max_tokens,
+                    COALESCE(MIN(estimated_cost_usd), 0) as min_cost,
+                    COALESCE(MAX(estimated_cost_usd), 0) as max_cost,
+                    COALESCE(MIN(total_latency_ms), 0) as min_latency,
+                    COALESCE(MAX(total_latency_ms), 0) as max_latency
+                FROM sessions
+            """)
+            row = cursor.fetchone()
+            
+            return FilterRanges(
+                min_turns=row["min_turns"] or 0,
+                max_turns=row["max_turns"] or 0,
+                min_tokens=row["min_tokens"] or 0,
+                max_tokens=row["max_tokens"] or 0,
+                min_cost=round(row["min_cost"] or 0, 6),
+                max_cost=round(row["max_cost"] or 0, 6),
+                min_latency=round(row["min_latency"] or 0, 0),
+                max_latency=round(row["max_latency"] or 0, 0),
+                total_sessions=row["total"] or 0
             )
     
     # =========================================================================

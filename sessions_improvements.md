@@ -1348,3 +1348,89 @@ Items not in scope but to consider for future:
 4. **Export**: Export session data with notes for reporting
 5. **Real-time sync**: WebSocket-based live updates when new sessions appear
 6. **Token cost configuration**: Allow users to set token prices for different models
+
+---
+
+## 10. Implementation Notes
+
+### Phase 5b: Range Filter Sliders (Completed Dec 9, 2025)
+
+Added dual-range sliders for filtering sessions by numeric metrics.
+
+**Backend Changes:**
+
+1. **SessionRepository** (`services/session_repository.py`):
+   - Added `FilterRanges` dataclass to hold min/max for turns, tokens, cost, latency
+   - Added `get_filter_ranges()` method to query actual data bounds from the DB
+   - Added `min_latency_ms` and `max_latency_ms` to `SessionFilters` dataclass
+
+2. **Sessions Router** (`routers/sessions.py`):
+   - Added `/api/sessions/options/filter-ranges` endpoint
+   - Added `min_latency` and `max_latency` query params to `list_sessions`
+
+**Frontend Changes:**
+
+1. **DualRangeSlider Component** (`components/ui/DualRangeSlider.tsx`):
+   - New reusable dual-thumb range slider component
+   - Supports custom formatting, units, and step increments
+   - Coral/gold gradient active track with styled thumbs
+
+2. **Types** (`types/index.ts`):
+   - Added `FilterRange` and `FilterRanges` interfaces
+   - Added `min_latency` and `max_latency` to `SessionFilters`
+
+3. **API** (`lib/api.ts`):
+   - Added `fetchFilterRanges()` function
+   - Updated `fetchSessions()` to include latency params
+
+4. **AppContext** (`context/AppContext.tsx`):
+   - Added state for all range filters (tokens, cost, latency)
+   - Added `filterRanges` state and `fetchFilterRanges` action
+   - Filters are fetched when Sessions tab is opened
+
+5. **SessionsTab** (`components/tabs/SessionsTab.tsx`):
+   - Added dropdown selector for range filter type
+   - Shows DualRangeSlider when a range filter is selected
+   - Displays active range filters as colored badges
+   - Range bounds are loaded from backend data
+
+**User Experience:**
+
+- Select "Filter by range..." dropdown to choose metric
+- Dual-thumb slider appears with actual min/max from data
+- Slide from both ends to narrow the range
+- Active filters shown as badges below the controls
+- "Clear all filters" resets everything
+
+**Key Design Decisions:**
+
+1. **Full data bounds**: Filter ranges are computed from ALL sessions, not just filtered ones. This lets users understand the full data range.
+
+2. **Lazy loading**: Ranges are fetched on Sessions tab open, not on every filter change.
+
+3. **Null means "no filter"**: When min/max match the data bounds, they're stored as null (no filter applied).
+
+### Phase 5c: Additive Range Filters (Completed Dec 9, 2025)
+
+Improved the filter UI to support **additive/combinable filters** instead of single-select.
+
+**Changes:**
+
+1. **"Add Range Filter" button** - Click to add a new range filter from available options
+2. **Stacked filter cards** - Each active filter shows as its own card with:
+   - Color-coded label (teal for turns/tokens, gold for cost, coral for latency)
+   - Dual-range slider
+   - X button to remove that filter
+3. **Combinable filters** - Can now filter by multiple criteria simultaneously:
+   - Example: "Latency 17-21s AND Cost $0.005-$0.010 AND Turns 2-5"
+4. **Sort controls improved** - Sort button now shows "↓ Desc" or "↑ Asc" label for clarity
+5. **Click-outside to close** - Add filter dropdown closes when clicking elsewhere
+
+**UX Flow:**
+
+1. Click "Add Range Filter" → dropdown shows available filter types
+2. Select a filter type (e.g., Latency) → filter card appears with slider
+3. Adjust the range using dual-thumb slider
+4. Click "Add Range Filter" again to add more filters
+5. Each filter has its own X to remove individually
+6. "Clear all filters" removes everything

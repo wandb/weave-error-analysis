@@ -30,6 +30,7 @@ import type {
   SessionDetail,
   SyncStatus,
   BatchReviewProgress,
+  FilterRanges,
 } from "../types";
 import * as api from "../lib/api";
 
@@ -67,6 +68,18 @@ interface AppState {
   setFilterMinTurns: (n: number | null) => void;
   filterMaxTurns: number | null;
   setFilterMaxTurns: (n: number | null) => void;
+  filterMinTokens: number | null;
+  setFilterMinTokens: (n: number | null) => void;
+  filterMaxTokens: number | null;
+  setFilterMaxTokens: (n: number | null) => void;
+  filterMinCost: number | null;
+  setFilterMinCost: (n: number | null) => void;
+  filterMaxCost: number | null;
+  setFilterMaxCost: (n: number | null) => void;
+  filterMinLatency: number | null;
+  setFilterMinLatency: (n: number | null) => void;
+  filterMaxLatency: number | null;
+  setFilterMaxLatency: (n: number | null) => void;
   filterReviewed: boolean | null;
   setFilterReviewed: (b: boolean | null) => void;
   filterHasError: boolean | null;
@@ -79,6 +92,11 @@ interface AppState {
   setFilterModel: (s: string | null) => void;
   searchQuery: string;
   setSearchQuery: (s: string) => void;
+  
+  // Filter ranges (data bounds for sliders)
+  filterRanges: FilterRanges | null;
+  loadingFilterRanges: boolean;
+  fetchFilterRanges: () => Promise<void>;
 
   // Session Actions (Legacy)
   fetchThreads: () => Promise<void>;
@@ -193,12 +211,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [sortDirection, setSortDirection] = useState("desc");
   const [filterMinTurns, setFilterMinTurns] = useState<number | null>(null);
   const [filterMaxTurns, setFilterMaxTurns] = useState<number | null>(null);
+  const [filterMinTokens, setFilterMinTokens] = useState<number | null>(null);
+  const [filterMaxTokens, setFilterMaxTokens] = useState<number | null>(null);
+  const [filterMinCost, setFilterMinCost] = useState<number | null>(null);
+  const [filterMaxCost, setFilterMaxCost] = useState<number | null>(null);
+  const [filterMinLatency, setFilterMinLatency] = useState<number | null>(null);
+  const [filterMaxLatency, setFilterMaxLatency] = useState<number | null>(null);
   const [filterReviewed, setFilterReviewed] = useState<boolean | null>(null);
   const [filterHasError, setFilterHasError] = useState<boolean | null>(null);
   const [filterBatchId, setFilterBatchId] = useState<string | null>(null);
   const [filterBatchName, setFilterBatchName] = useState<string | null>(null);
   const [filterModel, setFilterModel] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  
+  // Filter ranges (data bounds for sliders)
+  const [filterRanges, setFilterRanges] = useState<FilterRanges | null>(null);
+  const [loadingFilterRanges, setLoadingFilterRanges] = useState(false);
 
   // Sync status polling ref
   const syncPollRef = useRef<NodeJS.Timeout | null>(null);
@@ -346,6 +374,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
         direction: sortDirection,
         min_turns: filterMinTurns,
         max_turns: filterMaxTurns,
+        min_tokens: filterMinTokens,
+        max_tokens: filterMaxTokens,
+        min_cost: filterMinCost,
+        max_cost: filterMaxCost,
+        min_latency: filterMinLatency,
+        max_latency: filterMaxLatency,
         is_reviewed: filterReviewed,
         has_error: filterHasError,
         batch_id: filterBatchId,
@@ -370,7 +404,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoadingSessions(false);
     }
-  }, [sortBy, sortDirection, filterMinTurns, filterMaxTurns, filterReviewed, filterHasError, filterBatchId, filterModel]);
+  }, [sortBy, sortDirection, filterMinTurns, filterMaxTurns, filterMinTokens, filterMaxTokens, filterMinCost, filterMaxCost, filterMinLatency, filterMaxLatency, filterReviewed, filterHasError, filterBatchId, filterModel]);
 
   const fetchSessionDetailData = async (sessionId: string) => {
     setLoadingSessionDetail(true);
@@ -454,14 +488,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
         const status = await refreshSyncStatusData();
         if (status && !status.is_syncing) {
           if (syncPollRef.current) clearInterval(syncPollRef.current);
-          // Refresh sessions after sync completes
+          // Refresh sessions and filter ranges after sync completes
           fetchSessionsData();
+          fetchFilterRangesData();
         }
       }, 2000);
     } catch (error) {
       console.error("Error triggering sync:", error);
     }
   };
+
+  const fetchFilterRangesData = useCallback(async () => {
+    setLoadingFilterRanges(true);
+    try {
+      const ranges = await api.fetchFilterRanges();
+      setFilterRanges(ranges);
+    } catch (error) {
+      console.error("Error fetching filter ranges:", error);
+    } finally {
+      setLoadingFilterRanges(false);
+    }
+  }, []);
 
   // ============================================================================
   // Agent Actions
@@ -697,8 +744,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     if (activeTab === "sessions") {
       fetchSessionsData();
       refreshSyncStatusData();
+      fetchFilterRangesData();
     }
-  }, [activeTab, fetchSessionsData, refreshSyncStatusData]);
+  }, [activeTab, fetchSessionsData, refreshSyncStatusData, fetchFilterRangesData]);
 
   // Cleanup sync polling on unmount
   useEffect(() => {
@@ -766,6 +814,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setFilterMinTurns,
     filterMaxTurns,
     setFilterMaxTurns,
+    filterMinTokens,
+    setFilterMinTokens,
+    filterMaxTokens,
+    setFilterMaxTokens,
+    filterMinCost,
+    setFilterMinCost,
+    filterMaxCost,
+    setFilterMaxCost,
+    filterMinLatency,
+    setFilterMinLatency,
+    filterMaxLatency,
+    setFilterMaxLatency,
     filterReviewed,
     setFilterReviewed,
     filterHasError,
@@ -778,6 +838,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setFilterModel,
     searchQuery,
     setSearchQuery,
+    filterRanges,
+    loadingFilterRanges,
+    fetchFilterRanges: fetchFilterRangesData,
 
     // Legacy thread actions
     fetchThreads,

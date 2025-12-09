@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Search,
   MessageCircle,
@@ -30,7 +30,7 @@ import {
 import { useApp } from "../../context/AppContext";
 import { formatRelativeTime } from "../../utils/formatters";
 import { ConversationMessage } from "../ConversationMessage";
-import { Panel, PanelHeader, Badge, ProgressBar, LoadingCards, NoSessionsFound, SelectPrompt } from "../ui";
+import { Panel, PanelHeader, Badge, ProgressBar, LoadingCards, NoSessionsFound, SelectPrompt, DualRangeSlider } from "../ui";
 
 // =============================================================================
 // Sync Status Indicator Component
@@ -269,6 +269,20 @@ export function SessionsTab() {
     setSortDirection,
     filterMinTurns,
     setFilterMinTurns,
+    filterMaxTurns,
+    setFilterMaxTurns,
+    filterMinTokens,
+    setFilterMinTokens,
+    filterMaxTokens,
+    setFilterMaxTokens,
+    filterMinCost,
+    setFilterMinCost,
+    filterMaxCost,
+    setFilterMaxCost,
+    filterMinLatency,
+    setFilterMinLatency,
+    filterMaxLatency,
+    setFilterMaxLatency,
     filterReviewed,
     setFilterReviewed,
     filterHasError,
@@ -277,6 +291,9 @@ export function SessionsTab() {
     setFilterBatchId,
     filterBatchName,
     setFilterBatchName,
+    filterRanges,
+    loadingFilterRanges,
+    fetchFilterRanges,
 
     // Actions
     fetchSessions,
@@ -289,6 +306,22 @@ export function SessionsTab() {
   const [newNote, setNewNote] = useState("");
   const [addingNote, setAddingNote] = useState(false);
   const [markingReviewed, setMarkingReviewed] = useState(false);
+  const [activeRangeFilters, setActiveRangeFilters] = useState<Set<"turns" | "tokens" | "cost" | "latency">>(new Set());
+  const [showAddFilter, setShowAddFilter] = useState(false);
+  const addFilterRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (addFilterRef.current && !addFilterRef.current.contains(event.target as Node)) {
+        setShowAddFilter(false);
+      }
+    };
+    if (showAddFilter) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showAddFilter]);
 
   // Filter sessions by search query (client-side)
   const filteredSessions = sessions.filter((session) => {
@@ -329,14 +362,103 @@ export function SessionsTab() {
 
   const clearAllFilters = () => {
     setFilterMinTurns(null);
+    setFilterMaxTurns(null);
+    setFilterMinTokens(null);
+    setFilterMaxTokens(null);
+    setFilterMinCost(null);
+    setFilterMaxCost(null);
+    setFilterMinLatency(null);
+    setFilterMaxLatency(null);
     setFilterReviewed(null);
     setFilterHasError(null);
     setFilterBatchId(null);
     setFilterBatchName(null);
     setSearchQuery("");
+    setActiveRangeFilters(new Set());
+    setShowAddFilter(false);
   };
 
-  const hasActiveFilters = filterMinTurns || filterReviewed !== null || filterHasError || filterBatchId;
+  const hasActiveFilters = 
+    filterMinTurns !== null || 
+    filterMaxTurns !== null || 
+    filterMinTokens !== null || 
+    filterMaxTokens !== null || 
+    filterMinCost !== null || 
+    filterMaxCost !== null ||
+    filterMinLatency !== null ||
+    filterMaxLatency !== null ||
+    filterReviewed !== null || 
+    filterHasError !== null || 
+    filterBatchId !== null;
+    
+  // Check if a range filter has been modified from default bounds
+  const isRangeModified = (type: "turns" | "tokens" | "cost" | "latency") => {
+    if (!filterRanges) return false;
+    const ranges = filterRanges[type];
+    switch (type) {
+      case "turns":
+        return (filterMinTurns !== null && filterMinTurns > ranges.min) || 
+               (filterMaxTurns !== null && filterMaxTurns < ranges.max);
+      case "tokens":
+        return (filterMinTokens !== null && filterMinTokens > ranges.min) || 
+               (filterMaxTokens !== null && filterMaxTokens < ranges.max);
+      case "cost":
+        return (filterMinCost !== null && filterMinCost > ranges.min) || 
+               (filterMaxCost !== null && filterMaxCost < ranges.max);
+      case "latency":
+        return (filterMinLatency !== null && filterMinLatency > ranges.min) || 
+               (filterMaxLatency !== null && filterMaxLatency < ranges.max);
+    }
+  };
+
+  // Add a new range filter
+  const addRangeFilter = (type: "turns" | "tokens" | "cost" | "latency") => {
+    setActiveRangeFilters(prev => new Set(Array.from(prev).concat(type)));
+    setShowAddFilter(false);
+  };
+
+  // Remove a range filter and reset its values
+  const removeRangeFilter = (type: "turns" | "tokens" | "cost" | "latency") => {
+    setActiveRangeFilters(prev => {
+      const next = new Set(prev);
+      next.delete(type);
+      return next;
+    });
+    // Reset the filter values
+    switch (type) {
+      case "turns":
+        setFilterMinTurns(null);
+        setFilterMaxTurns(null);
+        break;
+      case "tokens":
+        setFilterMinTokens(null);
+        setFilterMaxTokens(null);
+        break;
+      case "cost":
+        setFilterMinCost(null);
+        setFilterMaxCost(null);
+        break;
+      case "latency":
+        setFilterMinLatency(null);
+        setFilterMaxLatency(null);
+        break;
+    }
+  };
+
+  // Get available filters (not yet added)
+  const availableFilters = (["turns", "tokens", "cost", "latency"] as const).filter(
+    f => !activeRangeFilters.has(f)
+  );
+
+  // Get display label for filter type
+  const getFilterLabel = (type: "turns" | "tokens" | "cost" | "latency") => {
+    switch (type) {
+      case "turns": return "Turns";
+      case "tokens": return "Tokens";
+      case "cost": return "Cost ($)";
+      case "latency": return "Latency";
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -434,36 +556,149 @@ export function SessionsTab() {
                 </select>
                 <button
                   onClick={() => setSortDirection((d) => (d === "desc" ? "asc" : "desc"))}
-                  className="p-1 bg-ink-950 border border-ink-700 rounded text-xs"
+                  className="px-2 py-1 bg-ink-950 border border-ink-700 rounded text-xs flex items-center gap-1"
                   title={sortDirection === "desc" ? "Descending" : "Ascending"}
                 >
-                  {sortDirection === "desc" ? "↓" : "↑"}
+                  {sortDirection === "desc" ? "↓ Desc" : "↑ Asc"}
                 </button>
               </div>
 
-              {/* Filter Pills */}
+              {/* Active Range Filters - Stacked Cards */}
+              {filterRanges && activeRangeFilters.size > 0 && (
+                <div className="space-y-2">
+                  {activeRangeFilters.has("turns") && (
+                    <div className="bg-ink-950 border border-ink-700 rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-medium text-accent-teal">Turns</span>
+                        <button
+                          onClick={() => removeRangeFilter("turns")}
+                          className="text-ink-500 hover:text-red-400 transition-colors"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <DualRangeSlider
+                        min={filterRanges.turns.min}
+                        max={filterRanges.turns.max}
+                        valueMin={filterMinTurns ?? filterRanges.turns.min}
+                        valueMax={filterMaxTurns ?? filterRanges.turns.max}
+                        step={1}
+                        onChange={(min, max) => {
+                          setFilterMinTurns(min === filterRanges.turns.min ? null : min);
+                          setFilterMaxTurns(max === filterRanges.turns.max ? null : max);
+                        }}
+                      />
+                    </div>
+                  )}
+                  {activeRangeFilters.has("tokens") && (
+                    <div className="bg-ink-950 border border-ink-700 rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-medium text-accent-teal">Tokens</span>
+                        <button
+                          onClick={() => removeRangeFilter("tokens")}
+                          className="text-ink-500 hover:text-red-400 transition-colors"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <DualRangeSlider
+                        min={filterRanges.tokens.min}
+                        max={filterRanges.tokens.max}
+                        valueMin={filterMinTokens ?? filterRanges.tokens.min}
+                        valueMax={filterMaxTokens ?? filterRanges.tokens.max}
+                        step={100}
+                        onChange={(min, max) => {
+                          setFilterMinTokens(min === filterRanges.tokens.min ? null : min);
+                          setFilterMaxTokens(max === filterRanges.tokens.max ? null : max);
+                        }}
+                      />
+                    </div>
+                  )}
+                  {activeRangeFilters.has("cost") && (
+                    <div className="bg-ink-950 border border-ink-700 rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-medium text-accent-gold">Cost ($)</span>
+                        <button
+                          onClick={() => removeRangeFilter("cost")}
+                          className="text-ink-500 hover:text-red-400 transition-colors"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <DualRangeSlider
+                        min={filterRanges.cost.min}
+                        max={filterRanges.cost.max}
+                        valueMin={filterMinCost ?? filterRanges.cost.min}
+                        valueMax={filterMaxCost ?? filterRanges.cost.max}
+                        step={0.0001}
+                        formatValue={(v) => `$${v.toFixed(4)}`}
+                        onChange={(min, max) => {
+                          setFilterMinCost(min === filterRanges.cost.min ? null : min);
+                          setFilterMaxCost(max === filterRanges.cost.max ? null : max);
+                        }}
+                      />
+                    </div>
+                  )}
+                  {activeRangeFilters.has("latency") && (
+                    <div className="bg-ink-950 border border-ink-700 rounded-lg p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-medium text-accent-coral">Latency</span>
+                        <button
+                          onClick={() => removeRangeFilter("latency")}
+                          className="text-ink-500 hover:text-red-400 transition-colors"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <DualRangeSlider
+                        min={filterRanges.latency.min}
+                        max={filterRanges.latency.max}
+                        valueMin={filterMinLatency ?? filterRanges.latency.min}
+                        valueMax={filterMaxLatency ?? filterRanges.latency.max}
+                        step={100}
+                        formatValue={(v) => v >= 1000 ? `${(v / 1000).toFixed(1)}s` : `${Math.round(v)}ms`}
+                        onChange={(min, max) => {
+                          setFilterMinLatency(min === filterRanges.latency.min ? null : min);
+                          setFilterMaxLatency(max === filterRanges.latency.max ? null : max);
+                        }}
+                      />
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Add Filter Button & Dropdown */}
+              {availableFilters.length > 0 && (
+                <div className="relative" ref={addFilterRef}>
+                  <button
+                    onClick={() => setShowAddFilter(!showAddFilter)}
+                    className="flex items-center gap-1.5 text-xs text-ink-400 hover:text-accent-teal transition-colors px-2 py-1 border border-dashed border-ink-700 hover:border-accent-teal/50 rounded"
+                  >
+                    <Filter className="w-3 h-3" />
+                    Add Range Filter
+                  </button>
+                  {showAddFilter && (
+                    <div className="absolute top-full left-0 mt-1 bg-ink-900 border border-ink-700 rounded-lg shadow-lg z-10 py-1 min-w-[140px]">
+                      {availableFilters.map((filter) => (
+                        <button
+                          key={filter}
+                          onClick={() => addRangeFilter(filter)}
+                          className="w-full text-left px-3 py-1.5 text-xs text-sand-200 hover:bg-ink-800 transition-colors flex items-center gap-2"
+                        >
+                          {filter === "turns" && <MessageCircle className="w-3 h-3 text-accent-teal" />}
+                          {filter === "tokens" && <Zap className="w-3 h-3 text-accent-teal" />}
+                          {filter === "cost" && <DollarSign className="w-3 h-3 text-accent-gold" />}
+                          {filter === "latency" && <Clock className="w-3 h-3 text-accent-coral" />}
+                          {getFilterLabel(filter)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Quick Filter Pills */}
               <div className="flex flex-wrap gap-1">
-                <FilterPill
-                  active={filterMinTurns === 3}
-                  onClick={() => setFilterMinTurns(filterMinTurns === 3 ? null : 3)}
-                  variant="teal"
-                >
-                  3+ turns
-                </FilterPill>
-                <FilterPill
-                  active={filterMinTurns === 5}
-                  onClick={() => setFilterMinTurns(filterMinTurns === 5 ? null : 5)}
-                  variant="teal"
-                >
-                  5+ turns
-                </FilterPill>
-                <FilterPill
-                  active={filterMinTurns === 10}
-                  onClick={() => setFilterMinTurns(filterMinTurns === 10 ? null : 10)}
-                  variant="teal"
-                >
-                  10+ turns
-                </FilterPill>
                 <FilterPill
                   active={filterReviewed === false}
                   onClick={() => setFilterReviewed(filterReviewed === false ? null : false)}

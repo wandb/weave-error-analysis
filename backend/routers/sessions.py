@@ -91,6 +91,10 @@ async def list_sessions(
     min_cost: Optional[float] = Query(None, ge=0, description="Minimum cost in USD"),
     max_cost: Optional[float] = Query(None, ge=0, description="Maximum cost in USD"),
     
+    # Latency
+    min_latency: Optional[float] = Query(None, ge=0, description="Minimum latency in ms"),
+    max_latency: Optional[float] = Query(None, ge=0, description="Maximum latency in ms"),
+    
     # Date Range
     started_after: Optional[str] = Query(None, description="Sessions started after (ISO timestamp)"),
     started_before: Optional[str] = Query(None, description="Sessions started before (ISO timestamp)"),
@@ -125,6 +129,8 @@ async def list_sessions(
             max_tokens=max_tokens,
             min_cost=min_cost,
             max_cost=max_cost,
+            min_latency_ms=min_latency,
+            max_latency_ms=max_latency,
             started_after=started_after,
             started_before=started_before,
             primary_model=primary_model,
@@ -410,6 +416,33 @@ async def get_batch_options():
         return {"batches": batches}
     except Exception as e:
         logger.error(f"Error getting batch options: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/options/filter-ranges")
+async def get_filter_ranges():
+    """
+    Get min/max ranges for all filterable numeric metrics.
+    
+    Returns the actual data bounds for:
+    - Turn count (min/max)
+    - Total tokens (min/max)
+    - Estimated cost USD (min/max)
+    - Total latency ms (min/max)
+    
+    Used to populate range slider bounds in the filter UI.
+    """
+    try:
+        ranges = session_repository.get_filter_ranges()
+        return {
+            "turns": {"min": ranges.min_turns, "max": ranges.max_turns},
+            "tokens": {"min": ranges.min_tokens, "max": ranges.max_tokens},
+            "cost": {"min": ranges.min_cost, "max": ranges.max_cost},
+            "latency": {"min": ranges.min_latency, "max": ranges.max_latency},
+            "total_sessions": ranges.total_sessions,
+        }
+    except Exception as e:
+        logger.error(f"Error getting filter ranges: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

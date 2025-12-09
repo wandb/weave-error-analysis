@@ -22,6 +22,7 @@ import type {
   SessionStats,
   BatchReviewProgress,
   SessionFilters,
+  FilterRanges,
 } from "../types";
 import { createLogger } from "./logger";
 
@@ -551,6 +552,8 @@ export async function fetchSessions(params: FetchSessionsParams = {}): Promise<S
   if (params.max_tokens != null) urlParams.append("max_tokens", String(params.max_tokens));
   if (params.min_cost != null) urlParams.append("min_cost", String(params.min_cost));
   if (params.max_cost != null) urlParams.append("max_cost", String(params.max_cost));
+  if (params.min_latency != null) urlParams.append("min_latency", String(params.min_latency));
+  if (params.max_latency != null) urlParams.append("max_latency", String(params.max_latency));
   if (params.started_after) urlParams.append("started_after", params.started_after);
   if (params.started_before) urlParams.append("started_before", params.started_before);
   if (params.primary_model) urlParams.append("primary_model", params.primary_model);
@@ -643,6 +646,11 @@ export async function fetchModelOptions(): Promise<{ models: string[] }> {
 
 export async function fetchBatchOptions(): Promise<{ batches: { id: string; name: string }[] }> {
   const response = await fetch(`${API_BASE}/sessions/options/batches`);
+  return response.json();
+}
+
+export async function fetchFilterRanges(): Promise<FilterRanges> {
+  const response = await fetch(`${API_BASE}/sessions/options/filter-ranges`);
   return response.json();
 }
 

@@ -11,6 +11,9 @@ import {
   Copy,
 } from "lucide-react";
 
+// Re-export standalone components
+export { DualRangeSlider } from "./DualRangeSlider";
+
 // ============================================================================
 // Loading States
 // ============================================================================

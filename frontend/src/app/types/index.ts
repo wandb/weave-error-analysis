@@ -126,6 +126,19 @@ export interface SessionStats {
   avg_latency_ms: number;
 }
 
+export interface FilterRange {
+  min: number;
+  max: number;
+}
+
+export interface FilterRanges {
+  turns: FilterRange;
+  tokens: FilterRange;
+  cost: FilterRange;
+  latency: FilterRange;
+  total_sessions: number;
+}
+
 export interface BatchReviewProgress {
   batch_id: string;
   batch_name: string | null;
@@ -148,6 +161,8 @@ export interface SessionFilters {
   max_tokens?: number | null;
   min_cost?: number | null;
   max_cost?: number | null;
+  min_latency?: number | null;
+  max_latency?: number | null;
   started_after?: string | null;
   started_before?: string | null;
   primary_model?: string | null;

@@ -386,5 +386,5 @@ WAL mode helps but SQLite still can't handle high concurrent writes. Batch execu
 | **P2** | ~~Re-render storms~~ | ~~UI jank~~ | ✅ Fixed |
 | **P2** | ~~Request validation~~ | ~~Data integrity~~ | ✅ Fixed |
 | **P3** | ~~Memory leaks~~ | ~~Long sessions~~ | ✅ Fixed |
-| **P3** | ~~Stale closures~~ | ~~Bug risk~~ | ✅ Fixed |Z<<<<ZZ<ZZZZZZ>>>>>>
+| **P3** | ~~Stale closures~~ | ~~Bug risk~~ | ✅ Fixed |
 

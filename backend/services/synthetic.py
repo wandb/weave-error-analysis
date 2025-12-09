@@ -169,6 +169,9 @@ class SyntheticGenerator:
         This produces more realistic combinations than pure cross-product,
         as the LLM considers which combinations make sense together.
         
+        When use_dimensions is False, the LLM generates tuples freely without
+        being constrained to predefined dimension values.
+        
         Args:
             n: Number of tuples to generate
             focus_areas: Optional areas to focus on (e.g., ["edge cases", "adversarial"])
@@ -179,6 +182,7 @@ class SyntheticGenerator:
         from litellm import acompletion
         from services.settings import get_litellm_kwargs
         
+        use_dimensions = getattr(self, '_use_dimensions', True)
         dim_values = self.get_dimension_values()
         
         focus_instruction = ""
@@ -187,10 +191,35 @@ class SyntheticGenerator:
         
         # Use custom prompt if provided, otherwise use default
         custom_prompt = getattr(self, '_custom_tuple_prompt', None)
-        if custom_prompt:
+        
+        # Determine prompt mode for logging
+        prompt_mode = "free_generation" if not use_dimensions else ("custom_prompt" if custom_prompt else "dimensions_guided")
+        
+        if not use_dimensions:
+            # Free generation mode - LLM decides the dimensions and values
+            prompt = f"""You are generating test case combinations for testing an AI agent.
+
+Agent: {self.agent_info.name}
+Purpose: {self.agent_info.purpose or "AI assistant"}
+{focus_instruction}
+
+Generate {n} diverse and realistic test case combinations. Each combination should represent 
+a plausible user interaction scenario. You decide what dimensions to use (e.g., persona, scenario, 
+complexity, mood, intent, etc.) based on what's relevant for testing this agent.
+
+Include a mix of:
+- Common/typical cases (60%)
+- Edge cases (25%)
+- Challenging/adversarial scenarios (15%)
+
+Return as JSON array of objects. You choose the dimension names and values.
+Example: [{{"persona": "frustrated_customer", "scenario": "refund_request", "complexity": "multi_step", "mood": "angry"}}]
+
+Return ONLY the JSON array, no other text."""
+        elif custom_prompt:
             # Replace placeholders in custom prompt
             prompt = custom_prompt.replace("{agent_name}", self.agent_info.name)
-            prompt = prompt.replace("{agent_purpose}", self.agent_info.purpose)
+            prompt = prompt.replace("{agent_purpose}", self.agent_info.purpose or "AI assistant")
             prompt = prompt.replace("{dimensions}", json.dumps(dim_values, indent=2))
             prompt = prompt.replace("{count}", str(n))
             prompt = prompt.replace("{focus_instruction}", focus_instruction)
@@ -198,7 +227,7 @@ class SyntheticGenerator:
             prompt = f"""You are generating test case combinations for testing an AI agent.
 
 Agent: {self.agent_info.name}
-Purpose: {self.agent_info.purpose}
+Purpose: {self.agent_info.purpose or "AI assistant"}
 
 Available testing dimensions:
 {json.dumps(dim_values, indent=2)}
@@ -215,6 +244,26 @@ Example: [{{"persona": "frustrated_customer", "scenario": "refund_request", "com
 
 Return ONLY the JSON array, no other text."""
 
+        # Log the tuple generation request
+        log_event(logger, "llm.tuple_generation_start",
+            operation="generate_tuples_llm_guided",
+            mode=prompt_mode,
+            use_dimensions=use_dimensions,
+            has_custom_prompt=custom_prompt is not None,
+            dimension_count=len(dim_values) if use_dimensions else 0,
+            dimension_names=list(dim_values.keys()) if use_dimensions and dim_values else [],
+            requested_count=n,
+            agent_name=self.agent_info.name,
+            agent_purpose=self.agent_info.purpose or "AI assistant"
+        )
+        
+        # Log the full prompt if LOG_LLM_CONTENT is enabled
+        if LOG_LLM_CONTENT:
+            log_event(logger, "llm.tuple_generation_prompt", level="debug",
+                prompt=prompt,
+                dimensions=dim_values if use_dimensions else None
+            )
+
         # Get LLM settings
         llm_kwargs = get_litellm_kwargs()
 
@@ -225,6 +274,13 @@ Return ONLY the JSON array, no other text."""
         )
         
         content = response.choices[0].message.content
+        
+        # Log response received
+        log_event(logger, "llm.tuple_generation_response",
+            operation="generate_tuples_llm_guided",
+            mode=prompt_mode,
+            response_length=len(content) if content else 0
+        )
         
         # Parse the response
         try:
@@ -248,9 +304,25 @@ Return ONLY the JSON array, no other text."""
                         created_at=now
                     ))
             
+            # Log successful tuple generation
+            log_event(logger, "llm.tuple_generation_complete",
+                operation="generate_tuples_llm_guided",
+                mode=prompt_mode,
+                tuples_generated=len(tuples),
+                requested_count=n,
+                sample_tuple=tuples[0].values if tuples else None
+            )
+            
             return tuples
             
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
+            # Log parsing failure
+            log_event(logger, "llm.tuple_generation_failed", level="warning",
+                operation="generate_tuples_llm_guided",
+                mode=prompt_mode,
+                error=str(e),
+                fallback="cross_product"
+            )
             # Fallback to cross-product if LLM fails
             return self.generate_tuples_cross_product(max_tuples=n)
     
@@ -349,18 +421,21 @@ Return ONLY the JSON array, no other text."""
         
         # Use custom prompt if provided, otherwise use default
         custom_prompt = getattr(self, '_custom_query_prompt', None)
+        agent_purpose = self.agent_info.purpose or "AI assistant"
+        agent_capabilities = ', '.join(self.agent_info.capabilities[:5]) if self.agent_info.capabilities else "General assistance"
+        
         if custom_prompt:
             # Replace placeholders in custom prompt
             prompt = custom_prompt.replace("{agent_name}", self.agent_info.name)
-            prompt = prompt.replace("{agent_purpose}", self.agent_info.purpose)
-            prompt = prompt.replace("{agent_capabilities}", ', '.join(self.agent_info.capabilities[:5]))
+            prompt = prompt.replace("{agent_purpose}", agent_purpose)
+            prompt = prompt.replace("{agent_capabilities}", agent_capabilities)
             prompt = prompt.replace("{dimension_values}", chr(10).join(value_context))
         else:
             prompt = f"""You are generating a realistic user message for testing an AI agent.
 
 Agent: {self.agent_info.name}
-Purpose: {self.agent_info.purpose}
-Capabilities: {', '.join(self.agent_info.capabilities[:5])}
+Purpose: {agent_purpose}
+Capabilities: {agent_capabilities}
 
 Generate a user message matching these characteristics:
 {chr(10).join(value_context)}
@@ -515,7 +590,9 @@ Return ONLY the user message, nothing else. No quotes around it."""
         strategy: str = "llm_guided",
         focus_areas: Optional[List[str]] = None,
         custom_tuple_prompt: Optional[str] = None,
-        custom_query_prompt: Optional[str] = None
+        custom_query_prompt: Optional[str] = None,
+        selected_dimensions: Optional[Dict[str, List[str]]] = None,
+        use_dimensions: bool = True
     ) -> AsyncGenerator[Dict, None]:
         """
         Generate a batch of synthetic queries with streaming progress.
@@ -529,6 +606,8 @@ Return ONLY the user message, nothing else. No quotes around it."""
             focus_areas: Optional areas to focus on
             custom_tuple_prompt: Custom prompt for tuple generation (LLM guided only)
             custom_query_prompt: Custom prompt for query generation
+            selected_dimensions: Optional dict of dimension_name -> values to use (overrides agent dimensions)
+            use_dimensions: If True, use dimensions for tuple generation. If False, let LLM generate freely.
         
         Yields:
             Dict events:
@@ -540,6 +619,17 @@ Return ONLY the user message, nothing else. No quotes around it."""
         # Store custom prompts for use in generation methods
         self._custom_tuple_prompt = custom_tuple_prompt
         self._custom_query_prompt = custom_query_prompt
+        self._use_dimensions = use_dimensions
+        
+        # If selected_dimensions provided and use_dimensions is True, temporarily override the generator's dimensions
+        original_dimensions = None
+        if selected_dimensions and use_dimensions:
+            original_dimensions = self.dimensions
+            self.dimensions = [
+                TestingDimension(name=name, values=values)
+                for name, values in selected_dimensions.items()
+            ]
+        
         import asyncio
         
         batch_id = f"batch_{uuid.uuid4().hex[:12]}"
@@ -632,6 +722,10 @@ Return ONLY the user message, nothing else. No quotes around it."""
                 for q in queries
             ]
         }
+        
+        # Restore original dimensions if they were overridden
+        if original_dimensions is not None:
+            self.dimensions = original_dimensions
 
 
 # Utility functions for dimension manipulation

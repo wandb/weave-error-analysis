@@ -115,6 +115,19 @@ Return ONLY the user message, nothing else. No quotes around it.`);
   const [newDimensionName, setNewDimensionName] = useState("");
   const [newDimensionValues, setNewDimensionValues] = useState("");
   const [showAddDimension, setShowAddDimension] = useState(false);
+  
+  // LLM Guided dimension selection - which dimensions to use for generation
+  const [selectedDimensionIds, setSelectedDimensionIds] = useState<Set<string>>(new Set());
+  const [showDimensionSelector, setShowDimensionSelector] = useState(false);
+  // Toggle: true = use user-defined dimensions, false = let LLM generate freely
+  const [useDimensions, setUseDimensions] = useState(true);
+  
+  // Initialize selected dimensions when dimensions load
+  useEffect(() => {
+    if (dimensions.length > 0 && selectedDimensionIds.size === 0) {
+      setSelectedDimensionIds(new Set(dimensions.map(d => d.id)));
+    }
+  }, [dimensions]);
 
   // Batches panel
   const [showBatches, setShowBatches] = useState(false);
@@ -223,6 +236,13 @@ Return ONLY the user message, nothing else. No quotes around it.`);
       // Use direct backend URL for SSE streaming to bypass Next.js proxy buffering
       const backendUrl = getBackendUrl();
       
+      // Get selected dimensions for LLM guided mode (only if useDimensions is true)
+      const selectedDimensions = (batchStrategy === "llm_guided" && useDimensions && dimensions.length > 0)
+        ? dimensions
+            .filter(d => selectedDimensionIds.has(d.id))
+            .reduce((acc, d) => ({ ...acc, [d.name]: d.values }), {} as Record<string, string[]>)
+        : undefined;
+      
       const response = await fetch(`${backendUrl}/api/synthetic/batches/generate-stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -234,9 +254,12 @@ Return ONLY the user message, nothing else. No quotes around it.`);
           model,
           temperature,
           // Only send custom prompts for LLM guided mode
+          // selected_dimensions is only sent when useDimensions=true, otherwise LLM generates freely
           ...(batchStrategy === "llm_guided" && {
             custom_tuple_prompt: customTuplePrompt,
             custom_query_prompt: customQueryPrompt,
+            selected_dimensions: selectedDimensions,  // undefined = LLM decides freely
+            use_dimensions: useDimensions,  // explicit flag for backend
           }),
         }),
         signal: abortControllerRef.current.signal,
@@ -505,6 +528,143 @@ Return ONLY the user message, nothing else. No quotes around it.`);
             <option value="cross_product">Cross Product</option>
             <option value="llm_guided">LLM Guided</option>
           </select>
+          
+          {/* Dimension mode selector for LLM guided mode */}
+          {batchStrategy === "llm_guided" && (
+            <div className="relative">
+              <button
+                onClick={() => setShowDimensionSelector(!showDimensionSelector)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors"
+                style={{ 
+                  backgroundColor: showDimensionSelector ? 'rgba(16, 191, 204, 0.15)' : '#171A1F', 
+                  border: '1px solid #333333', 
+                  color: showDimensionSelector ? '#10BFCC' : '#FDFDFD' 
+                }}
+              >
+                <Target className="w-3.5 h-3.5" />
+                <span>
+                  {useDimensions 
+                    ? `${selectedDimensionIds.size}/${dimensions.length} dimensions` 
+                    : 'LLM decides'
+                  }
+                </span>
+                {showDimensionSelector ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              </button>
+              
+              {showDimensionSelector && (
+                <div 
+                  className="absolute top-full left-0 mt-1 p-3 rounded-lg z-50 min-w-[320px]"
+                  style={{ backgroundColor: '#252830', border: '1px solid #10BFCC', boxShadow: '0 4px 20px rgba(0,0,0,0.4)' }}
+                >
+                  {/* Mode Toggle */}
+                  <div className="flex gap-1 p-1 rounded-lg mb-3" style={{ backgroundColor: '#171A1F' }}>
+                    <button
+                      onClick={() => setUseDimensions(true)}
+                      className="flex-1 px-3 py-1.5 rounded text-xs font-medium transition-all"
+                      style={{ 
+                        backgroundColor: useDimensions ? '#10BFCC' : 'transparent',
+                        color: useDimensions ? '#171A1F' : '#8F949E'
+                      }}
+                    >
+                      Use Dimensions
+                    </button>
+                    <button
+                      onClick={() => setUseDimensions(false)}
+                      className="flex-1 px-3 py-1.5 rounded text-xs font-medium transition-all"
+                      style={{ 
+                        backgroundColor: !useDimensions ? '#FCBC32' : 'transparent',
+                        color: !useDimensions ? '#171A1F' : '#8F949E'
+                      }}
+                    >
+                      LLM Decides
+                    </button>
+                  </div>
+                  
+                  {useDimensions ? (
+                    <>
+                      {/* Dimensions selection */}
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-xs font-medium" style={{ color: '#10BFCC' }}>Select dimensions to use</span>
+                        <div className="flex gap-1">
+                          <button
+                            onClick={() => setSelectedDimensionIds(new Set(dimensions.map(d => d.id)))}
+                            className="text-xs px-2 py-0.5 rounded"
+                            style={{ backgroundColor: '#333333', color: '#8F949E' }}
+                          >
+                            All
+                          </button>
+                          <button
+                            onClick={() => setSelectedDimensionIds(new Set())}
+                            className="text-xs px-2 py-0.5 rounded"
+                            style={{ backgroundColor: '#333333', color: '#8F949E' }}
+                          >
+                            None
+                          </button>
+                        </div>
+                      </div>
+                      
+                      {dimensions.length > 0 ? (
+                        <div className="space-y-2 max-h-48 overflow-y-auto">
+                          {dimensions.map(dim => (
+                            <label 
+                              key={dim.id} 
+                              className="flex items-start gap-2 cursor-pointer p-2 rounded transition-colors hover:bg-opacity-50"
+                              style={{ backgroundColor: selectedDimensionIds.has(dim.id) ? 'rgba(16, 191, 204, 0.1)' : 'transparent' }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selectedDimensionIds.has(dim.id)}
+                                onChange={(e) => {
+                                  const newSet = new Set(selectedDimensionIds);
+                                  if (e.target.checked) newSet.add(dim.id);
+                                  else newSet.delete(dim.id);
+                                  setSelectedDimensionIds(newSet);
+                                }}
+                                className="w-4 h-4 mt-0.5 rounded"
+                                style={{ accentColor: '#10BFCC' }}
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="font-medium text-sm" style={{ color: '#FDFDFD' }}>{dim.name}</div>
+                                <div className="flex flex-wrap gap-1 mt-1">
+                                  {dim.values?.slice(0, 4).map((val, i) => (
+                                    <span key={i} className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#333333', color: '#8F949E' }}>
+                                      {val}
+                                    </span>
+                                  ))}
+                                  {dim.values?.length > 4 && (
+                                    <span className="text-xs" style={{ color: '#8F949E' }}>+{dim.values.length - 4} more</span>
+                                  )}
+                                </div>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-center py-4" style={{ color: '#8F949E' }}>
+                          No dimensions defined. Add them in the Testing Dimensions panel or use "LLM Decides" mode.
+                        </p>
+                      )}
+                      
+                      {dimensions.length > 0 && selectedDimensionIds.size === 0 && (
+                        <p className="text-xs mt-2 text-center" style={{ color: '#FCBC32' }}>
+                          ⚠️ Select at least one dimension
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-center py-3">
+                      <p className="text-sm mb-2" style={{ color: '#FDFDFD' }}>
+                        LLM will generate test case combinations freely
+                      </p>
+                      <p className="text-xs" style={{ color: '#8F949E' }}>
+                        The LLM will create diverse tuples based on the agent's purpose without being constrained to predefined dimension values.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Advanced Settings Toggle */}
@@ -524,12 +684,26 @@ Return ONLY the user message, nothing else. No quotes around it.`);
         {/* Generate Button */}
         <button
           onClick={generateBatch}
-          disabled={generating || dimensions.length === 0}
+          disabled={
+            generating || 
+            // Cross product requires dimensions
+            (batchStrategy === "cross_product" && dimensions.length === 0) ||
+            // LLM guided with useDimensions requires at least one dimension selected
+            (batchStrategy === "llm_guided" && useDimensions && selectedDimensionIds.size === 0)
+            // LLM guided with !useDimensions has no requirements - LLM generates freely
+          }
           className="flex items-center gap-2 px-6 py-2.5 rounded-md font-medium transition-all disabled:opacity-50"
           style={{ 
             backgroundColor: generating ? '#333333' : '#FCBC32', 
             color: generating ? '#8F949E' : '#171A1F' 
           }}
+          title={
+            (batchStrategy === "cross_product" && dimensions.length === 0) 
+              ? "Add dimensions first" 
+              : (batchStrategy === "llm_guided" && useDimensions && selectedDimensionIds.size === 0) 
+                ? "Select at least one dimension" 
+                : undefined
+          }
         >
           {generating ? (
             <>
@@ -544,6 +718,14 @@ Return ONLY the user message, nothing else. No quotes around it.`);
           )}
         </button>
       </div>
+      
+      {/* Click-away listener for dimension selector */}
+      {showDimensionSelector && (
+        <div 
+          className="fixed inset-0 z-40" 
+          onClick={() => setShowDimensionSelector(false)}
+        />
+      )}
 
       {/* Advanced Settings Panel */}
       {showAdvancedSettings && (

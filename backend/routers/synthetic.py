@@ -83,6 +83,10 @@ class BatchCreateRequest(BaseModel):
     # Custom prompts (optional - uses defaults if not provided)
     custom_tuple_prompt: Optional[str] = None  # Prompt for generating tuples
     custom_query_prompt: Optional[str] = None  # Prompt for generating queries
+    # Selected dimensions for LLM guided mode (dimension_name -> values)
+    selected_dimensions: Optional[Dict[str, List[str]]] = None
+    # Whether to use dimensions (True) or let LLM generate freely (False)
+    use_dimensions: bool = True
 
 
 class BatchResponse(BaseModel):
@@ -587,7 +591,9 @@ async def create_batch_streaming(request: BatchCreateRequest):
                 strategy=request.strategy,
                 focus_areas=request.focus_areas,
                 custom_tuple_prompt=request.custom_tuple_prompt,
-                custom_query_prompt=request.custom_query_prompt
+                custom_query_prompt=request.custom_query_prompt,
+                selected_dimensions=request.selected_dimensions if request.use_dimensions else None,
+                use_dimensions=request.use_dimensions
             ):
                 if event["type"] == "batch_started":
                     batch_id = event["batch_id"]

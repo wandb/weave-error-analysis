@@ -61,6 +61,40 @@ export function RunsTab() {
   const [pendingCollapsed, setPendingCollapsed] = useState(false);
   const [completedCollapsed, setCompletedCollapsed] = useState(false);
 
+  // Synced panel height - both panels resize together
+  const [syncedPanelHeight, setSyncedPanelHeight] = useState(320);
+  const pendingPanelRef = useRef<HTMLDivElement>(null);
+  const completedPanelRef = useRef<HTMLDivElement>(null);
+  const isResizingRef = useRef(false);
+
+  // ResizeObserver to sync panel heights
+  useEffect(() => {
+    const pendingPanel = pendingPanelRef.current;
+    const completedPanel = completedPanelRef.current;
+    
+    if (!pendingPanel || !completedPanel) return;
+
+    const observer = new ResizeObserver((entries) => {
+      // Avoid infinite loops by checking if we're programmatically resizing
+      if (isResizingRef.current) return;
+      
+      for (const entry of entries) {
+        const newHeight = entry.contentRect.height + 32; // Add padding
+        if (Math.abs(newHeight - syncedPanelHeight) > 5) {
+          isResizingRef.current = true;
+          setSyncedPanelHeight(newHeight);
+          // Reset flag after a short delay
+          setTimeout(() => { isResizingRef.current = false; }, 50);
+        }
+      }
+    });
+
+    observer.observe(pendingPanel);
+    observer.observe(completedPanel);
+
+    return () => observer.disconnect();
+  }, [syncedPanelHeight]);
+
   // Selection state for bulk operations
   const [selectedBatchIds, setSelectedBatchIds] = useState<Set<string>>(new Set());
 
@@ -425,11 +459,15 @@ export function RunsTab() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* LEFT: Pending Runs */}
           <div 
-            className="rounded-lg p-4 flex flex-col overflow-hidden transition-all duration-200"
+            ref={pendingPanelRef}
+            className="rounded-lg p-4 flex flex-col overflow-hidden"
             style={{ 
               backgroundColor: '#1C1E24', 
               border: '1px solid #333333', 
-              height: pendingCollapsed ? 'auto' : '320px' 
+              height: pendingCollapsed ? 'auto' : `${syncedPanelHeight}px`,
+              minHeight: pendingCollapsed ? 'auto' : '200px',
+              maxHeight: pendingCollapsed ? 'auto' : '600px',
+              resize: pendingCollapsed ? 'none' : 'vertical',
             }}
           >
             <div className="flex items-center justify-between flex-shrink-0">
@@ -512,11 +550,15 @@ export function RunsTab() {
 
           {/* RIGHT: Active/Completed Runs */}
           <div 
-            className="rounded-lg p-4 flex flex-col overflow-hidden transition-all duration-200"
+            ref={completedPanelRef}
+            className="rounded-lg p-4 flex flex-col overflow-hidden"
             style={{ 
               backgroundColor: '#1C1E24', 
               border: '1px solid #333333', 
-              height: completedCollapsed ? 'auto' : '320px' 
+              height: completedCollapsed ? 'auto' : `${syncedPanelHeight}px`,
+              minHeight: completedCollapsed ? 'auto' : '200px',
+              maxHeight: completedCollapsed ? 'auto' : '600px',
+              resize: completedCollapsed ? 'none' : 'vertical',
             }}
           >
             <div className="flex items-center justify-between flex-shrink-0">

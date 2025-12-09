@@ -243,3 +243,23 @@ input::placeholder, textarea::placeholder {
   outline-offset: 2px;
 }
 
+/* Custom resize handle - more visible on dark backgrounds */
+::-webkit-resizer {
+  background: linear-gradient(-45deg, 
+    transparent 0%, transparent 30%, 
+    #FCBC32 30%, #FCBC32 40%, 
+    transparent 40%, transparent 60%,
+    #FCBC32 60%, #FCBC32 70%,
+    transparent 70%, transparent 100%
+  );
+  border-radius: 0 0 8px 0;
+}
+
+/* Resizable panel styling */
+.resizable-panel {
+  resize: vertical;
+  overflow: auto;
+  min-height: 200px;
+  max-height: 600px;
+}
+

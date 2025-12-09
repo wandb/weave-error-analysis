@@ -87,6 +87,40 @@ export function SyntheticTab() {
   const [dimensionsCollapsed, setDimensionsCollapsed] = useState(false);
   const [batchesCollapsed, setBatchesCollapsed] = useState(false);
 
+  // Synced panel height - both panels resize together
+  const [syncedPanelHeight, setSyncedPanelHeight] = useState(280);
+  const dimensionsPanelRef = useRef<HTMLDivElement>(null);
+  const batchesPanelRef = useRef<HTMLDivElement>(null);
+  const isResizingRef = useRef(false);
+
+  // ResizeObserver to sync panel heights
+  useEffect(() => {
+    const dimensionsPanel = dimensionsPanelRef.current;
+    const batchesPanel = batchesPanelRef.current;
+    
+    if (!dimensionsPanel || !batchesPanel) return;
+
+    const observer = new ResizeObserver((entries) => {
+      // Avoid infinite loops by checking if we're programmatically resizing
+      if (isResizingRef.current) return;
+      
+      for (const entry of entries) {
+        const newHeight = entry.contentRect.height + 32; // Add padding
+        if (Math.abs(newHeight - syncedPanelHeight) > 5) {
+          isResizingRef.current = true;
+          setSyncedPanelHeight(newHeight);
+          // Reset flag after a short delay
+          setTimeout(() => { isResizingRef.current = false; }, 50);
+        }
+      }
+    });
+
+    observer.observe(dimensionsPanel);
+    observer.observe(batchesPanel);
+
+    return () => observer.disconnect();
+  }, [syncedPanelHeight]);
+
   const handleSaveDimension = async (dimName: string, values: string[]) => {
     if (!selectedAgent) return;
     try {
@@ -519,11 +553,15 @@ export function SyntheticTab() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* LEFT: Testing Dimensions */}
           <div 
-            className="rounded-lg p-4 flex flex-col overflow-hidden transition-all duration-200"
+            ref={dimensionsPanelRef}
+            className="rounded-lg p-4 flex flex-col overflow-hidden"
             style={{ 
               backgroundColor: '#1C1E24', 
               border: '1px solid #333333', 
-              height: dimensionsCollapsed ? 'auto' : '280px' 
+              height: dimensionsCollapsed ? 'auto' : `${syncedPanelHeight}px`,
+              minHeight: dimensionsCollapsed ? 'auto' : '200px',
+              maxHeight: dimensionsCollapsed ? 'auto' : '600px',
+              resize: dimensionsCollapsed ? 'none' : 'vertical',
             }}
           >
           <div className="flex items-center justify-between flex-shrink-0">
@@ -733,11 +771,15 @@ export function SyntheticTab() {
 
           {/* RIGHT: Generated Batches */}
           <div 
-            className="rounded-lg p-4 flex flex-col overflow-hidden transition-all duration-200"
+            ref={batchesPanelRef}
+            className="rounded-lg p-4 flex flex-col overflow-hidden"
             style={{ 
               backgroundColor: '#1C1E24', 
               border: '1px solid #333333', 
-              height: batchesCollapsed ? 'auto' : '280px' 
+              height: batchesCollapsed ? 'auto' : `${syncedPanelHeight}px`,
+              minHeight: batchesCollapsed ? 'auto' : '200px',
+              maxHeight: batchesCollapsed ? 'auto' : '600px',
+              resize: batchesCollapsed ? 'none' : 'vertical',
             }}
           >
             <div className="flex items-center justify-between flex-shrink-0">

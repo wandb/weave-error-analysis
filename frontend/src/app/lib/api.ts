@@ -15,6 +15,13 @@ import type {
   SettingsGroup,
   ConfigStatus,
   TestConnectionResult,
+  Session,
+  SessionDetail,
+  SessionListResponse,
+  SyncStatus,
+  SessionStats,
+  BatchReviewProgress,
+  SessionFilters,
 } from "../types";
 import { createLogger } from "./logger";
 
@@ -508,6 +515,134 @@ export async function testWeaveConnection(): Promise<TestConnectionResult> {
   const response = await fetch(`${API_BASE}/settings/test-weave`, {
     method: "POST",
   });
+  return response.json();
+}
+
+// ============================================================================
+// Sessions API (Phase 5 - Local-First Sessions)
+// ============================================================================
+
+export interface FetchSessionsParams extends SessionFilters {
+  limit?: number;
+  offset?: number;
+  sort_by?: string;
+  direction?: string;
+}
+
+export async function fetchSessions(params: FetchSessionsParams = {}): Promise<SessionListResponse> {
+  const urlParams = new URLSearchParams();
+  
+  // Pagination
+  if (params.limit != null) urlParams.append("limit", String(params.limit));
+  if (params.offset != null) urlParams.append("offset", String(params.offset));
+  
+  // Sorting
+  if (params.sort_by) urlParams.append("sort_by", params.sort_by);
+  if (params.direction) urlParams.append("direction", params.direction);
+  
+  // Filters
+  if (params.batch_id) urlParams.append("batch_id", params.batch_id);
+  if (params.exclude_batches) urlParams.append("exclude_batches", "true");
+  if (params.min_turns != null) urlParams.append("min_turns", String(params.min_turns));
+  if (params.max_turns != null) urlParams.append("max_turns", String(params.max_turns));
+  if (params.is_reviewed != null) urlParams.append("is_reviewed", String(params.is_reviewed));
+  if (params.has_error != null) urlParams.append("has_error", String(params.has_error));
+  if (params.min_tokens != null) urlParams.append("min_tokens", String(params.min_tokens));
+  if (params.max_tokens != null) urlParams.append("max_tokens", String(params.max_tokens));
+  if (params.min_cost != null) urlParams.append("min_cost", String(params.min_cost));
+  if (params.max_cost != null) urlParams.append("max_cost", String(params.max_cost));
+  if (params.started_after) urlParams.append("started_after", params.started_after);
+  if (params.started_before) urlParams.append("started_before", params.started_before);
+  if (params.primary_model) urlParams.append("primary_model", params.primary_model);
+  if (params.note_search) urlParams.append("note_search", params.note_search);
+  if (params.random_sample != null) urlParams.append("random_sample", String(params.random_sample));
+
+  const response = await fetch(`${API_BASE}/sessions?${urlParams}`);
+  return response.json();
+}
+
+export async function fetchSessionDetail(sessionId: string): Promise<SessionDetail> {
+  const response = await fetch(`${API_BASE}/sessions/${sessionId}`);
+  if (!response.ok) {
+    throw new Error("Session not found");
+  }
+  return response.json();
+}
+
+export async function fetchSyncStatus(): Promise<SyncStatus> {
+  const response = await fetch(`${API_BASE}/sessions/sync-status`);
+  return response.json();
+}
+
+export async function triggerSync(fullSync: boolean = false, batchId?: string): Promise<{ status: string; message: string }> {
+  const params = new URLSearchParams();
+  if (fullSync) params.append("full_sync", "true");
+  if (batchId) params.append("batch_id", batchId);
+  
+  const response = await fetch(`${API_BASE}/sessions/sync?${params}`, {
+    method: "POST",
+  });
+  return response.json();
+}
+
+export async function fetchSessionStats(batchId?: string): Promise<SessionStats> {
+  const params = new URLSearchParams();
+  if (batchId) params.append("batch_id", batchId);
+  
+  const response = await fetch(`${API_BASE}/sessions/stats/summary?${params}`);
+  return response.json();
+}
+
+export async function markSessionReviewed(sessionId: string, notes?: string): Promise<void> {
+  await fetch(`${API_BASE}/sessions/${sessionId}/mark-reviewed`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ notes }),
+  });
+}
+
+export async function unmarkSessionReviewed(sessionId: string): Promise<void> {
+  await fetch(`${API_BASE}/sessions/${sessionId}/mark-reviewed`, {
+    method: "DELETE",
+  });
+}
+
+export async function fetchSessionNotes(sessionId: string): Promise<SessionDetail["notes"]> {
+  const response = await fetch(`${API_BASE}/sessions/${sessionId}/notes`);
+  return response.json();
+}
+
+export async function createSessionNote(
+  sessionId: string,
+  content: string,
+  noteType: string = "observation",
+  callId?: string
+): Promise<void> {
+  await fetch(`${API_BASE}/sessions/${sessionId}/notes`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content, note_type: noteType, call_id: callId }),
+  });
+}
+
+export async function deleteSessionNote(sessionId: string, noteId: string): Promise<void> {
+  await fetch(`${API_BASE}/sessions/${sessionId}/notes/${noteId}`, {
+    method: "DELETE",
+  });
+}
+
+export async function fetchBatchReviewProgress(batchId: string): Promise<BatchReviewProgress> {
+  const response = await fetch(`${API_BASE}/sessions/batches/${batchId}/review-progress`);
+  return response.json();
+}
+
+export async function fetchModelOptions(): Promise<{ models: string[] }> {
+  const response = await fetch(`${API_BASE}/sessions/options/models`);
+  return response.json();
+}
+
+export async function fetchBatchOptions(): Promise<{ batches: { id: string; name: string }[] }> {
+  const response = await fetch(`${API_BASE}/sessions/options/batches`);
   return response.json();
 }
 

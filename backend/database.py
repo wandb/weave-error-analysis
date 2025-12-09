@@ -1,16 +1,23 @@
 """
-SQLite database setup for taxonomy persistence with optimized connection handling.
+SQLite database setup for error analysis application with optimized connection handling.
 
 Stores:
 - Failure modes (the taxonomy categories)
 - Note assignments (which notes belong to which failure mode)
 - Saturation tracking (new failure modes discovered over time)
+- Agents and their configurations (AGENT_INFO)
+- Synthetic batches and queries
+- Auto-review results
+- Sessions (local cache of Weave sessions for fast filtering)
+- Session notes (local notes with Weave sync)
+- Sync status (background sync state tracking)
 
 Optimizations:
 - Connection pooling via thread-local storage
 - WAL mode for better concurrent read/write performance
 - Deferred transaction handling
 - Configurable database path via environment variable
+- Comprehensive indexes for fast filtering
 """
 
 import os
@@ -384,6 +391,224 @@ def init_db():
                 )
             """)
             
+            # =====================================================================
+            # Sessions Management Tables (Phase 1 - Sessions Improvements)
+            # =====================================================================
+            # 
+            # These tables enable:
+            # - Local caching of Weave sessions for fast filtering
+            # - Background sync from Weave (never blocks UI)
+            # - Rich session metadata (tokens, cost, latency)
+            # - Batch-session linkage for review workflows
+            # - Local notes with async Weave sync
+            #
+            # See: sessions_improvements.md for full design
+            # =====================================================================
+            
+            # Sessions table: Local cache of Weave sessions with rich metadata
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS sessions (
+                    id TEXT PRIMARY KEY,
+                    
+                    -- Weave Identity
+                    weave_session_id TEXT,
+                    root_trace_id TEXT,
+                    weave_url TEXT,
+                    
+                    -- Batch Association (nullable for organic sessions)
+                    batch_id TEXT,
+                    query_id TEXT,
+                    
+                    -- Session Metrics (extracted from Weave summary)
+                    turn_count INTEGER DEFAULT 0,
+                    call_count INTEGER DEFAULT 0,
+                    total_latency_ms REAL DEFAULT 0,
+                    
+                    -- Token & Cost Metrics (from summary.usage)
+                    total_input_tokens INTEGER DEFAULT 0,
+                    total_output_tokens INTEGER DEFAULT 0,
+                    total_tokens INTEGER DEFAULT 0,
+                    estimated_cost_usd REAL DEFAULT 0,
+                    
+                    -- Model Info
+                    primary_model TEXT,
+                    
+                    -- Status
+                    has_error BOOLEAN DEFAULT FALSE,
+                    error_summary TEXT,
+                    
+                    -- Timestamps
+                    started_at TEXT,
+                    ended_at TEXT,
+                    
+                    -- Sync Metadata
+                    last_synced_at TEXT NOT NULL,
+                    sync_status TEXT DEFAULT 'synced',
+                    
+                    -- Review Tracking (replaces reviewed_threads for new sessions)
+                    is_reviewed BOOLEAN DEFAULT FALSE,
+                    reviewed_at TEXT,
+                    reviewed_by TEXT,
+                    
+                    -- Created/Updated
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    
+                    -- Foreign Keys (soft - batch/query may not exist)
+                    FOREIGN KEY (batch_id) REFERENCES synthetic_batches(id) ON DELETE SET NULL,
+                    FOREIGN KEY (query_id) REFERENCES synthetic_queries(id) ON DELETE SET NULL
+                )
+            """)
+            
+            # Session notes table: Local copy of notes with search capability
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS session_notes (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    call_id TEXT,
+                    
+                    -- Note Content
+                    content TEXT NOT NULL,
+                    note_type TEXT DEFAULT 'observation',
+                    
+                    -- Weave Sync
+                    weave_feedback_id TEXT,
+                    weave_ref TEXT,
+                    synced_to_weave BOOLEAN DEFAULT FALSE,
+                    
+                    -- Metadata
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    created_by TEXT,
+                    
+                    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+                )
+            """)
+            
+            # Sync status table: Track background sync state
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS sync_status (
+                    id TEXT PRIMARY KEY DEFAULT 'sessions',
+                    
+                    -- Last Successful Sync
+                    last_sync_started_at TEXT,
+                    last_sync_completed_at TEXT,
+                    last_sync_type TEXT,
+                    last_sync_batch_id TEXT,
+                    
+                    -- Counts from Last Sync
+                    sessions_added INTEGER DEFAULT 0,
+                    sessions_updated INTEGER DEFAULT 0,
+                    sessions_failed INTEGER DEFAULT 0,
+                    
+                    -- Current Sync (if running)
+                    current_sync_started_at TEXT,
+                    current_sync_type TEXT,
+                    current_sync_progress REAL DEFAULT 0,
+                    
+                    -- Status
+                    status TEXT DEFAULT 'idle',
+                    error_message TEXT,
+                    
+                    -- Weave Cursor (for incremental sync)
+                    last_weave_timestamp TEXT
+                )
+            """)
+            
+            # Initialize sync_status with default row
+            cursor.execute("""
+                INSERT OR IGNORE INTO sync_status (id, status) VALUES ('sessions', 'idle')
+            """)
+            
+            # =====================================================================
+            # Sessions Indexes (optimized for common query patterns)
+            # =====================================================================
+            
+            # Batch filtering (most common use case)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sessions_batch 
+                ON sessions(batch_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sessions_batch_reviewed 
+                ON sessions(batch_id, is_reviewed)
+            """)
+            
+            # Turn-based filtering
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sessions_turns 
+                ON sessions(turn_count)
+            """)
+            
+            # Time-based filtering/sorting
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sessions_started 
+                ON sessions(started_at DESC)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sessions_ended 
+                ON sessions(ended_at DESC)
+            """)
+            
+            # Review status
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sessions_reviewed 
+                ON sessions(is_reviewed)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sessions_reviewed_at 
+                ON sessions(reviewed_at DESC)
+            """)
+            
+            # Error filtering
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sessions_errors 
+                ON sessions(has_error)
+            """)
+            
+            # Token/cost filtering
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sessions_tokens 
+                ON sessions(total_tokens)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sessions_cost 
+                ON sessions(estimated_cost_usd)
+            """)
+            
+            # Weave identity lookup
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sessions_weave_id 
+                ON sessions(weave_session_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sessions_root_trace 
+                ON sessions(root_trace_id)
+            """)
+            
+            # Session notes indexes
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_session_notes_session 
+                ON session_notes(session_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_session_notes_type 
+                ON session_notes(note_type)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_session_notes_unsynced 
+                ON session_notes(synced_to_weave) WHERE synced_to_weave = FALSE
+            """)
+            
+            # =====================================================================
+            # Migration: reviewed_threads → sessions.is_reviewed
+            # =====================================================================
+            # 
+            # We keep reviewed_threads for backwards compatibility but also
+            # migrate existing reviews to the sessions table when sessions
+            # are synced. This happens in the SessionSyncService.
+            # =====================================================================
+            
             conn.commit()
             _initialized = True
             
@@ -440,7 +665,8 @@ def get_db_stats() -> dict:
     tables = [
         "failure_modes", "notes", "saturation_log", "reviewed_threads",
         "agents", "agent_dimensions", "agent_versions", 
-        "synthetic_batches", "synthetic_queries", "auto_reviews"
+        "synthetic_batches", "synthetic_queries", "auto_reviews",
+        "sessions", "session_notes", "sync_status"
     ]
     
     for table in tables:

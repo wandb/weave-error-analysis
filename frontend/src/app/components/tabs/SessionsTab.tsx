@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Search,
   MessageCircle,
@@ -19,19 +19,248 @@ import {
   Filter,
   X,
   Target,
+  Zap,
+  DollarSign,
+  Cpu,
+  Cloud,
+  CloudOff,
+  CheckCircle,
+  AlertCircle,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
-import { formatTime, formatRelativeTime } from "../../utils/formatters";
+import { formatRelativeTime } from "../../utils/formatters";
 import { ConversationMessage } from "../ConversationMessage";
 import { Panel, PanelHeader, Badge, ProgressBar, LoadingCards, NoSessionsFound, SelectPrompt } from "../ui";
 
+// =============================================================================
+// Sync Status Indicator Component
+// =============================================================================
+
+function SyncStatusIndicator() {
+  const { syncStatus, triggerSync, refreshSyncStatus } = useApp();
+  const [syncing, setSyncing] = useState(false);
+
+  const handleSync = async () => {
+    setSyncing(true);
+    try {
+      await triggerSync(false);
+    } finally {
+      // Will be updated by polling
+      setTimeout(() => setSyncing(false), 1000);
+    }
+  };
+
+  useEffect(() => {
+    // Refresh sync status on mount
+    refreshSyncStatus();
+  }, [refreshSyncStatus]);
+
+  const isSyncing = syncStatus?.is_syncing || syncing;
+  const lastSyncTime = syncStatus?.last_sync_completed_at;
+  const hasError = syncStatus?.status === "error";
+
+  return (
+    <div className="flex items-center gap-3 text-xs">
+      {/* Status indicator */}
+      <div className="flex items-center gap-1.5">
+        {isSyncing ? (
+          <>
+            <Cloud className="w-3.5 h-3.5 text-accent-teal animate-pulse" />
+            <span className="text-accent-teal">Syncing...</span>
+          </>
+        ) : hasError ? (
+          <>
+            <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+            <span className="text-red-400">Sync error</span>
+          </>
+        ) : (
+          <>
+            <CheckCircle className="w-3.5 h-3.5 text-accent-teal" />
+            <span className="text-ink-400">
+              {lastSyncTime ? `Synced ${formatRelativeTime(lastSyncTime)}` : "Ready"}
+            </span>
+          </>
+        )}
+      </div>
+
+      {/* Sync button */}
+      <button
+        onClick={handleSync}
+        disabled={isSyncing}
+        className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-ink-700 bg-ink-950 hover:bg-ink-900 transition-colors disabled:opacity-50"
+        title="Sync sessions from Weave"
+      >
+        <RefreshCw className={`w-3 h-3 ${isSyncing ? "animate-spin" : ""}`} />
+        Sync
+      </button>
+    </div>
+  );
+}
+
+// =============================================================================
+// Session Card Component (with metrics)
+// =============================================================================
+
+interface SessionCardProps {
+  session: {
+    id: string;
+    turn_count: number;
+    total_latency_ms: number;
+    total_tokens: number;
+    estimated_cost_usd: number;
+    has_error: boolean;
+    is_reviewed: boolean;
+    started_at: string | null;
+    primary_model: string | null;
+    batch_name: string | null;
+  };
+  selected: boolean;
+  onClick: () => void;
+}
+
+function SessionCard({ session, selected, onClick }: SessionCardProps) {
+  const formatTokens = (tokens: number) => {
+    if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M`;
+    if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}K`;
+    return tokens.toString();
+  };
+
+  const formatCost = (cost: number) => {
+    if (cost >= 1) return `$${cost.toFixed(2)}`;
+    if (cost >= 0.01) return `$${cost.toFixed(3)}`;
+    return `$${cost.toFixed(4)}`;
+  };
+
+  const formatLatency = (ms: number) => {
+    if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
+    return `${Math.round(ms)}ms`;
+  };
+
+  return (
+    <button
+      onClick={onClick}
+      className={`w-full text-left trace-card rounded-lg p-3 ${
+        selected ? "ring-2 ring-accent-coral" : ""
+      }`}
+    >
+      <div className="flex items-start justify-between">
+        <div className="flex-1 min-w-0">
+          {/* Header: ID + Review Status + Error */}
+          <div className="flex items-center gap-2">
+            {session.is_reviewed ? (
+              <CheckSquare className="w-3 h-3 text-accent-teal flex-shrink-0" />
+            ) : (
+              <Square className="w-3 h-3 text-ink-600 flex-shrink-0" />
+            )}
+            <p className="font-mono text-sm text-sand-200 truncate">{session.id}</p>
+            {session.has_error && (
+              <AlertTriangle className="w-3 h-3 text-red-400 flex-shrink-0" />
+            )}
+          </div>
+
+          {/* Metrics Row */}
+          <div className="flex items-center flex-wrap gap-2 mt-2">
+            <Badge variant="teal" className="text-xs">
+              {session.turn_count} turn{session.turn_count !== 1 ? "s" : ""}
+            </Badge>
+            
+            {session.total_latency_ms > 0 && (
+              <span className="flex items-center gap-1 text-xs text-ink-500">
+                <Clock className="w-3 h-3" />
+                {formatLatency(session.total_latency_ms)}
+              </span>
+            )}
+            
+            {session.total_tokens > 0 && (
+              <span className="flex items-center gap-1 text-xs text-ink-500">
+                <Zap className="w-3 h-3" />
+                {formatTokens(session.total_tokens)}
+              </span>
+            )}
+            
+            {session.estimated_cost_usd > 0 && (
+              <span className="flex items-center gap-1 text-xs text-accent-gold">
+                <DollarSign className="w-3 h-3" />
+                {formatCost(session.estimated_cost_usd)}
+              </span>
+            )}
+          </div>
+
+          {/* Model & Batch Row */}
+          <div className="flex items-center gap-2 mt-1.5">
+            {session.primary_model && (
+              <span className="flex items-center gap-1 text-xs text-ink-500">
+                <Cpu className="w-3 h-3" />
+                {session.primary_model.split("/").pop()}
+              </span>
+            )}
+            {session.batch_name && (
+              <span className="text-xs text-accent-coral truncate">
+                {session.batch_name}
+              </span>
+            )}
+          </div>
+
+          {/* Timestamp */}
+          <div className="mt-1 text-xs text-ink-600">
+            {session.started_at ? formatRelativeTime(session.started_at) : ""}
+          </div>
+        </div>
+        <ChevronRight className="w-4 h-4 text-ink-600 flex-shrink-0 mt-1" />
+      </div>
+    </button>
+  );
+}
+
+// =============================================================================
+// Filter Pill Component
+// =============================================================================
+
+interface FilterPillProps {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+  variant?: "coral" | "teal" | "gold" | "plum" | "red";
+}
+
+function FilterPill({ active, onClick, children, variant = "coral" }: FilterPillProps) {
+  const variants = {
+    coral: "bg-accent-coral/20 border-accent-coral text-accent-coral",
+    teal: "bg-accent-teal/20 border-accent-teal text-accent-teal",
+    gold: "bg-accent-gold/20 border-accent-gold text-accent-gold",
+    plum: "bg-accent-plum/20 border-accent-plum text-accent-plum",
+    red: "bg-red-500/20 border-red-400 text-red-400",
+  };
+
+  return (
+    <button
+      onClick={onClick}
+      className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${
+        active
+          ? variants[variant]
+          : "bg-ink-950 border-ink-700 text-ink-400 hover:border-ink-600"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
+// =============================================================================
+// Main Sessions Tab
+// =============================================================================
+
 export function SessionsTab() {
   const {
-    threads,
-    selectedThread,
-    annotationProgress,
-    loadingThreads,
-    loadingDetail,
+    // New session state
+    sessions,
+    selectedSession,
+    syncStatus,
+    batchReviewProgress,
+    loadingSessions,
+    loadingSessionDetail,
+    
+    // Filters
     searchQuery,
     setSearchQuery,
     sortBy,
@@ -42,31 +271,36 @@ export function SessionsTab() {
     setFilterMinTurns,
     filterReviewed,
     setFilterReviewed,
+    filterHasError,
+    setFilterHasError,
     filterBatchId,
     setFilterBatchId,
     filterBatchName,
     setFilterBatchName,
-    fetchThreadDetail,
-    fetchRandomSample,
-    markThreadReviewed,
-    unmarkThreadReviewed,
-    addNoteToThread,
+
+    // Actions
+    fetchSessions,
+    fetchSessionDetail,
+    markSessionReviewed,
+    unmarkSessionReviewed,
+    addSessionNote,
   } = useApp();
 
   const [newNote, setNewNote] = useState("");
   const [addingNote, setAddingNote] = useState(false);
   const [markingReviewed, setMarkingReviewed] = useState(false);
 
-  const filteredThreads = threads.filter((thread) => {
+  // Filter sessions by search query (client-side)
+  const filteredSessions = sessions.filter((session) => {
     if (!searchQuery) return true;
-    return thread.thread_id.toLowerCase().includes(searchQuery.toLowerCase());
+    return session.id.toLowerCase().includes(searchQuery.toLowerCase());
   });
 
   const handleAddNote = async () => {
-    if (!selectedThread || !newNote.trim()) return;
+    if (!selectedSession || !newNote.trim()) return;
     setAddingNote(true);
     try {
-      await addNoteToThread(selectedThread.thread_id, newNote);
+      await addSessionNote(selectedSession.id, newNote);
       setNewNote("");
     } finally {
       setAddingNote(false);
@@ -74,18 +308,35 @@ export function SessionsTab() {
   };
 
   const handleToggleReviewed = async () => {
-    if (!selectedThread) return;
+    if (!selectedSession) return;
     setMarkingReviewed(true);
     try {
-      if (selectedThread.is_reviewed) {
-        await unmarkThreadReviewed(selectedThread.thread_id);
+      if (selectedSession.is_reviewed) {
+        await unmarkSessionReviewed(selectedSession.id);
       } else {
-        await markThreadReviewed(selectedThread.thread_id);
+        await markSessionReviewed(selectedSession.id);
       }
     } finally {
       setMarkingReviewed(false);
     }
   };
+
+  const handleRandomSample = async () => {
+    // Use the fetchSessions with random_sample param
+    // For now, this will need to be implemented through filters
+    // This is a placeholder - actual implementation would need API support
+  };
+
+  const clearAllFilters = () => {
+    setFilterMinTurns(null);
+    setFilterReviewed(null);
+    setFilterHasError(null);
+    setFilterBatchId(null);
+    setFilterBatchName(null);
+    setSearchQuery("");
+  };
+
+  const hasActiveFilters = filterMinTurns || filterReviewed !== null || filterHasError || filterBatchId;
 
   return (
     <div className="space-y-4">
@@ -111,35 +362,45 @@ export function SessionsTab() {
         </div>
       )}
 
-      {/* Annotation Progress Bar */}
-      {annotationProgress && (
+      {/* Batch Review Progress (when filtering by batch) */}
+      {batchReviewProgress && filterBatchId && (
         <Panel>
           <div className="flex items-center justify-between mb-2">
             <h3 className="font-display text-sm font-semibold text-sand-100 flex items-center gap-2">
-              <Target className="w-4 h-4 text-accent-teal" />
-              Review Progress
+              <Target className="w-4 h-4 text-accent-coral" />
+              Reviewing: {batchReviewProgress.batch_name || "Batch"}
             </h3>
             <span className="text-xs text-ink-400">
-              {annotationProgress.reviewed_count} / {annotationProgress.target} reviewed
+              {batchReviewProgress.reviewed_sessions} / {batchReviewProgress.total_sessions} reviewed
             </span>
           </div>
-          <ProgressBar value={annotationProgress.progress_percent} />
+          <ProgressBar 
+            value={batchReviewProgress.progress_percent} 
+            gradientFrom="from-accent-coral"
+            gradientTo="to-accent-gold"
+          />
           <div className="flex items-center justify-between mt-2 text-xs text-ink-500">
-            <span>{annotationProgress.remaining} remaining</span>
-            <span>{annotationProgress.recent_reviews_24h} reviewed today</span>
+            <span>{batchReviewProgress.unreviewed_sessions} remaining</span>
+            {batchReviewProgress.last_review_at && (
+              <span>Last reviewed: {formatRelativeTime(batchReviewProgress.last_review_at)}</span>
+            )}
           </div>
         </Panel>
       )}
 
       <div className="grid grid-cols-12 gap-6">
-        {/* Left Panel - Thread List */}
+        {/* Left Panel - Session List */}
         <div className="col-span-4 space-y-4 min-w-0">
           <Panel className="overflow-hidden">
-            <PanelHeader
-              icon={<MessageCircle className="w-5 h-5 text-accent-coral" />}
-              title="Sessions"
-              badge={<Badge variant="coral">{threads.length}</Badge>}
-            />
+            {/* Header with Sync Status */}
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-display text-lg text-sand-100 flex items-center gap-2">
+                <MessageCircle className="w-5 h-5 text-accent-coral" />
+                Sessions
+                <Badge variant="coral">{sessions.length}</Badge>
+              </h2>
+              <SyncStatusIndicator />
+            </div>
 
             {/* Search */}
             <div className="mb-3">
@@ -157,6 +418,7 @@ export function SessionsTab() {
 
             {/* Sort & Filter Controls */}
             <div className="mb-3 space-y-2">
+              {/* Sort Controls */}
               <div className="flex items-center gap-2">
                 <SortDesc className="w-4 h-4 text-ink-500" />
                 <select
@@ -164,8 +426,11 @@ export function SessionsTab() {
                   onChange={(e) => setSortBy(e.target.value)}
                   className="flex-1 text-xs bg-ink-950 border border-ink-700 rounded px-2 py-1"
                 >
-                  <option value="last_updated">Last Updated</option>
-                  <option value="turn_count">Turn Count</option>
+                  <option value="started_at">Time</option>
+                  <option value="turn_count">Turns</option>
+                  <option value="total_tokens">Tokens</option>
+                  <option value="estimated_cost_usd">Cost</option>
+                  <option value="total_latency_ms">Latency</option>
                 </select>
                 <button
                   onClick={() => setSortDirection((d) => (d === "desc" ? "asc" : "desc"))}
@@ -176,82 +441,78 @@ export function SessionsTab() {
                 </button>
               </div>
 
+              {/* Filter Pills */}
               <div className="flex flex-wrap gap-1">
-                <button
+                <FilterPill
+                  active={filterMinTurns === 3}
+                  onClick={() => setFilterMinTurns(filterMinTurns === 3 ? null : 3)}
+                  variant="teal"
+                >
+                  3+ turns
+                </FilterPill>
+                <FilterPill
+                  active={filterMinTurns === 5}
                   onClick={() => setFilterMinTurns(filterMinTurns === 5 ? null : 5)}
-                  className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${
-                    filterMinTurns === 5
-                      ? "bg-accent-coral/20 border-accent-coral text-accent-coral"
-                      : "bg-ink-950 border-ink-700 text-ink-400 hover:border-ink-600"
-                  }`}
+                  variant="teal"
                 >
                   5+ turns
-                </button>
-                <button
+                </FilterPill>
+                <FilterPill
+                  active={filterMinTurns === 10}
+                  onClick={() => setFilterMinTurns(filterMinTurns === 10 ? null : 10)}
+                  variant="teal"
+                >
+                  10+ turns
+                </FilterPill>
+                <FilterPill
+                  active={filterReviewed === false}
                   onClick={() => setFilterReviewed(filterReviewed === false ? null : false)}
-                  className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${
-                    filterReviewed === false
-                      ? "bg-accent-gold/20 border-accent-gold text-accent-gold"
-                      : "bg-ink-950 border-ink-700 text-ink-400 hover:border-ink-600"
-                  }`}
+                  variant="gold"
                 >
                   Not Reviewed
-                </button>
-                <button
+                </FilterPill>
+                <FilterPill
+                  active={filterReviewed === true}
                   onClick={() => setFilterReviewed(filterReviewed === true ? null : true)}
-                  className={`px-2 py-0.5 text-xs rounded-full border transition-colors ${
-                    filterReviewed === true
-                      ? "bg-accent-teal/20 border-accent-teal text-accent-teal"
-                      : "bg-ink-950 border-ink-700 text-ink-400 hover:border-ink-600"
-                  }`}
+                  variant="teal"
                 >
                   Reviewed
-                </button>
-                <button
-                  onClick={() => fetchRandomSample(20)}
-                  className="px-2 py-0.5 text-xs rounded-full border bg-ink-950 border-ink-700 text-ink-400 hover:border-accent-plum hover:text-accent-plum transition-colors flex items-center gap-1"
+                </FilterPill>
+                <FilterPill
+                  active={filterHasError === true}
+                  onClick={() => setFilterHasError(filterHasError === true ? null : true)}
+                  variant="red"
                 >
-                  <Shuffle className="w-3 h-3" />
-                  Random 20
-                </button>
+                  Has Errors
+                </FilterPill>
               </div>
+
+              {/* Clear filters */}
+              {hasActiveFilters && (
+                <button
+                  onClick={clearAllFilters}
+                  className="text-xs text-ink-400 hover:text-sand-200 flex items-center gap-1"
+                >
+                  <X className="w-3 h-3" />
+                  Clear all filters
+                </button>
+              )}
             </div>
 
-            {/* Thread List */}
-            <div className="space-y-2 max-h-[calc(100vh-480px)] overflow-y-auto">
-              {loadingThreads ? (
+            {/* Session List */}
+            <div className="space-y-2 max-h-[calc(100vh-520px)] overflow-y-auto">
+              {loadingSessions ? (
                 <LoadingCards count={5} />
-              ) : filteredThreads.length === 0 ? (
+              ) : filteredSessions.length === 0 ? (
                 <NoSessionsFound />
               ) : (
-                filteredThreads.map((thread) => (
-                  <button
-                    key={thread.thread_id}
-                    onClick={() => fetchThreadDetail(thread.thread_id)}
-                    className={`w-full text-left trace-card rounded-lg p-3 ${
-                      selectedThread?.thread_id === thread.thread_id ? "ring-2 ring-accent-coral" : ""
-                    }`}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          {thread.is_reviewed ? (
-                            <CheckSquare className="w-3 h-3 text-accent-teal" />
-                          ) : (
-                            <Square className="w-3 h-3 text-ink-600" />
-                          )}
-                          <p className="font-mono text-sm text-sand-200 truncate">{thread.thread_id}</p>
-                        </div>
-                        <div className="flex items-center gap-3 mt-2">
-                          <Badge variant="teal" className="text-xs">
-                            {thread.turn_count} turn{thread.turn_count !== 1 ? "s" : ""}
-                          </Badge>
-                          <span className="text-xs text-ink-500">{formatRelativeTime(thread.last_updated)}</span>
-                        </div>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-ink-600 flex-shrink-0" />
-                    </div>
-                  </button>
+                filteredSessions.map((session) => (
+                  <SessionCard
+                    key={session.id}
+                    session={session}
+                    selected={selectedSession?.id === session.id}
+                    onClick={() => fetchSessionDetail(session.id)}
+                  />
                 ))
               )}
             </div>
@@ -266,88 +527,151 @@ export function SessionsTab() {
               title="Conversation"
             />
 
-            {loadingDetail ? (
+            {loadingSessionDetail ? (
               <div className="space-y-4">
                 <div className="h-8 shimmer rounded w-1/3" />
                 <div className="h-24 shimmer rounded" />
                 <div className="h-24 shimmer rounded" />
               </div>
-            ) : selectedThread ? (
+            ) : selectedSession ? (
               <div className="space-y-4 animate-fade-in">
-                {/* Thread Info */}
+                {/* Session Info Header */}
                 <div className="flex items-center justify-between bg-ink-950 rounded-lg p-3 border border-ink-800">
                   <div>
                     <div className="flex items-center gap-2">
-                      <p className="font-mono text-accent-coral text-sm">{selectedThread.thread_id}</p>
-                      {selectedThread.is_reviewed && (
+                      <p className="font-mono text-accent-coral text-sm">{selectedSession.id}</p>
+                      {selectedSession.is_reviewed && (
                         <Badge variant="teal" className="text-xs">
                           Reviewed
                         </Badge>
                       )}
-                    </div>
-                    <div className="flex items-center gap-3 mt-1">
-                      <span className="text-xs text-ink-500">
-                        {selectedThread.total_calls} calls · {selectedThread.conversation.length} messages
-                      </span>
-                      {selectedThread.metrics && (
-                        <>
-                          <span className="text-xs text-ink-500">
-                            <Clock className="w-3 h-3 inline mr-1" />
-                            {Math.round(selectedThread.metrics.total_latency_ms)}ms
-                          </span>
-                          {selectedThread.metrics.has_error && (
-                            <span className="text-xs text-red-400">
-                              <AlertTriangle className="w-3 h-3 inline mr-1" />
-                              Has errors
-                            </span>
-                          )}
-                        </>
+                      {selectedSession.has_error && (
+                        <Badge variant="coral" className="text-xs">
+                          Error
+                        </Badge>
                       )}
                     </div>
+                    {/* Metrics Row */}
+                    <div className="flex items-center gap-3 mt-1 flex-wrap">
+                      <span className="text-xs text-ink-500">
+                        {selectedSession.call_count} calls · {selectedSession.conversation.length} messages
+                      </span>
+                      <span className="text-xs text-ink-500 flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        {Math.round(selectedSession.total_latency_ms)}ms
+                      </span>
+                      {selectedSession.total_tokens > 0 && (
+                        <span className="text-xs text-ink-500 flex items-center gap-1">
+                          <Zap className="w-3 h-3" />
+                          {selectedSession.total_tokens.toLocaleString()} tokens
+                        </span>
+                      )}
+                      {selectedSession.estimated_cost_usd > 0 && (
+                        <span className="text-xs text-accent-gold flex items-center gap-1">
+                          <DollarSign className="w-3 h-3" />
+                          ${selectedSession.estimated_cost_usd.toFixed(4)}
+                        </span>
+                      )}
+                      {selectedSession.primary_model && (
+                        <span className="text-xs text-ink-500 flex items-center gap-1">
+                          <Cpu className="w-3 h-3" />
+                          {selectedSession.primary_model}
+                        </span>
+                      )}
+                    </div>
+                    {/* Batch Context */}
+                    {selectedSession.batch_name && (
+                      <div className="mt-1 text-xs text-accent-coral">
+                        From batch: {selectedSession.batch_name}
+                      </div>
+                    )}
+                    {selectedSession.query_text && (
+                      <div className="mt-1 text-xs text-ink-400 italic truncate max-w-md">
+                        Query: {selectedSession.query_text}
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={handleToggleReviewed}
                       disabled={markingReviewed}
                       className={`btn-ghost text-xs flex items-center gap-1 ${
-                        selectedThread.is_reviewed ? "text-accent-teal" : "text-ink-400 hover:text-accent-teal"
+                        selectedSession.is_reviewed ? "text-accent-teal" : "text-ink-400 hover:text-accent-teal"
                       }`}
                     >
                       {markingReviewed ? (
                         <RefreshCw className="w-3 h-3 animate-spin" />
-                      ) : selectedThread.is_reviewed ? (
+                      ) : selectedSession.is_reviewed ? (
                         <CheckSquare className="w-3 h-3" />
                       ) : (
                         <Square className="w-3 h-3" />
                       )}
-                      {selectedThread.is_reviewed ? "Reviewed" : "Mark Reviewed"}
+                      {selectedSession.is_reviewed ? "Reviewed" : "Mark Reviewed"}
                     </button>
-                    <a
-                      href={`https://wandb.ai/ayut/error-analysis-demo/weave/threads/${selectedThread.thread_id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="btn-ghost flex items-center gap-1 text-xs"
-                    >
-                      <ExternalLink className="w-3 h-3" />
-                      Weave
-                    </a>
+                    {selectedSession.weave_url && (
+                      <a
+                        href={selectedSession.weave_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-ghost flex items-center gap-1 text-xs"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        Weave
+                      </a>
+                    )}
                   </div>
                 </div>
 
+                {/* Error Summary */}
+                {selectedSession.error_summary && (
+                  <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+                    <div className="flex items-center gap-2 text-red-400 text-sm">
+                      <AlertTriangle className="w-4 h-4" />
+                      <span className="font-medium">Error</span>
+                    </div>
+                    <p className="mt-1 text-xs text-red-300">{selectedSession.error_summary}</p>
+                  </div>
+                )}
+
                 {/* Conversation Messages */}
-                <div className="space-y-4 max-h-[calc(100vh-580px)] overflow-y-auto pr-2">
-                  {selectedThread.conversation.length > 0 ? (
-                    selectedThread.conversation.map((msg, idx) => (
+                <div className="space-y-4 max-h-[calc(100vh-650px)] overflow-y-auto pr-2">
+                  {selectedSession.conversation.length > 0 ? (
+                    selectedSession.conversation.map((msg, idx) => (
                       <ConversationMessage key={`${msg.call_id}-${idx}`} message={msg} index={idx} />
                     ))
                   ) : (
                     <SelectPrompt
                       icon={<MessageSquare className="w-8 h-8" />}
                       title="No conversation data extracted"
-                      description={`Raw calls available: ${selectedThread.total_calls}`}
+                      description={`Raw calls available: ${selectedSession.call_count}`}
                     />
                   )}
                 </div>
+
+                {/* Existing Notes */}
+                {selectedSession.notes && selectedSession.notes.length > 0 && (
+                  <div className="border-t border-ink-800 pt-4">
+                    <h4 className="text-xs font-medium text-ink-400 mb-2">Notes ({selectedSession.notes.length})</h4>
+                    <div className="space-y-2">
+                      {selectedSession.notes.map((note) => (
+                        <div key={note.id} className="bg-accent-gold/10 border border-accent-gold/30 rounded-lg p-2">
+                          <p className="text-sm text-sand-200">{note.content}</p>
+                          <div className="flex items-center gap-2 mt-1 text-xs text-ink-500">
+                            <span className="capitalize">{note.note_type}</span>
+                            <span>·</span>
+                            <span>{formatRelativeTime(note.created_at)}</span>
+                            {note.synced_to_weave && (
+                              <>
+                                <span>·</span>
+                                <span className="text-accent-teal">Synced to Weave</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Inline Note-Taking */}
                 <div className="border-t border-ink-800 pt-4 mt-4">
@@ -365,7 +689,7 @@ export function SessionsTab() {
                         className="w-full text-sm bg-ink-950 border border-ink-700 rounded-lg p-2 resize-none focus:border-accent-gold focus:ring-1 focus:ring-accent-gold"
                       />
                       <div className="flex items-center justify-between mt-2">
-                        <p className="text-xs text-ink-500">Notes are saved to Weave and synced to Taxonomy</p>
+                        <p className="text-xs text-ink-500">Notes are saved locally and synced to Weave</p>
                         <button
                           onClick={handleAddNote}
                           disabled={!newNote.trim() || addingNote}

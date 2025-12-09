@@ -6,6 +6,10 @@ This service orchestrates:
 2. Running each query through the agent via AG-UI
 3. Tracking execution status and results
 4. Linking generated traces back to the batch
+5. **Auto-syncing sessions after batch completion** (Phase 2)
+
+The auto-sync integration ensures that after a batch completes, all sessions
+are immediately available in the local database for fast filtering.
 """
 
 import asyncio
@@ -320,6 +324,26 @@ class BatchExecutor:
             failure_count=failure_count,
             duration_ms=total_duration_ms
         )
+        
+        # =================================================================
+        # AUTO-SYNC: Trigger background sync for this batch's sessions
+        # =================================================================
+        # This ensures sessions are immediately available in local DB
+        # for fast filtering. Sync runs in background, doesn't block.
+        if final_status == "completed" and success_count > 0:
+            try:
+                from services.session_sync import trigger_session_sync
+                sync_started = trigger_session_sync(batch_id=self.batch_id)
+                if sync_started:
+                    log_event(logger, "batch.session_sync_triggered",
+                        correlation_id=self.correlation_id,
+                        batch_id=self.batch_id
+                    )
+                else:
+                    logger.info(f"Session sync already in progress, batch {self.batch_id} will be synced on next run")
+            except Exception as e:
+                # Don't fail batch completion if sync fails
+                logger.warning(f"Failed to trigger session sync for batch {self.batch_id}: {e}")
         
         yield BatchExecutionProgress(
             batch_id=self.batch_id,

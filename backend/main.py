@@ -2,7 +2,15 @@
 Backend Service for Error Analysis Workflow
 
 Uses Weave Trace API (https://trace.wandb.ai) to query traces and feedback.
+
+Key Features:
+- Background session sync from Weave to local SQLite (Phase 2)
+- Fast, local-first session browsing
+- Auto-sync after batch execution
 """
+
+import asyncio
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -23,12 +31,44 @@ from routers import (
     agents_router,
     synthetic_router,
     settings_router,
+    sessions_router,
 )
+
+
+# =============================================================================
+# Lifespan: Startup and Shutdown Events
+# =============================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    FastAPI lifespan context manager for startup/shutdown events.
+    
+    On startup:
+    - Triggers background incremental sync to refresh sessions cache
+    """
+    # --- STARTUP ---
+    logger.info("Starting Error Analysis Backend...")
+    
+    # Trigger initial session sync in background (non-blocking)
+    try:
+        from services.session_sync import startup_sync
+        asyncio.create_task(startup_sync())
+        logger.info("Scheduled startup session sync")
+    except Exception as e:
+        logger.warning(f"Failed to schedule startup sync: {e}")
+    
+    yield
+    
+    # --- SHUTDOWN ---
+    logger.info("Shutting down Error Analysis Backend...")
+
 
 app = FastAPI(
     title="Error Analysis Backend",
     description="Backend service for AI error analysis workflow",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan,
 )
 
 # CORS configuration for SSE streaming support
@@ -55,6 +95,7 @@ app.include_router(taxonomy_router)
 app.include_router(agents_router)
 app.include_router(synthetic_router)
 app.include_router(settings_router)
+app.include_router(sessions_router)  # New: local-first session management
 
 
 @app.get("/")

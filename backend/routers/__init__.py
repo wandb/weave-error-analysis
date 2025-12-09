@@ -8,6 +8,7 @@ from .taxonomy import router as taxonomy_router
 from .agents import router as agents_router
 from .synthetic import router as synthetic_router
 from .settings import router as settings_router
+from .sessions import router as sessions_router
 
 __all__ = [
     "threads_router",
@@ -18,5 +19,6 @@ __all__ = [
     "agents_router",
     "synthetic_router",
     "settings_router",
+    "sessions_router",
 ]
 

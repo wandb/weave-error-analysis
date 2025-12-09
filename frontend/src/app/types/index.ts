@@ -51,6 +51,110 @@ export interface AnnotationProgress {
   remaining: number;
 }
 
+// ============================================================================
+// Session Types (Phase 5 - Local-First Sessions)
+// ============================================================================
+
+export interface Session {
+  id: string;
+  weave_session_id: string | null;
+  weave_url: string | null;
+  batch_id: string | null;
+  batch_name: string | null;
+  turn_count: number;
+  call_count: number;
+  total_latency_ms: number;
+  total_tokens: number;
+  estimated_cost_usd: number;
+  primary_model: string | null;
+  has_error: boolean;
+  is_reviewed: boolean;
+  started_at: string | null;
+  ended_at: string | null;
+}
+
+export interface SessionNote {
+  id: string;
+  session_id: string;
+  call_id: string | null;
+  content: string;
+  note_type: string;
+  weave_feedback_id: string | null;
+  synced_to_weave: boolean;
+  created_at: string;
+  updated_at: string;
+  created_by: string | null;
+}
+
+export interface SessionDetail extends Session {
+  query_text: string | null;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  error_summary: string | null;
+  reviewed_at: string | null;
+  conversation: ConversationMessage[];
+  notes: SessionNote[];
+}
+
+export interface SessionListResponse {
+  sessions: Session[];
+  total_count: number;
+  page: number;
+  page_size: number;
+  has_more: boolean;
+}
+
+export interface SyncStatus {
+  status: "idle" | "syncing" | "error";
+  last_sync_completed_at: string | null;
+  last_sync_type: string | null;
+  sessions_added: number;
+  sessions_updated: number;
+  is_syncing: boolean;
+  current_sync_progress: number;
+  error_message: string | null;
+}
+
+export interface SessionStats {
+  total_sessions: number;
+  reviewed_sessions: number;
+  unreviewed_sessions: number;
+  error_sessions: number;
+  total_tokens: number;
+  total_cost_usd: number;
+  avg_turns: number;
+  avg_latency_ms: number;
+}
+
+export interface BatchReviewProgress {
+  batch_id: string;
+  batch_name: string | null;
+  total_sessions: number;
+  reviewed_sessions: number;
+  unreviewed_sessions: number;
+  progress_percent: number;
+  recent_reviews_24h: number;
+  last_review_at: string | null;
+}
+
+export interface SessionFilters {
+  batch_id?: string | null;
+  exclude_batches?: boolean;
+  min_turns?: number | null;
+  max_turns?: number | null;
+  is_reviewed?: boolean | null;
+  has_error?: boolean | null;
+  min_tokens?: number | null;
+  max_tokens?: number | null;
+  min_cost?: number | null;
+  max_cost?: number | null;
+  started_after?: string | null;
+  started_before?: string | null;
+  primary_model?: string | null;
+  note_search?: string | null;
+  random_sample?: number | null;
+}
+
 export interface FeedbackSummary {
   thumbs_up: number;
   thumbs_down: number;

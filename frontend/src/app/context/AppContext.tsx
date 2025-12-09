@@ -6,6 +6,7 @@ import {
   useState,
   useCallback,
   useEffect,
+  useRef,
   ReactNode,
 } from "react";
 import type {
@@ -25,6 +26,10 @@ import type {
   ConnectionTestResult,
   ToolCall,
   PlaygroundEvent,
+  Session,
+  SessionDetail,
+  SyncStatus,
+  BatchReviewProgress,
 } from "../types";
 import * as api from "../lib/api";
 
@@ -37,7 +42,7 @@ interface AppState {
   activeTab: TabType;
   setActiveTab: (tab: TabType) => void;
 
-  // Sessions
+  // Sessions (Legacy - Thread-based)
   threads: Thread[];
   selectedThread: ThreadDetail | null;
   feedbackSummary: FeedbackSummary | null;
@@ -45,29 +50,52 @@ interface AppState {
   loadingThreads: boolean;
   loadingDetail: boolean;
 
+  // Sessions (New - Local DB based)
+  sessions: Session[];
+  selectedSession: SessionDetail | null;
+  syncStatus: SyncStatus | null;
+  batchReviewProgress: BatchReviewProgress | null;
+  loadingSessions: boolean;
+  loadingSessionDetail: boolean;
+
   // Session Filters
   sortBy: string;
   setSortBy: (s: string) => void;
   sortDirection: string;
-  setSortDirection: (s: string) => void;
+  setSortDirection: (s: string | ((prev: string) => string)) => void;
   filterMinTurns: number | null;
   setFilterMinTurns: (n: number | null) => void;
+  filterMaxTurns: number | null;
+  setFilterMaxTurns: (n: number | null) => void;
   filterReviewed: boolean | null;
   setFilterReviewed: (b: boolean | null) => void;
+  filterHasError: boolean | null;
+  setFilterHasError: (b: boolean | null) => void;
   filterBatchId: string | null;
   setFilterBatchId: (s: string | null) => void;
   filterBatchName: string | null;
   setFilterBatchName: (s: string | null) => void;
+  filterModel: string | null;
+  setFilterModel: (s: string | null) => void;
   searchQuery: string;
   setSearchQuery: (s: string) => void;
 
-  // Session Actions
+  // Session Actions (Legacy)
   fetchThreads: () => Promise<void>;
   fetchRandomSample: (size?: number) => Promise<void>;
   fetchThreadDetail: (threadId: string) => Promise<void>;
   markThreadReviewed: (threadId: string) => Promise<void>;
   unmarkThreadReviewed: (threadId: string) => Promise<void>;
   addNoteToThread: (threadId: string, note: string) => Promise<void>;
+
+  // Session Actions (New - Local DB)
+  fetchSessions: () => Promise<void>;
+  fetchSessionDetail: (sessionId: string) => Promise<void>;
+  markSessionReviewed: (sessionId: string) => Promise<void>;
+  unmarkSessionReviewed: (sessionId: string) => Promise<void>;
+  addSessionNote: (sessionId: string, content: string, noteType?: string) => Promise<void>;
+  triggerSync: (fullSync?: boolean) => Promise<void>;
+  refreshSyncStatus: () => Promise<SyncStatus | null>;
 
   // Agents
   agents: Agent[];
@@ -144,7 +172,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Start with Agents tab - first step in the workflow
   const [activeTab, setActiveTab] = useState<TabType>("agents");
 
-  // Sessions state
+  // Sessions state (Legacy - Thread-based)
   const [threads, setThreads] = useState<Thread[]>([]);
   const [selectedThread, setSelectedThread] = useState<ThreadDetail | null>(null);
   const [feedbackSummary, setFeedbackSummary] = useState<FeedbackSummary | null>(null);
@@ -152,14 +180,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [loadingThreads, setLoadingThreads] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(false);
 
+  // Sessions state (New - Local DB based)
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [selectedSession, setSelectedSession] = useState<SessionDetail | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [batchReviewProgress, setBatchReviewProgress] = useState<BatchReviewProgress | null>(null);
+  const [loadingSessions, setLoadingSessions] = useState(false);
+  const [loadingSessionDetail, setLoadingSessionDetail] = useState(false);
+
   // Session Filters
-  const [sortBy, setSortBy] = useState("last_updated");
+  const [sortBy, setSortBy] = useState("started_at");
   const [sortDirection, setSortDirection] = useState("desc");
   const [filterMinTurns, setFilterMinTurns] = useState<number | null>(null);
+  const [filterMaxTurns, setFilterMaxTurns] = useState<number | null>(null);
   const [filterReviewed, setFilterReviewed] = useState<boolean | null>(null);
+  const [filterHasError, setFilterHasError] = useState<boolean | null>(null);
   const [filterBatchId, setFilterBatchId] = useState<string | null>(null);
   const [filterBatchName, setFilterBatchName] = useState<string | null>(null);
+  const [filterModel, setFilterModel] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Sync status polling ref
+  const syncPollRef = useRef<NodeJS.Timeout | null>(null);
 
   // Agents state
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -289,6 +331,135 @@ export function AppProvider({ children }: { children: ReactNode }) {
       fetchFeedbackSummaryData();
     } catch (error) {
       console.error("Error adding note:", error);
+    }
+  };
+
+  // ============================================================================
+  // Session Actions (New - Local DB based)
+  // ============================================================================
+
+  const fetchSessionsData = useCallback(async () => {
+    setLoadingSessions(true);
+    try {
+      const data = await api.fetchSessions({
+        sort_by: sortBy,
+        direction: sortDirection,
+        min_turns: filterMinTurns,
+        max_turns: filterMaxTurns,
+        is_reviewed: filterReviewed,
+        has_error: filterHasError,
+        batch_id: filterBatchId,
+        primary_model: filterModel,
+        limit: 100,
+      });
+      setSessions(data.sessions);
+      
+      // Fetch batch review progress if filtering by batch
+      if (filterBatchId) {
+        try {
+          const progress = await api.fetchBatchReviewProgress(filterBatchId);
+          setBatchReviewProgress(progress);
+        } catch {
+          setBatchReviewProgress(null);
+        }
+      } else {
+        setBatchReviewProgress(null);
+      }
+    } catch (error) {
+      console.error("Error fetching sessions:", error);
+    } finally {
+      setLoadingSessions(false);
+    }
+  }, [sortBy, sortDirection, filterMinTurns, filterMaxTurns, filterReviewed, filterHasError, filterBatchId, filterModel]);
+
+  const fetchSessionDetailData = async (sessionId: string) => {
+    setLoadingSessionDetail(true);
+    try {
+      const data = await api.fetchSessionDetail(sessionId);
+      setSelectedSession(data);
+    } catch (error) {
+      console.error("Error fetching session detail:", error);
+    } finally {
+      setLoadingSessionDetail(false);
+    }
+  };
+
+  const markSessionReviewedAction = async (sessionId: string) => {
+    try {
+      await api.markSessionReviewed(sessionId);
+      setSelectedSession((prev) => (prev ? { ...prev, is_reviewed: true } : null));
+      setSessions((prev) =>
+        prev.map((s) => (s.id === sessionId ? { ...s, is_reviewed: true } : s))
+      );
+      // Refresh batch progress if applicable
+      if (filterBatchId) {
+        const progress = await api.fetchBatchReviewProgress(filterBatchId);
+        setBatchReviewProgress(progress);
+      }
+    } catch (error) {
+      console.error("Error marking session as reviewed:", error);
+    }
+  };
+
+  const unmarkSessionReviewedAction = async (sessionId: string) => {
+    try {
+      await api.unmarkSessionReviewed(sessionId);
+      setSelectedSession((prev) => (prev ? { ...prev, is_reviewed: false } : null));
+      setSessions((prev) =>
+        prev.map((s) => (s.id === sessionId ? { ...s, is_reviewed: false } : s))
+      );
+      // Refresh batch progress if applicable
+      if (filterBatchId) {
+        const progress = await api.fetchBatchReviewProgress(filterBatchId);
+        setBatchReviewProgress(progress);
+      }
+    } catch (error) {
+      console.error("Error unmarking session as reviewed:", error);
+    }
+  };
+
+  const addSessionNoteAction = async (sessionId: string, content: string, noteType: string = "observation") => {
+    if (!content.trim()) return;
+    try {
+      await api.createSessionNote(sessionId, content, noteType);
+      // Refresh session detail to show new note
+      if (selectedSession?.id === sessionId) {
+        await fetchSessionDetailData(sessionId);
+      }
+    } catch (error) {
+      console.error("Error adding session note:", error);
+    }
+  };
+
+  const refreshSyncStatusData = useCallback(async () => {
+    try {
+      const status = await api.fetchSyncStatus();
+      setSyncStatus(status);
+      return status;
+    } catch (error) {
+      console.error("Error fetching sync status:", error);
+      return null;
+    }
+  }, []);
+
+  const triggerSyncAction = async (fullSync: boolean = false) => {
+    try {
+      await api.triggerSync(fullSync, filterBatchId ?? undefined);
+      // Start polling for sync status
+      refreshSyncStatusData();
+      
+      // Poll while syncing
+      if (syncPollRef.current) clearInterval(syncPollRef.current);
+      syncPollRef.current = setInterval(async () => {
+        const status = await refreshSyncStatusData();
+        if (status && !status.is_syncing) {
+          if (syncPollRef.current) clearInterval(syncPollRef.current);
+          // Refresh sessions after sync completes
+          fetchSessionsData();
+        }
+      }, 2000);
+    } catch (error) {
+      console.error("Error triggering sync:", error);
     }
   };
 
@@ -514,11 +685,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Effects
   // ============================================================================
 
+  // Initial data load
   useEffect(() => {
     fetchThreads();
     fetchFeedbackSummaryData();
     fetchAnnotationProgressData();
   }, [fetchThreads, fetchFeedbackSummaryData, fetchAnnotationProgressData]);
+
+  // Sessions tab - load from local DB
+  useEffect(() => {
+    if (activeTab === "sessions") {
+      fetchSessionsData();
+      refreshSyncStatusData();
+    }
+  }, [activeTab, fetchSessionsData, refreshSyncStatusData]);
+
+  // Cleanup sync polling on unmount
+  useEffect(() => {
+    return () => {
+      if (syncPollRef.current) clearInterval(syncPollRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (activeTab === "taxonomy") {
@@ -555,6 +742,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     activeTab,
     setActiveTab,
 
+    // Legacy thread-based
     threads,
     selectedThread,
     feedbackSummary,
@@ -562,27 +750,51 @@ export function AppProvider({ children }: { children: ReactNode }) {
     loadingThreads,
     loadingDetail,
 
+    // New local DB sessions
+    sessions,
+    selectedSession,
+    syncStatus,
+    batchReviewProgress,
+    loadingSessions,
+    loadingSessionDetail,
+
     sortBy,
     setSortBy,
     sortDirection,
     setSortDirection,
     filterMinTurns,
     setFilterMinTurns,
+    filterMaxTurns,
+    setFilterMaxTurns,
     filterReviewed,
     setFilterReviewed,
+    filterHasError,
+    setFilterHasError,
     filterBatchId,
     setFilterBatchId,
     filterBatchName,
     setFilterBatchName,
+    filterModel,
+    setFilterModel,
     searchQuery,
     setSearchQuery,
 
+    // Legacy thread actions
     fetchThreads,
     fetchRandomSample,
     fetchThreadDetail,
     markThreadReviewed,
     unmarkThreadReviewed,
     addNoteToThread,
+
+    // New session actions
+    fetchSessions: fetchSessionsData,
+    fetchSessionDetail: fetchSessionDetailData,
+    markSessionReviewed: markSessionReviewedAction,
+    unmarkSessionReviewed: unmarkSessionReviewedAction,
+    addSessionNote: addSessionNoteAction,
+    triggerSync: triggerSyncAction,
+    refreshSyncStatus: refreshSyncStatusData,
 
     agents,
     selectedAgent,

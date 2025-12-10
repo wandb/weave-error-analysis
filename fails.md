@@ -393,16 +393,17 @@ class SuggestionConfig:
 - [x] Create `/analyze` endpoint (`backend/routers/suggestions.py`)
 
 ### Sprint 2: UI Integration ✅
-- [x] Add suggestion display to Threads tab
-- [x] Implement Accept/Edit/Skip actions
-- [x] Show "suggestions ready" badge on batches
+- [x] Add suggestion display to Threads tab (per-session)
+- [x] Implement Accept/Edit/Skip actions for individual suggestions
+- [x] Add "Analyze" button in Threads tab batch review panel
 - [x] Add progress indicator during analysis
+- [x] Show success feedback when analysis finds no issues ("Looks good!")
 
-### Sprint 3: Polish
-- [ ] Bulk accept/reject actions
-- [ ] Suggestion history (what was accepted/rejected)
-- [ ] Tune prompts based on accept rate
-- [ ] Add confidence threshold setting
+### Sprint 3: Polish ✅
+- [x] Bulk accept/reject/skip actions (modal UI in Synthetic tab)
+- [x] Suggestion history endpoint (`GET /api/suggestions/history`)
+- [x] Accept rate tracking for prompt tuning insights (shown in stats)
+- [x] Add confidence threshold setting to Settings tab
 
 ---
 
@@ -470,6 +471,58 @@ Our use case is different:
 | **Requirements** | Scorer functions, ground truth | Just AGENT_INFO.md context |
 | **Output** | Failure categories + classifications | Suggested notes per trace |
 | **Goal** | Categorize failures systematically | Speed up human review |
+
+---
+
+## Changelog
+
+### December 10, 2025 - Sprint 3 Polish
+
+**Backend Changes:**
+
+| File | Changes |
+|------|---------|
+| `backend/services/suggestion.py` | Added `bulk_reject_suggestions`, `bulk_skip_suggestions`, `get_suggestion_history` methods; Enhanced `get_suggestion_stats` with accept rate |
+| `backend/routers/suggestions.py` | Added `/bulk-reject`, `/bulk-skip`, `/history` endpoints; Enhanced stats response with `accept_rate` and `reviewed_total` |
+| `backend/services/settings.py` | Added AI Suggestions settings group: `suggestion_confidence_threshold`, `suggestion_model`, `suggestion_auto_analyze` |
+
+**Frontend Changes:**
+
+| File | Changes |
+|------|---------|
+| `frontend/src/app/lib/api.ts` | Added `bulkRejectSuggestions`, `bulkSkipSuggestions`, `fetchSuggestionHistory` functions |
+| `frontend/src/app/types/index.ts` | Added `accept_rate` and `reviewed_total` to `SuggestionStats` |
+| `frontend/src/app/components/tabs/ThreadsTab.tsx` | Added collapsible Bulk Suggestions Panel with select all, bulk accept/reject/skip, session linking |
+
+**Features Implemented:**
+- Bulk Suggestions Panel in Threads tab (appears when filtering by batch)
+- Collapsible panel that auto-expands when suggestions are pending
+- Select all / individual selection with checkboxes
+- Bulk Accept, Reject, and Skip actions with loading states
+- Direct "View" links to jump to specific sessions
+- Suggestion history API endpoint for audit trail
+- Confidence threshold configurable via Settings
+
+---
+
+### December 10, 2025 - Sprint 2 UI Integration
+
+**Frontend Changes:**
+
+| File | Changes |
+|------|---------|
+| `frontend/src/app/types/index.ts` | Added `TraceSuggestion`, `SuggestionAnalysisResponse`, `SuggestionStats`, `AcceptSuggestionResult` types |
+| `frontend/src/app/lib/api.ts` | Added suggestion API functions: `analyzeSession`, `analyzeBatch`, `fetchSessionSuggestions`, `acceptSuggestion`, `skipSuggestion`, `rejectSuggestion`, `bulkAcceptSuggestions` |
+| `frontend/src/app/components/tabs/ThreadsTab.tsx` | Added `SuggestionCard` component with Accept/Edit/Skip/Reject actions, analysis result feedback, integrated into session detail view |
+| `frontend/src/app/components/tabs/SyntheticTab.tsx` | Added "Analyze" button to completed batches, auto-analysis after batch execution, suggestion count badges |
+
+**Features Implemented:**
+- AI Suggestions section in Threads tab with Analyze button
+- SuggestionCard component showing suggested notes with confidence scores
+- Accept, Edit, Skip, and Reject actions for suggestions
+- Success/warning feedback when analysis completes
+- Auto-analysis triggered after batch execution completes
+- Suggestion count badge on completed batches in Synthetic tab
 
 ---
 

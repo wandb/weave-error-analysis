@@ -25,6 +25,7 @@ import {
   AlertCircle,
   Layers,
   ChevronDown,
+  ChevronUp,
   Sparkles,
   Check,
   Edit3,
@@ -32,6 +33,8 @@ import {
   ThumbsDown,
   Loader2,
   Tag,
+  ExternalLink,
+  BarChart2,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { formatRelativeTime } from "../../utils/formatters";
@@ -524,11 +527,19 @@ export function ThreadsTab() {
   const [showBatchDropdown, setShowBatchDropdown] = useState(false);
   const batchDropdownRef = useRef<HTMLDivElement>(null);
 
-  // AI Suggestions state
+  // AI Suggestions state (per session)
   const [suggestions, setSuggestions] = useState<TraceSuggestion[]>([]);
   const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [analyzingSession, setAnalyzingSession] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<{ analyzed: boolean; issuesFound: number } | null>(null);
+
+  // Bulk Suggestions state (for batch-level review)
+  const [batchSuggestions, setBatchSuggestions] = useState<TraceSuggestion[]>([]);
+  const [loadingBatchSuggestions, setLoadingBatchSuggestions] = useState(false);
+  const [selectedSuggestionIds, setSelectedSuggestionIds] = useState<Set<string>>(new Set());
+  const [bulkActionLoading, setBulkActionLoading] = useState<"accept" | "reject" | "skip" | null>(null);
+  const [showBulkSuggestionsPanel, setShowBulkSuggestionsPanel] = useState(false);
+  const [analyzingBatch, setAnalyzingBatch] = useState(false);
 
   // Fetch batch options on mount
   useEffect(() => {
@@ -570,6 +581,117 @@ export function ThreadsTab() {
     };
     fetchSuggestions();
   }, [selectedSession?.id]);
+
+  // Fetch batch-level suggestions when batch filter changes
+  useEffect(() => {
+    if (!filterBatchId || filterBatchId === "__organic__") {
+      setBatchSuggestions([]);
+      setSelectedSuggestionIds(new Set());
+      setShowBulkSuggestionsPanel(false);
+      return;
+    }
+
+    const fetchBatchSuggestions = async () => {
+      setLoadingBatchSuggestions(true);
+      try {
+        const data = await api.fetchPendingSuggestions(filterBatchId, 0);
+        setBatchSuggestions(data);
+        // Auto-show panel if there are pending suggestions
+        if (data.length > 0) {
+          setShowBulkSuggestionsPanel(true);
+        }
+      } catch (error) {
+        console.error("Error fetching batch suggestions:", error);
+        setBatchSuggestions([]);
+      } finally {
+        setLoadingBatchSuggestions(false);
+      }
+    };
+    fetchBatchSuggestions();
+  }, [filterBatchId]);
+
+  // Bulk action handlers
+  const handleBulkAccept = async () => {
+    if (selectedSuggestionIds.size === 0) return;
+    setBulkActionLoading("accept");
+    try {
+      await api.bulkAcceptSuggestions(Array.from(selectedSuggestionIds));
+      // Remove accepted from list
+      setBatchSuggestions(prev => prev.filter(s => !selectedSuggestionIds.has(s.id)));
+      setSelectedSuggestionIds(new Set());
+    } catch (error) {
+      console.error("Error bulk accepting:", error);
+    } finally {
+      setBulkActionLoading(null);
+    }
+  };
+
+  const handleBulkReject = async () => {
+    if (selectedSuggestionIds.size === 0) return;
+    setBulkActionLoading("reject");
+    try {
+      await api.bulkRejectSuggestions(Array.from(selectedSuggestionIds));
+      setBatchSuggestions(prev => prev.filter(s => !selectedSuggestionIds.has(s.id)));
+      setSelectedSuggestionIds(new Set());
+    } catch (error) {
+      console.error("Error bulk rejecting:", error);
+    } finally {
+      setBulkActionLoading(null);
+    }
+  };
+
+  const handleBulkSkip = async () => {
+    if (selectedSuggestionIds.size === 0) return;
+    setBulkActionLoading("skip");
+    try {
+      await api.bulkSkipSuggestions(Array.from(selectedSuggestionIds));
+      setBatchSuggestions(prev => prev.filter(s => !selectedSuggestionIds.has(s.id)));
+      setSelectedSuggestionIds(new Set());
+    } catch (error) {
+      console.error("Error bulk skipping:", error);
+    } finally {
+      setBulkActionLoading(null);
+    }
+  };
+
+  const toggleSuggestionSelection = (id: string) => {
+    setSelectedSuggestionIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAllBatchSuggestions = () => {
+    if (selectedSuggestionIds.size === batchSuggestions.length) {
+      setSelectedSuggestionIds(new Set());
+    } else {
+      setSelectedSuggestionIds(new Set(batchSuggestions.map(s => s.id)));
+    }
+  };
+
+  // Analyze batch for issues
+  const handleAnalyzeBatch = async () => {
+    if (!filterBatchId || filterBatchId === "__organic__") return;
+    setAnalyzingBatch(true);
+    try {
+      const result = await api.analyzeBatch(filterBatchId);
+      // Update the suggestions list with newly found issues
+      const pending = result.suggestions.filter(s => s.has_issue && s.status === "pending");
+      setBatchSuggestions(pending);
+      if (pending.length > 0) {
+        setShowBulkSuggestionsPanel(true);
+      }
+    } catch (error) {
+      console.error("Error analyzing batch:", error);
+    } finally {
+      setAnalyzingBatch(false);
+    }
+  };
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -817,9 +939,24 @@ export function ThreadsTab() {
               <Target className="w-4 h-4 text-accent-coral" />
               Reviewing: {batchReviewProgress.batch_name || "Batch"}
             </h3>
-            <span className="text-xs text-ink-400">
-              {batchReviewProgress.reviewed_sessions} / {batchReviewProgress.total_sessions} reviewed
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-ink-400">
+                {batchReviewProgress.reviewed_sessions} / {batchReviewProgress.total_sessions} reviewed
+              </span>
+              <button
+                onClick={handleAnalyzeBatch}
+                disabled={analyzingBatch}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-accent-plum/20 text-accent-plum hover:bg-accent-plum/30 transition-colors disabled:opacity-50"
+                title="Analyze traces for quality issues"
+              >
+                {analyzingBatch ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Sparkles className="w-3.5 h-3.5" />
+                )}
+                {analyzingBatch ? "Analyzing..." : "Analyze"}
+              </button>
+            </div>
           </div>
           <ProgressBar 
             value={batchReviewProgress.progress_percent} 
@@ -832,6 +969,177 @@ export function ThreadsTab() {
               <span>Last reviewed: {formatRelativeTime(batchReviewProgress.last_review_at)}</span>
             )}
           </div>
+        </Panel>
+      )}
+
+      {/* Bulk Suggestions Panel (when filtering by batch) */}
+      {filterBatchId && filterBatchId !== "__organic__" && (batchSuggestions.length > 0 || loadingBatchSuggestions) && (
+        <Panel className="bg-gradient-to-r from-accent-plum/5 to-accent-coral/5 border-accent-plum/30">
+          {/* Header - always visible */}
+          <button
+            onClick={() => setShowBulkSuggestionsPanel(!showBulkSuggestionsPanel)}
+            className="w-full flex items-center justify-between"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-accent-plum/20 flex items-center justify-center">
+                <Sparkles className="w-4 h-4 text-accent-plum" />
+              </div>
+              <div className="text-left">
+                <h3 className="font-display text-sm font-semibold text-sand-100 flex items-center gap-2">
+                  AI Suggestions
+                  <Badge variant="plum">{batchSuggestions.length}</Badge>
+                </h3>
+                <p className="text-xs text-ink-400">
+                  {selectedSuggestionIds.size > 0 
+                    ? `${selectedSuggestionIds.size} selected` 
+                    : "Click to expand and review"
+                  }
+                </p>
+              </div>
+            </div>
+            {showBulkSuggestionsPanel ? (
+              <ChevronUp className="w-5 h-5 text-ink-500" />
+            ) : (
+              <ChevronDown className="w-5 h-5 text-ink-500" />
+            )}
+          </button>
+
+          {/* Expanded content */}
+          {showBulkSuggestionsPanel && (
+            <div className="mt-4 space-y-3">
+              {/* Bulk Action Bar */}
+              <div className="flex items-center justify-between p-3 bg-ink-900/50 rounded-lg border border-ink-800">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={toggleSelectAllBatchSuggestions}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded text-xs bg-ink-800 hover:bg-ink-700 transition-colors"
+                  >
+                    {selectedSuggestionIds.size === batchSuggestions.length ? (
+                      <CheckSquare className="w-4 h-4 text-accent-teal" />
+                    ) : (
+                      <Square className="w-4 h-4 text-ink-500" />
+                    )}
+                    {selectedSuggestionIds.size === batchSuggestions.length ? "Deselect All" : "Select All"}
+                  </button>
+                  {selectedSuggestionIds.size > 0 && (
+                    <span className="text-xs text-ink-400">
+                      {selectedSuggestionIds.size} of {batchSuggestions.length} selected
+                    </span>
+                  )}
+                </div>
+                
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleBulkAccept}
+                    disabled={selectedSuggestionIds.size === 0 || bulkActionLoading !== null}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-accent-teal/20 text-accent-teal hover:bg-accent-teal/30 transition-colors disabled:opacity-50"
+                  >
+                    {bulkActionLoading === "accept" ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Check className="w-3.5 h-3.5" />
+                    )}
+                    Accept
+                  </button>
+                  <button
+                    onClick={handleBulkSkip}
+                    disabled={selectedSuggestionIds.size === 0 || bulkActionLoading !== null}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-ink-800 text-ink-400 hover:bg-ink-700 transition-colors disabled:opacity-50"
+                  >
+                    {bulkActionLoading === "skip" ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <SkipForward className="w-3.5 h-3.5" />
+                    )}
+                    Skip
+                  </button>
+                  <button
+                    onClick={handleBulkReject}
+                    disabled={selectedSuggestionIds.size === 0 || bulkActionLoading !== null}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50"
+                  >
+                    {bulkActionLoading === "reject" ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <ThumbsDown className="w-3.5 h-3.5" />
+                    )}
+                    Reject
+                  </button>
+                </div>
+              </div>
+
+              {/* Suggestions List */}
+              <div className="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                {loadingBatchSuggestions ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-6 h-6 animate-spin text-accent-plum" />
+                  </div>
+                ) : (
+                  batchSuggestions.map(suggestion => (
+                    <div
+                      key={suggestion.id}
+                      onClick={() => toggleSuggestionSelection(suggestion.id)}
+                      className={`p-3 rounded-lg cursor-pointer transition-all border ${
+                        selectedSuggestionIds.has(suggestion.id)
+                          ? 'bg-accent-plum/10 border-accent-plum/40'
+                          : 'bg-ink-900/50 border-ink-800 hover:border-ink-700'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="pt-0.5">
+                          {selectedSuggestionIds.has(suggestion.id) ? (
+                            <CheckSquare className="w-4 h-4 text-accent-plum" />
+                          ) : (
+                            <Square className="w-4 h-4 text-ink-600" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-sand-200 leading-relaxed">
+                            {suggestion.suggested_note}
+                          </p>
+                          <div className="flex items-center gap-3 mt-2 flex-wrap">
+                            {/* Confidence */}
+                            <span 
+                              className={`text-xs ${
+                                suggestion.confidence >= 0.8 ? 'text-accent-teal' 
+                                : suggestion.confidence >= 0.6 ? 'text-accent-gold' 
+                                : 'text-ink-500'
+                              }`}
+                            >
+                              {Math.round(suggestion.confidence * 100)}%
+                            </span>
+                            {/* Category */}
+                            {suggestion.failure_mode_name ? (
+                              <Badge variant="teal" className="text-xs">
+                                {suggestion.failure_mode_name}
+                              </Badge>
+                            ) : suggestion.suggested_category ? (
+                              <Badge variant="gold" className="text-xs">
+                                New: {suggestion.suggested_category}
+                              </Badge>
+                            ) : null}
+                            {/* View session link */}
+                            {suggestion.session_id && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  fetchSessionDetail(suggestion.session_id!);
+                                }}
+                                className="text-xs text-accent-teal hover:underline flex items-center gap-1"
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                                View
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
         </Panel>
       )}
 

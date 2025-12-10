@@ -565,6 +565,8 @@ export interface SuggestionStats {
   rejected: number;
   skipped: number;
   error: number;
+  accept_rate: number;  // (accepted + edited) / reviewed_total
+  reviewed_total: number;
 }
 
 export interface AcceptSuggestionResult {

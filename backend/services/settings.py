@@ -87,6 +87,23 @@ DEFAULT_SETTINGS = {
         "is_secret": False,
         "description": "Maximum concurrent LLM calls during auto-review"
     },
+    
+    # AI Suggestions Settings
+    "suggestion_confidence_threshold": {
+        "value": "0.6",
+        "is_secret": False,
+        "description": "Minimum confidence level (0.0-1.0) for showing AI suggestions"
+    },
+    "suggestion_model": {
+        "value": "",
+        "is_secret": False,
+        "description": "Model for AI suggestions (leave empty to use auto-review model)"
+    },
+    "suggestion_auto_analyze": {
+        "value": "true",
+        "is_secret": False,
+        "description": "Automatically analyze traces after batch execution"
+    },
 }
 
 
@@ -275,6 +292,15 @@ def get_settings_grouped() -> List[SettingsGroup]:
             settings=[
                 all_settings.get("auto_review_model", SettingValue(key="auto_review_model", value="")),
                 all_settings.get("auto_review_concurrency", SettingValue(key="auto_review_concurrency", value="")),
+            ]
+        ),
+        SettingsGroup(
+            name="AI Suggestions",
+            description="Settings for AI-powered quality suggestions during trace review",
+            settings=[
+                all_settings.get("suggestion_confidence_threshold", SettingValue(key="suggestion_confidence_threshold", value="0.6")),
+                all_settings.get("suggestion_model", SettingValue(key="suggestion_model", value="")),
+                all_settings.get("suggestion_auto_analyze", SettingValue(key="suggestion_auto_analyze", value="true")),
             ]
         ),
     ]

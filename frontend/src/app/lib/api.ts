@@ -1075,3 +1075,63 @@ export async function bulkAcceptSuggestions(suggestionIds: string[]): Promise<{
   return response.json();
 }
 
+export async function bulkRejectSuggestions(suggestionIds: string[]): Promise<{
+  rejected: number;
+  failed: number;
+}> {
+  const response = await fetch(`${API_BASE}/suggestions/bulk-reject`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ suggestion_ids: suggestionIds }),
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to bulk reject suggestions");
+  }
+  
+  return response.json();
+}
+
+export async function bulkSkipSuggestions(suggestionIds: string[]): Promise<{
+  skipped: number;
+  failed: number;
+}> {
+  const response = await fetch(`${API_BASE}/suggestions/bulk-skip`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ suggestion_ids: suggestionIds }),
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to bulk skip suggestions");
+  }
+  
+  return response.json();
+}
+
+export interface SuggestionHistoryResponse {
+  suggestions: TraceSuggestion[];
+  total_count: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
+}
+
+export async function fetchSuggestionHistory(
+  batchId?: string,
+  status?: string,
+  limit: number = 50,
+  offset: number = 0
+): Promise<SuggestionHistoryResponse> {
+  const params = new URLSearchParams();
+  if (batchId) params.append("batch_id", batchId);
+  if (status) params.append("status", status);
+  params.append("limit", String(limit));
+  params.append("offset", String(offset));
+  
+  const response = await fetch(`${API_BASE}/suggestions/history?${params}`);
+  return response.json();
+}
+

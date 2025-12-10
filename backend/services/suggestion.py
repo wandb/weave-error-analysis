@@ -12,7 +12,7 @@ See: fails.md for full design.
 
 import json
 import asyncio
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -20,6 +20,7 @@ import litellm
 
 from database import get_db, get_db_readonly, generate_id, now_iso
 from config import CATEGORIZATION_MODEL
+from services.settings import get_setting
 
 
 # =============================================================================
@@ -579,9 +580,14 @@ Respond in JSON:
     def get_pending_suggestions(
         self, 
         batch_id: Optional[str] = None,
-        min_confidence: float = 0.0
+        min_confidence: Optional[float] = None
     ) -> List[Suggestion]:
         """Get pending suggestions, optionally filtered."""
+        # Use setting if not explicitly provided
+        if min_confidence is None:
+            threshold_str = get_setting("suggestion_confidence_threshold", "0.6")
+            min_confidence = float(threshold_str)
+        
         with get_db_readonly() as conn:
             cursor = conn.cursor()
             
@@ -591,7 +597,7 @@ Respond in JSON:
                 LEFT JOIN failure_modes fm ON ts.failure_mode_id = fm.id
                 WHERE ts.status = 'pending' AND ts.has_issue = 1 AND ts.confidence >= ?
             """
-            params = [min_confidence]
+            params: List[Any] = [min_confidence]
             
             if batch_id:
                 query += " AND ts.batch_id = ?"
@@ -763,12 +769,48 @@ Respond in JSON:
         
         return results
     
+    def bulk_reject_suggestions(self, suggestion_ids: List[str]) -> Dict:
+        """Reject multiple suggestions at once."""
+        results = {
+            "rejected": 0,
+            "failed": 0
+        }
+        
+        for suggestion_id in suggestion_ids:
+            try:
+                if self.reject_suggestion(suggestion_id):
+                    results["rejected"] += 1
+                else:
+                    results["failed"] += 1
+            except Exception:
+                results["failed"] += 1
+        
+        return results
+    
+    def bulk_skip_suggestions(self, suggestion_ids: List[str]) -> Dict:
+        """Skip multiple suggestions at once."""
+        results = {
+            "skipped": 0,
+            "failed": 0
+        }
+        
+        for suggestion_id in suggestion_ids:
+            try:
+                if self.skip_suggestion(suggestion_id):
+                    results["skipped"] += 1
+                else:
+                    results["failed"] += 1
+            except Exception:
+                results["failed"] += 1
+        
+        return results
+    
     # -------------------------------------------------------------------------
     # Statistics
     # -------------------------------------------------------------------------
     
     def get_suggestion_stats(self, batch_id: Optional[str] = None) -> Dict:
-        """Get statistics about suggestions."""
+        """Get statistics about suggestions including accept rate."""
         with get_db_readonly() as conn:
             cursor = conn.cursor()
             
@@ -797,7 +839,62 @@ Respond in JSON:
             stats["issues_found"] = cursor.fetchone()["count"]
             stats["total"] = sum(stats.get(s, 0) for s in ["pending", "accepted", "edited", "rejected", "skipped", "error"])
             
+            # Calculate accept rate (accepted + edited) / (reviewed total)
+            reviewed = stats.get("accepted", 0) + stats.get("edited", 0) + stats.get("rejected", 0) + stats.get("skipped", 0)
+            accepted_total = stats.get("accepted", 0) + stats.get("edited", 0)
+            stats["accept_rate"] = round(accepted_total / reviewed, 3) if reviewed > 0 else 0.0
+            stats["reviewed_total"] = reviewed
+            
             return stats
+    
+    def get_suggestion_history(
+        self, 
+        batch_id: Optional[str] = None,
+        status_filter: Optional[List[str]] = None,
+        limit: int = 50,
+        offset: int = 0
+    ) -> Dict:
+        """Get history of reviewed suggestions (accepted, edited, rejected, skipped)."""
+        with get_db_readonly() as conn:
+            cursor = conn.cursor()
+            
+            # Default to all non-pending statuses
+            if not status_filter:
+                status_filter = ["accepted", "edited", "rejected", "skipped"]
+            
+            placeholders = ",".join(["?" for _ in status_filter])
+            
+            query = f"""
+                SELECT ts.*, fm.name as failure_mode_name
+                FROM trace_suggestions ts
+                LEFT JOIN failure_modes fm ON ts.failure_mode_id = fm.id
+                WHERE ts.status IN ({placeholders})
+            """
+            params: List[Any] = list(status_filter)
+            
+            if batch_id:
+                query += " AND ts.batch_id = ?"
+                params.append(batch_id)
+            
+            # Get total count first
+            count_query = query.replace("SELECT ts.*, fm.name as failure_mode_name", "SELECT COUNT(*) as count")
+            cursor.execute(count_query, params)
+            total_count = cursor.fetchone()["count"]
+            
+            # Get paginated results
+            query += " ORDER BY ts.reviewed_at DESC LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+            
+            cursor.execute(query, params)
+            suggestions = [self._row_to_suggestion(row) for row in cursor.fetchall()]
+            
+            return {
+                "suggestions": suggestions,
+                "total_count": total_count,
+                "limit": limit,
+                "offset": offset,
+                "has_more": (offset + len(suggestions)) < total_count
+            }
 
 
 # Singleton instance

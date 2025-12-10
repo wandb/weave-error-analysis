@@ -26,7 +26,6 @@ import {
   Bot,
   Tag,
   Eye,
-  Sparkles,
   Loader2,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
@@ -168,10 +167,6 @@ Return ONLY the user message, nothing else. No quotes around it.`);
   const [dimensionsCollapsed, setDimensionsCollapsed] = useState(false);
   const [batchesCollapsed, setBatchesCollapsed] = useState(false);
 
-  // AI Suggestions state per batch
-  const [batchSuggestionStats, setBatchSuggestionStats] = useState<Record<string, { pending: number; issues: number }>>({});
-  const [analyzingBatchId, setAnalyzingBatchId] = useState<string | null>(null);
-
   // Synced panel height - both panels resize together
   const [syncedPanelHeight, setSyncedPanelHeight] = useState(280);
   const dimensionsPanelRef = useRef<HTMLDivElement>(null);
@@ -205,46 +200,6 @@ Return ONLY the user message, nothing else. No quotes around it.`);
 
     return () => observer.disconnect();
   }, [syncedPanelHeight]);
-
-  // Fetch suggestion stats for completed batches
-  useEffect(() => {
-    const fetchSuggestionStats = async () => {
-      const completedBatches = syntheticBatches.filter(b => b.status === "completed");
-      for (const batch of completedBatches) {
-        // Only fetch if we don't have stats for this batch
-        if (!batchSuggestionStats[batch.id]) {
-          try {
-            const stats = await api.fetchSuggestionStats(batch.id);
-            setBatchSuggestionStats(prev => ({
-              ...prev,
-              [batch.id]: { pending: stats.pending, issues: stats.issues_found }
-            }));
-          } catch (error) {
-            // Ignore errors - batch might not have been analyzed yet
-          }
-        }
-      }
-    };
-    fetchSuggestionStats();
-  }, [syntheticBatches]);
-
-  // Handler to analyze a batch with AI
-  const handleAnalyzeBatch = async (batchId: string) => {
-    setAnalyzingBatchId(batchId);
-    try {
-      const result = await api.analyzeBatch(batchId);
-      // Update stats for this batch
-      const pending = result.suggestions.filter(s => s.has_issue && s.status === "pending").length;
-      setBatchSuggestionStats(prev => ({
-        ...prev,
-        [batchId]: { pending, issues: result.issues_found }
-      }));
-    } catch (error) {
-      console.error("Error analyzing batch:", error);
-    } finally {
-      setAnalyzingBatchId(null);
-    }
-  };
 
   const handleSaveDimension = async (dimName: string, values: string[]) => {
     if (!selectedAgent) return;
@@ -371,18 +326,6 @@ Return ONLY the user message, nothing else. No quotes around it.`);
                 await fetchBatches(agentId);
                 await fetchBatchDetail(batchId);
                 // Auto-trigger AI analysis on successful completion
-                if (data.status === "completed") {
-                  try {
-                    const analysisResult = await api.analyzeBatch(batchId);
-                    const pending = analysisResult.suggestions.filter(s => s.has_issue && s.status === "pending").length;
-                    setBatchSuggestionStats(prev => ({
-                      ...prev,
-                      [batchId]: { pending, issues: analysisResult.issues_found }
-                    }));
-                  } catch (e) {
-                    console.log("[Execute] Auto-analysis failed:", e);
-                  }
-                }
               }
             } catch (e) {
               console.log("[Execute] Failed to parse:", line, e);
@@ -1485,35 +1428,6 @@ Return ONLY the user message, nothing else. No quotes around it.`);
                               >
                                 <RefreshCw className="w-3 h-3" />
                                 Re-run
-                              </button>
-                              <button
-                                onClick={() => handleAnalyzeBatch(batch.id)}
-                                disabled={!!analyzingBatchId}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs transition-all disabled:opacity-50"
-                                style={{ 
-                                  backgroundColor: batchSuggestionStats[batch.id]?.pending > 0 
-                                    ? 'rgba(161, 98, 247, 0.2)' 
-                                    : '#333333', 
-                                  color: batchSuggestionStats[batch.id]?.pending > 0 
-                                    ? '#A162F7' 
-                                    : '#8F949E' 
-                                }}
-                                title={batchSuggestionStats[batch.id]?.issues 
-                                  ? `${batchSuggestionStats[batch.id].pending} pending suggestions` 
-                                  : "Analyze traces for issues"}
-                              >
-                                {analyzingBatchId === batch.id ? (
-                                  <Loader2 className="w-3 h-3 animate-spin" />
-                                ) : (
-                                  <Sparkles className="w-3 h-3" />
-                                )}
-                                {batchSuggestionStats[batch.id]?.pending > 0 ? (
-                                  <span className="flex items-center gap-1">
-                                    {batchSuggestionStats[batch.id].pending}
-                                  </span>
-                                ) : (
-                                  "Analyze"
-                                )}
                               </button>
                               <button
                                 onClick={() => {

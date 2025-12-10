@@ -92,7 +92,7 @@ class BulkAcceptResponse(BaseModel):
 
 
 class SuggestionStatsResponse(BaseModel):
-    """Statistics about suggestions."""
+    """Statistics about suggestions including accept rate."""
     total: int
     issues_found: int
     pending: int
@@ -101,6 +101,39 @@ class SuggestionStatsResponse(BaseModel):
     rejected: int
     skipped: int
     error: int
+    accept_rate: float = 0.0  # (accepted + edited) / reviewed_total
+    reviewed_total: int = 0
+
+
+class BulkRejectRequest(BaseModel):
+    """Request to reject multiple suggestions."""
+    suggestion_ids: List[str]
+
+
+class BulkRejectResponse(BaseModel):
+    """Response for bulk reject operation."""
+    rejected: int
+    failed: int
+
+
+class BulkSkipRequest(BaseModel):
+    """Request to skip multiple suggestions."""
+    suggestion_ids: List[str]
+
+
+class BulkSkipResponse(BaseModel):
+    """Response for bulk skip operation."""
+    skipped: int
+    failed: int
+
+
+class SuggestionHistoryResponse(BaseModel):
+    """Response for suggestion history."""
+    suggestions: List[SuggestionResponse]
+    total_count: int
+    limit: int
+    offset: int
+    has_more: bool
 
 
 # =============================================================================
@@ -285,7 +318,7 @@ async def get_pending_suggestions(
 async def get_suggestion_stats(
     batch_id: Optional[str] = Query(None, description="Filter by batch")
 ):
-    """Get statistics about suggestions."""
+    """Get statistics about suggestions including accept rate."""
     stats = suggestion_service.get_suggestion_stats(batch_id)
     
     return SuggestionStatsResponse(
@@ -296,7 +329,44 @@ async def get_suggestion_stats(
         edited=stats.get("edited", 0),
         rejected=stats.get("rejected", 0),
         skipped=stats.get("skipped", 0),
-        error=stats.get("error", 0)
+        error=stats.get("error", 0),
+        accept_rate=stats.get("accept_rate", 0.0),
+        reviewed_total=stats.get("reviewed_total", 0)
+    )
+
+
+@router.get("/history", response_model=SuggestionHistoryResponse)
+async def get_suggestion_history(
+    batch_id: Optional[str] = Query(None, description="Filter by batch"),
+    status: Optional[str] = Query(None, description="Comma-separated status filter (accepted,edited,rejected,skipped)"),
+    limit: int = Query(50, ge=1, le=200, description="Number of results per page"),
+    offset: int = Query(0, ge=0, description="Pagination offset")
+):
+    """
+    Get history of reviewed suggestions (accepted, edited, rejected, skipped).
+    
+    Useful for:
+    - Seeing what suggestions were accepted/rejected
+    - Understanding AI suggestion quality over time
+    - Tuning prompts based on rejection patterns
+    """
+    status_filter = None
+    if status:
+        status_filter = [s.strip() for s in status.split(",")]
+    
+    result = suggestion_service.get_suggestion_history(
+        batch_id=batch_id,
+        status_filter=status_filter,
+        limit=limit,
+        offset=offset
+    )
+    
+    return SuggestionHistoryResponse(
+        suggestions=[suggestion_to_response(s) for s in result["suggestions"]],
+        total_count=result["total_count"],
+        limit=result["limit"],
+        offset=result["offset"],
+        has_more=result["has_more"]
     )
 
 
@@ -388,5 +458,33 @@ async def bulk_accept_suggestions(request: BulkAcceptRequest):
             )
             for n in results["notes_created"]
         ]
+    )
+
+
+@router.post("/bulk-reject", response_model=BulkRejectResponse)
+async def bulk_reject_suggestions(request: BulkRejectRequest):
+    """Reject multiple suggestions at once (mark as AI was wrong)."""
+    if not request.suggestion_ids:
+        raise HTTPException(status_code=400, detail="No suggestion IDs provided")
+    
+    results = suggestion_service.bulk_reject_suggestions(request.suggestion_ids)
+    
+    return BulkRejectResponse(
+        rejected=results["rejected"],
+        failed=results["failed"]
+    )
+
+
+@router.post("/bulk-skip", response_model=BulkSkipResponse)
+async def bulk_skip_suggestions(request: BulkSkipRequest):
+    """Skip multiple suggestions at once (not relevant but not incorrect)."""
+    if not request.suggestion_ids:
+        raise HTTPException(status_code=400, detail="No suggestion IDs provided")
+    
+    results = suggestion_service.bulk_skip_suggestions(request.suggestion_ids)
+    
+    return BulkSkipResponse(
+        skipped=results["skipped"],
+        failed=results["failed"]
     )
 

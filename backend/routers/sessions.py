@@ -307,11 +307,12 @@ async def _fetch_conversation(session_id: str) -> List[ConversationMessage]:
     Uses the same logic as threads.py to find and process calls.
     """
     try:
-        # Fetch all calls
+        # Fetch recent calls (descending to get newest first)
+        # Then we'll sort them back to ascending order for conversation display
         all_calls = await weave_client.query_calls(
             limit=500,
             sort_field="started_at",
-            sort_direction="asc"
+            sort_direction="desc"
         )
         
         # Build root-to-thread map
@@ -713,5 +714,3 @@ async def get_batch_review_progress(batch_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-

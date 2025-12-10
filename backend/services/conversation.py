@@ -271,7 +271,7 @@ def _process_llm_call(
                             "call_id": call_id,
                             "timestamp": started_at
                         })
-                    break  # Only get the LAST user message
+                        break  # Only get the LAST user message with actual text
 
     # Also check OpenAI format messages
     messages = inputs.get("messages", [])
@@ -289,7 +289,7 @@ def _process_llm_call(
                             "call_id": call_id,
                             "timestamp": started_at
                         })
-                    break  # Only get the LAST user message
+                        break  # Only get the LAST user message with actual text
 
     # Extract the OUTPUT (the new response generated)
     if output:

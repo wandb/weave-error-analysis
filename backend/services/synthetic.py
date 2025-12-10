@@ -558,11 +558,14 @@ Return ONLY the user message, nothing else. No quotes around it."""
         Returns:
             SyntheticBatch with generated queries
         """
-        batch_id = f"batch_{uuid.uuid4().hex[:12]}"
+        # Generate a short ID that will be used consistently
+        short_id = uuid.uuid4().hex[:6].upper()
+        batch_id = f"batch_{short_id.lower()}"
         now = datetime.utcnow().isoformat() + "Z"
         
         if not name:
-            name = f"Batch {now[:10]}"
+            # Use a consistent format: Batch YYYY-MM-DD #SHORTID
+            name = f"Batch {now[:10]} #{short_id}"
         
         # Generate tuples
         if strategy == "llm_guided":
@@ -632,11 +635,14 @@ Return ONLY the user message, nothing else. No quotes around it."""
         
         import asyncio
         
-        batch_id = f"batch_{uuid.uuid4().hex[:12]}"
+        # Generate a short ID that will be used consistently
+        short_id = uuid.uuid4().hex[:6].upper()
+        batch_id = f"batch_{short_id.lower()}"
         now = datetime.utcnow().isoformat() + "Z"
         
         if not name:
-            name = f"Batch {now[:10]}"
+            # Use a consistent format: Batch YYYY-MM-DD #SHORTID
+            name = f"Batch {now[:10]} #{short_id}"
         
         # Emit batch started event
         yield {

@@ -374,9 +374,8 @@ Return ONLY the user message, nothing else. No quotes around it.`);
     setGenerating(true);
     setGenProgress({ total: batchSize, completed: 0, percent: 0 });
 
-    // Generate unique batch name with ID
-    const batchId = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const batchName = `Batch ${new Date().toLocaleDateString()} #${batchId}`;
+    // Let the backend generate a consistent batch name using its batch_id
+    // This ensures the ID shown in Synthetic tab matches the name in Threads tab
     let currentBatchId = "";
     let currentBatchName = "";
 
@@ -396,7 +395,7 @@ Return ONLY the user message, nothing else. No quotes around it.`);
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           agent_id: selectedAgent.id,
-          name: batchName,
+          // Don't send name - let backend generate consistent name using its batch_id
           count: batchSize,
           strategy: batchStrategy,
           model,
@@ -1357,18 +1356,19 @@ Return ONLY the user message, nothing else. No quotes around it.`);
                           }}
                         >
                           <div className="flex items-center justify-between mb-1">
-                            <div className="flex items-center gap-2">
-                              <code 
-                                className="font-mono text-sm font-medium px-1.5 py-0.5 rounded"
-                                style={{ backgroundColor: '#333333', color: '#FCBC32' }}
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span 
+                                className="text-sm font-medium truncate"
+                                style={{ color: '#FCBC32' }}
+                                title={batch.name}
                               >
-                                {batch.id.slice(0, 12)}
-                              </code>
+                                {batch.name}
+                              </span>
                               {isRunning && (
-                                <RefreshCw className="w-3 h-3 animate-spin" style={{ color: '#FCBC32' }} />
+                                <RefreshCw className="w-3 h-3 animate-spin flex-shrink-0" style={{ color: '#FCBC32' }} />
                               )}
                             </div>
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-1 flex-shrink-0">
                               <button
                                 onClick={(e) => { e.stopPropagation(); copyBatchId(batch.id); }}
                                 className="p-1 rounded transition-colors"

@@ -53,6 +53,7 @@ export function SyntheticTab() {
     setActiveTab,
     setFilterBatchId,
     setFilterBatchName,
+    fetchSessionDetail,
   } = useApp();
 
   // ========== EXECUTION STATE (merged from RunsTab) ==========
@@ -1833,6 +1834,51 @@ Return ONLY the user message, nothing else. No quotes around it.`);
                             </span>
                           )}
                         </div>
+                      )}
+
+                      {/* Call Metrics Indicator - Shows what happened between query and response */}
+                      {isExecuted && query.call_count && query.call_count > 1 && (
+                        <button
+                          onClick={async () => {
+                            if (query.session_id) {
+                              // Navigate to sessions tab and auto-open this specific session
+                              setFilterBatchId(selectedBatch?.id || null);
+                              setFilterBatchName(selectedBatch?.name || null);
+                              setActiveTab("sessions");
+                              // Fetch and select the specific session to show its details
+                              await fetchSessionDetail(query.session_id);
+                            }
+                          }}
+                          className="flex items-center justify-center gap-3 py-2 px-4 rounded-lg transition-all hover:bg-white/5 group/metrics"
+                          style={{ 
+                            backgroundColor: 'rgba(252, 188, 50, 0.05)', 
+                            border: '1px dashed rgba(252, 188, 50, 0.3)' 
+                          }}
+                        >
+                          <div className="flex items-center gap-2">
+                            <Zap className="w-3.5 h-3.5" style={{ color: '#FCBC32' }} />
+                            <span className="text-xs" style={{ color: '#FCBC32' }}>
+                              {query.call_count} calls
+                            </span>
+                          </div>
+                          {query.total_latency_ms && (
+                            <>
+                              <span style={{ color: '#333' }}>•</span>
+                              <span className="text-xs" style={{ color: '#8F949E' }}>
+                                {query.total_latency_ms >= 1000 
+                                  ? `${(query.total_latency_ms / 1000).toFixed(1)}s`
+                                  : `${Math.round(query.total_latency_ms)}ms`
+                                }
+                              </span>
+                            </>
+                          )}
+                          <span 
+                            className="text-xs opacity-0 group-hover/metrics:opacity-100 transition-opacity flex items-center gap-1"
+                            style={{ color: '#10BFCC' }}
+                          >
+                            View details <ExternalLink className="w-3 h-3" />
+                          </span>
+                        </button>
                       )}
 
                       {/* Full Response */}

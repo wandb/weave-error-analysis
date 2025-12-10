@@ -194,14 +194,18 @@ export function useApp() {
 
 export function AppProvider({ children }: { children: ReactNode }) {
   // Landing Page State
-  const [showLandingPage, setShowLandingPage] = useState<boolean>(() => {
-    // Check localStorage for dismissed state (only on client)
-    if (typeof window !== 'undefined') {
-      const dismissed = localStorage.getItem('landingPageDismissed');
-      return dismissed !== 'true';
+  // Initialize to true to match server render, then hydrate from localStorage
+  const [showLandingPage, setShowLandingPage] = useState<boolean>(true);
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  // Hydrate landing page state from localStorage after initial render
+  useEffect(() => {
+    const dismissed = localStorage.getItem('landingPageDismissed');
+    if (dismissed === 'true') {
+      setShowLandingPage(false);
     }
-    return true;
-  });
+    setIsHydrated(true);
+  }, []);
 
   // Navigation
   // Start with Agents tab - first step in the workflow

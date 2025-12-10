@@ -324,6 +324,11 @@ export interface SyntheticQuery {
   response_text?: string;
   trace_id?: string;
   error_message?: string;
+  // Session metrics (populated for executed queries)
+  session_id?: string;  // The Weave session/thread ID
+  call_count?: number;  // Total calls (tool calls, LLM calls, etc.)
+  turn_count?: number;  // Number of conversation turns
+  total_latency_ms?: number;  // Total execution time
 }
 
 export interface BatchDetail {

@@ -71,6 +71,11 @@ class QueryResponse(BaseModel):
     response_text: Optional[str] = None
     trace_id: Optional[str] = None
     error_message: Optional[str] = None
+    # Session metrics (populated from linked session, if executed)
+    session_id: Optional[str] = None  # The Weave session/thread ID for "View in Sessions"
+    call_count: Optional[int] = None  # Total calls (including tool calls, LLM calls)
+    turn_count: Optional[int] = None  # Number of conversation turns
+    total_latency_ms: Optional[float] = None  # Total execution time
 
 
 class BatchCreateRequest(BaseModel):
@@ -683,7 +688,7 @@ async def list_batches(agent_id: Optional[str] = None) -> List[BatchResponse]:
 
 @router.get("/synthetic/batches/{batch_id}")
 async def get_batch(batch_id: str, include_queries: bool = True) -> BatchResponse:
-    """Get a specific batch with its queries."""
+    """Get a specific batch with its queries and session metrics."""
     with get_db() as conn:
         cursor = conn.cursor()
         
@@ -695,8 +700,18 @@ async def get_batch(batch_id: str, include_queries: bool = True) -> BatchRespons
         
         queries = None
         if include_queries:
+            # Join with sessions to get call metrics for executed queries
             cursor.execute("""
-                SELECT * FROM synthetic_queries WHERE batch_id = ? ORDER BY id
+                SELECT 
+                    sq.*,
+                    s.id as session_id,
+                    s.call_count,
+                    s.turn_count,
+                    s.total_latency_ms
+                FROM synthetic_queries sq
+                LEFT JOIN sessions s ON s.query_id = sq.id
+                WHERE sq.batch_id = ? 
+                ORDER BY sq.id
             """, (batch_id,))
             query_rows = cursor.fetchall()
             
@@ -708,7 +723,12 @@ async def get_batch(batch_id: str, include_queries: bool = True) -> BatchRespons
                     execution_status=row["execution_status"],
                     response_text=row["response_text"],
                     trace_id=row["trace_id"],
-                    error_message=row["error_message"]
+                    error_message=row["error_message"],
+                    # Session metrics (from linked session)
+                    session_id=row["session_id"],
+                    call_count=row["call_count"],
+                    turn_count=row["turn_count"],
+                    total_latency_ms=row["total_latency_ms"]
                 )
                 for row in query_rows
             ]

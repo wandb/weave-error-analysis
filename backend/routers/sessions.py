@@ -32,6 +32,7 @@ from services.session_repository import (
     SortField,
     SortDirection,
 )
+from services.taxonomy import taxonomy_service
 from services.session_sync import (
     session_sync_service,
     trigger_session_sync,
@@ -534,6 +535,12 @@ async def mark_session_reviewed(
         
         if not success:
             raise HTTPException(status_code=404, detail="Session not found")
+        
+        # Record a saturation snapshot for the discovery curve
+        try:
+            taxonomy_service._record_saturation_snapshot()
+        except Exception:
+            pass  # Don't fail the review if snapshot fails
         
         return {
             "status": "success",

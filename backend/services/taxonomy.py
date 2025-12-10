@@ -747,6 +747,49 @@ Respond in JSON format:
                 (timestamp, notes_processed, new_modes_created, existing_modes_matched, total_modes_after)
                 VALUES (?, ?, ?, ?, ?)
             """, (now_iso(), notes_processed, new_modes, matched_modes, total_modes))
+            
+            # Also record a saturation snapshot for the discovery curve
+            self._record_saturation_snapshot()
+    
+    def _record_saturation_snapshot(self):
+        """
+        Record a snapshot for the saturation discovery curve.
+        Called after categorization or review events.
+        """
+        with get_db() as conn:
+            cursor = conn.cursor()
+            
+            # Get current counts
+            cursor.execute("SELECT COUNT(*) as count FROM sessions WHERE is_reviewed = 1")
+            threads_reviewed = cursor.fetchone()["count"]
+            
+            cursor.execute("SELECT COUNT(*) as count FROM failure_modes")
+            failure_modes_count = cursor.fetchone()["count"]
+            
+            cursor.execute("SELECT COUNT(*) as count FROM notes WHERE failure_mode_id IS NOT NULL")
+            categorized_notes = cursor.fetchone()["count"]
+            
+            cursor.execute("SELECT COUNT(*) as count FROM notes")
+            total_notes = cursor.fetchone()["count"]
+            
+            # Calculate saturation score
+            saturation_score = 0.0
+            if total_notes > 0:
+                saturation_score = categorized_notes / total_notes
+            
+            # Insert snapshot (use threads_reviewed as a natural key to avoid duplicates)
+            # We upsert to handle the case where we're at the same thread count
+            snapshot_id = generate_id()
+            cursor.execute("""
+                INSERT INTO saturation_snapshots 
+                (id, snapshot_date, threads_reviewed, failure_modes_count, categorized_notes, saturation_score)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    failure_modes_count = excluded.failure_modes_count,
+                    categorized_notes = excluded.categorized_notes,
+                    saturation_score = excluded.saturation_score
+            """, (snapshot_id, now_iso(), threads_reviewed, failure_modes_count, 
+                  categorized_notes, saturation_score))
     
     def get_saturation_stats(self, window_size: int = 20) -> dict:
         """
@@ -826,6 +869,118 @@ Respond in JSON format:
                     }
                     for e in events[:10]
                 ]
+            }
+    
+    def get_saturation_history(self) -> dict:
+        """
+        Get the full saturation history for the discovery curve chart.
+        
+        Returns snapshots showing failure mode discovery over time,
+        plus recommendations based on current saturation status.
+        """
+        with get_db() as conn:
+            cursor = conn.cursor()
+            
+            # Get all snapshots ordered by threads reviewed
+            cursor.execute("""
+                SELECT * FROM saturation_snapshots 
+                ORDER BY threads_reviewed ASC
+            """)
+            snapshot_rows = cursor.fetchall()
+            
+            # Get current counts
+            cursor.execute("SELECT COUNT(*) as count FROM sessions WHERE is_reviewed = 1")
+            current_threads = cursor.fetchone()["count"]
+            
+            cursor.execute("SELECT COUNT(*) as count FROM failure_modes")
+            current_modes = cursor.fetchone()["count"]
+            
+            cursor.execute("SELECT COUNT(*) as count FROM notes WHERE failure_mode_id IS NOT NULL")
+            current_notes = cursor.fetchone()["count"]
+            
+            cursor.execute("SELECT COUNT(*) as count FROM notes")
+            total_notes = cursor.fetchone()["count"]
+            
+            # Build snapshots list
+            snapshots = []
+            for row in snapshot_rows:
+                snapshots.append({
+                    "threads_reviewed": row["threads_reviewed"],
+                    "failure_modes_count": row["failure_modes_count"],
+                    "categorized_notes": row["categorized_notes"],
+                    "saturation_score": row["saturation_score"],
+                    "snapshot_date": row["snapshot_date"]
+                })
+            
+            # Find when the last new failure mode was discovered
+            # by looking at where failure_modes_count increased
+            last_discovery_at_threads = 0
+            prev_count = 0
+            for snap in snapshots:
+                if snap["failure_modes_count"] > prev_count:
+                    last_discovery_at_threads = snap["threads_reviewed"]
+                    prev_count = snap["failure_modes_count"]
+            
+            threads_since_last_discovery = current_threads - last_discovery_at_threads
+            
+            # Calculate recent discoveries (in last ~20 threads)
+            recent_threshold = max(0, current_threads - 20)
+            recent_discoveries = 0
+            modes_at_threshold = 0
+            for snap in snapshots:
+                if snap["threads_reviewed"] <= recent_threshold:
+                    modes_at_threshold = snap["failure_modes_count"]
+            recent_discoveries = current_modes - modes_at_threshold
+            
+            # Calculate saturation score
+            saturation_score = 0.0
+            if total_notes > 0:
+                saturation_score = current_notes / total_notes
+            
+            # Determine status and recommendation
+            if current_threads == 0:
+                status = "no_data"
+                recommendation = "Start by reviewing some threads to begin building your failure taxonomy."
+                recommendation_type = "info"
+            elif current_modes == 0:
+                status = "discovering"
+                recommendation = "No failure modes yet. Review more threads and add notes to identify failure patterns."
+                recommendation_type = "action"
+            elif threads_since_last_discovery >= 20:
+                status = "saturated"
+                recommendation = f"Taxonomy appears stable. No new failure modes discovered in the last {threads_since_last_discovery} threads. You can focus on addressing existing issues."
+                recommendation_type = "success"
+            elif threads_since_last_discovery >= 10:
+                status = "approaching_saturation"
+                recommendation = f"Approaching saturation. Only {recent_discoveries} new modes in recent reviews. Consider reviewing {20 - threads_since_last_discovery} more threads to confirm stability."
+                recommendation_type = "info"
+            else:
+                status = "discovering"
+                recommendation = f"Still discovering new failure patterns. Recent activity: {recent_discoveries} new modes. Continue reviewing to build comprehensive taxonomy."
+                recommendation_type = "action"
+            
+            # If we don't have snapshots but do have data, create initial point
+            if len(snapshots) == 0 and (current_threads > 0 or current_modes > 0):
+                snapshots.append({
+                    "threads_reviewed": current_threads,
+                    "failure_modes_count": current_modes,
+                    "categorized_notes": current_notes,
+                    "saturation_score": saturation_score,
+                    "snapshot_date": now_iso()
+                })
+            
+            return {
+                "snapshots": snapshots,
+                "current_threads": current_threads,
+                "current_modes": current_modes,
+                "current_notes": current_notes,
+                "last_discovery_at_threads": last_discovery_at_threads,
+                "threads_since_last_discovery": threads_since_last_discovery,
+                "saturation_score": round(saturation_score, 3),
+                "saturation_status": status,
+                "recommendation": recommendation,
+                "recommendation_type": recommendation_type,
+                "recent_discoveries": recent_discoveries
             }
     
     # ------------------------------------------------------------------------

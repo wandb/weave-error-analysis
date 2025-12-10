@@ -42,6 +42,7 @@ import {
   calculateDistributionPercent,
 } from "../../utils/formatters";
 import { Panel, PanelHeader, Badge, ProgressBar, Modal, StatusBadge } from "../ui";
+import { SaturationChart } from "../SaturationChart";
 import type { TaxonomyNote, AISuggestion, AutoReview, SyntheticBatch, FailureMode, FailureModeStatus } from "../../types";
 import * as api from "../../lib/api";
 
@@ -510,6 +511,11 @@ export function TaxonomyTab() {
             </div>
                     </div>
                   </div>
+
+      {/* ========================================================================= */}
+      {/* Saturation Discovery Chart (Collapsible) */}
+      {/* ========================================================================= */}
+      <SaturationChart onRefresh={fetchTaxonomy} />
 
       {/* ========================================================================= */}
       {/* Status Filter Bar */}

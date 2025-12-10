@@ -4,7 +4,7 @@ import { useState, useRef } from "react";
 import {
   Cpu,
   Plus,
-  ChevronRight,
+  ChevronDown,
   RefreshCw,
   Wifi,
   WifiOff,
@@ -22,10 +22,17 @@ import {
   AlertTriangle,
   Target,
   Zap,
+  Layers,
+  FileText,
+  MessageSquare,
+  BarChart3,
+  TrendingUp,
+  Clock,
+  ArrowRight,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
-import { Panel, PanelHeader, Badge, StatusBadge, NoAgentsRegistered, SelectPrompt } from "../ui";
-import type { ToolCall, PlaygroundEvent } from "../../types";
+import { Panel, Badge, NoAgentsRegistered, SelectPrompt } from "../ui";
+import type { ToolCall, PlaygroundEvent, AgentStats } from "../../types";
 import * as api from "../../lib/api";
 
 export function AgentsTab() {
@@ -33,16 +40,22 @@ export function AgentsTab() {
     agents,
     selectedAgent,
     setSelectedAgent,
+    agentStats,
     loadingAgents,
+    loadingAgentStats,
     connectionResult,
     fetchAgents,
     fetchAgentDetail,
+    fetchAgentStats,
     testAgentConnection,
     createAgent,
     updateAgent,
     deleteAgent,
     setActiveTab,
   } = useApp();
+
+  // Dropdown state
+  const [dropdownOpen, setDropdownOpen] = useState(false);
 
   // Form state
   const [showAgentForm, setShowAgentForm] = useState(false);
@@ -214,18 +227,81 @@ export function AgentsTab() {
   };
 
   return (
-    <div className="grid grid-cols-12 gap-6">
-      {/* Agent List */}
-      <div className="col-span-4 space-y-4">
-        <Panel>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-display text-lg flex items-center gap-2">
-              <Cpu className="w-5 h-5 text-accent-teal" />
-              Registered Agents
-              <Badge variant="teal" className="text-xs">
-                {agents.length}
-              </Badge>
-            </h2>
+    <div className="space-y-6">
+      {/* Agent Selector Header */}
+      <Panel>
+        <div className="flex items-center justify-between gap-4">
+          {/* Agent Dropdown */}
+          <div className="flex-1 max-w-md relative">
+            <button
+              onClick={() => setDropdownOpen(!dropdownOpen)}
+              className="w-full flex items-center justify-between gap-3 p-3 rounded-lg border border-ink-700 bg-ink-800/50 hover:border-ink-600 transition-all"
+            >
+              {loadingAgents ? (
+                <span className="text-ink-400">Loading agents...</span>
+              ) : selectedAgent ? (
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                  <Cpu className="w-5 h-5 text-accent-teal flex-shrink-0" />
+                  <div className="flex-1 min-w-0 text-left">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-sand-100 truncate">{selectedAgent.name}</span>
+                      <span className="text-xs text-ink-400">v{selectedAgent.version}</span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <ConnectionStatusIcon status={selectedAgent.connection_status} />
+                    </div>
+                  </div>
+                </div>
+              ) : agents.length === 0 ? (
+                <span className="text-ink-400">No agents registered</span>
+              ) : (
+                <span className="text-ink-400">Select an agent...</span>
+              )}
+              <ChevronDown className={`w-4 h-4 text-ink-400 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {/* Dropdown Menu */}
+            {dropdownOpen && (
+              <div className="absolute top-full left-0 right-0 mt-2 bg-ink-900 border border-ink-700 rounded-lg shadow-xl z-50 max-h-64 overflow-y-auto">
+                {agents.map((agent) => (
+                  <button
+                    key={agent.id}
+                    onClick={() => {
+                      fetchAgentDetail(agent.id);
+                      setDropdownOpen(false);
+                    }}
+                    className={`w-full text-left p-3 hover:bg-ink-800 transition-colors first:rounded-t-lg last:rounded-b-lg ${
+                      selectedAgent?.id === agent.id ? 'bg-accent-teal/10' : ''
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <Cpu className="w-4 h-4 text-accent-teal flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-sand-100 truncate">{agent.name}</span>
+                          <span className="text-xs text-ink-400">v{agent.version}</span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <ConnectionStatusIcon status={agent.connection_status} />
+                          {agent.testing_dimensions_count > 0 && (
+                            <span className="text-xs text-ink-500">{agent.testing_dimensions_count} dimensions</span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                ))}
+                {agents.length === 0 && (
+                  <div className="p-4 text-center text-ink-400 text-sm">
+                    No agents registered yet
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Action Buttons */}
+          <div className="flex items-center gap-2">
             <button
               onClick={() => {
                 setAgentFormMode("create");
@@ -234,71 +310,46 @@ export function AgentsTab() {
               className="btn-primary text-sm flex items-center gap-1"
             >
               <Plus className="w-4 h-4" />
-              Add Agent
+              Register Agent
             </button>
           </div>
+        </div>
+      </Panel>
 
-          {loadingAgents ? (
-            <div className="text-center py-8 text-ink-400">Loading agents...</div>
-          ) : agents.length === 0 ? (
-            <NoAgentsRegistered
-              onRegister={() => {
-                setAgentFormMode("create");
-                setShowAgentForm(true);
-              }}
-            />
-          ) : (
-            <div className="space-y-2">
-              {agents.map((agent) => (
-                <button
-                  key={agent.id}
-                  onClick={() => fetchAgentDetail(agent.id)}
-                  className={`w-full text-left p-4 rounded-lg border transition-all ${
-                    selectedAgent?.id === agent.id
-                      ? "bg-accent-teal/10 border-accent-teal"
-                      : "bg-ink-800/50 border-ink-700 hover:border-ink-600"
-                  }`}
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium text-sand-100 truncate">{agent.name}</span>
-                        <span className="text-xs text-ink-400">v{agent.version}</span>
-                      </div>
-                      <p className="text-sm text-ink-400 truncate mt-1">{agent.purpose || agent.endpoint_url}</p>
-                      <div className="flex items-center gap-3 mt-2 text-xs">
-                        <ConnectionStatusIcon status={agent.connection_status} />
-                        {agent.testing_dimensions_count > 0 && (
-                          <span className="text-ink-400">{agent.testing_dimensions_count} dimensions</span>
-                        )}
-                      </div>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-ink-500 flex-shrink-0" />
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-        </Panel>
-      </div>
+      {/* Click outside to close dropdown */}
+      {dropdownOpen && (
+        <div 
+          className="fixed inset-0 z-40" 
+          onClick={() => setDropdownOpen(false)}
+        />
+      )}
 
-      {/* Agent Detail / Form */}
-      <div className="col-span-8 space-y-4">
-        {showAgentForm ? (
-          <AgentForm
-            mode={agentFormMode}
-            name={newAgentName}
-            endpoint={newAgentEndpoint}
-            info={newAgentInfo}
-            saving={savingAgent}
-            onNameChange={setNewAgentName}
-            onEndpointChange={setNewAgentEndpoint}
-            onInfoChange={setNewAgentInfo}
-            onLoadTemplate={getAgentInfoTemplate}
-            onSave={agentFormMode === "create" ? handleCreateAgent : handleUpdateAgent}
-            onCancel={resetAgentForm}
+      {/* Agent Form Modal */}
+      {showAgentForm ? (
+        <AgentForm
+          mode={agentFormMode}
+          name={newAgentName}
+          endpoint={newAgentEndpoint}
+          info={newAgentInfo}
+          saving={savingAgent}
+          onNameChange={setNewAgentName}
+          onEndpointChange={setNewAgentEndpoint}
+          onInfoChange={setNewAgentInfo}
+          onLoadTemplate={getAgentInfoTemplate}
+          onSave={agentFormMode === "create" ? handleCreateAgent : handleUpdateAgent}
+          onCancel={resetAgentForm}
+        />
+      ) : selectedAgent ? (
+        <>
+          {/* Agent Status Snapshot */}
+          <AgentStatusSnapshot 
+            stats={agentStats} 
+            loading={loadingAgentStats}
+            onRefresh={() => fetchAgentStats(selectedAgent.id)}
+            onNavigate={(tab) => setActiveTab(tab)}
           />
-        ) : selectedAgent ? (
+
+          {/* Agent Details */}
           <AgentDetailView
             agent={selectedAgent}
             connectionResult={connectionResult}
@@ -329,28 +380,27 @@ export function AgentsTab() {
             onRunQuery={runAgentQuery}
             onGoToSynthetic={() => setActiveTab("synthetic")}
           />
-        ) : (
-          <Panel>
-            <SelectPrompt
-              icon={<Cpu className="w-16 h-16" />}
-              title="Select an Agent"
-              description="Choose an agent from the list to view details, or register a new one."
+        </>
+      ) : (
+        <Panel>
+          {agents.length === 0 ? (
+            <NoAgentsRegistered
+              onRegister={() => {
+                setAgentFormMode("create");
+                setShowAgentForm(true);
+              }}
             />
-            <div className="flex justify-center pb-6">
-              <button
-                onClick={() => {
-                  setAgentFormMode("create");
-                  setShowAgentForm(true);
-                }}
-                className="btn-primary flex items-center gap-2"
-              >
-                <Plus className="w-4 h-4" />
-                <span>REGISTER NEW AGENT</span>
-              </button>
-            </div>
-          </Panel>
-        )}
-      </div>
+          ) : (
+            <>
+              <SelectPrompt
+                icon={<Cpu className="w-16 h-16" />}
+                title="Select an Agent"
+                description="Use the dropdown above to select an agent to view its details and statistics."
+              />
+            </>
+          )}
+        </Panel>
+      )}
     </div>
   );
 }
@@ -368,6 +418,234 @@ function ConnectionStatusIcon({ status }: { status: string }) {
       {status}
     </span>
   );
+}
+
+// Agent Status Snapshot Component
+function AgentStatusSnapshot({
+  stats,
+  loading,
+  onRefresh,
+  onNavigate,
+}: {
+  stats: AgentStats | null;
+  loading: boolean;
+  onRefresh: () => void;
+  onNavigate: (tab: "synthetic" | "threads" | "taxonomy") => void;
+}) {
+  if (loading) {
+    return (
+      <Panel>
+        <div className="flex items-center justify-center py-8 text-ink-400">
+          <RefreshCw className="w-5 h-5 animate-spin mr-2" />
+          Loading stats...
+        </div>
+      </Panel>
+    );
+  }
+
+  if (!stats) {
+    return (
+      <Panel>
+        <div className="text-center py-6 text-ink-400">
+          <p>No statistics available yet.</p>
+          <p className="text-sm mt-1">Generate some synthetic data to see agent stats.</p>
+        </div>
+      </Panel>
+    );
+  }
+
+  const saturationColorClass = 
+    stats.saturation_status === "saturated" ? "text-emerald-400" :
+    stats.saturation_status === "approaching" ? "text-amber-400" : "text-accent-teal";
+
+  return (
+    <Panel>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-display text-lg flex items-center gap-2">
+          <BarChart3 className="w-5 h-5 text-accent-teal" />
+          Agent Status Snapshot
+        </h3>
+        <button 
+          onClick={onRefresh}
+          className="btn-ghost text-sm flex items-center gap-1"
+        >
+          <RefreshCw className="w-4 h-4" />
+          Refresh
+        </button>
+      </div>
+
+      {/* Stats Grid */}
+      <div className="grid grid-cols-4 gap-4 mb-6">
+        {/* Batches */}
+        <div className="bg-ink-800/50 rounded-lg p-4 border border-ink-700">
+          <div className="flex items-center gap-2 text-ink-400 mb-2">
+            <Layers className="w-4 h-4" />
+            <span className="text-xs uppercase tracking-wide">Batches</span>
+          </div>
+          <div className="text-2xl font-display text-sand-100">{stats.total_batches}</div>
+          <div className="text-xs text-ink-400 mt-1">
+            {stats.completed_batches} completed · {stats.pending_batches} pending
+          </div>
+        </div>
+
+        {/* Queries */}
+        <div className="bg-ink-800/50 rounded-lg p-4 border border-ink-700">
+          <div className="flex items-center gap-2 text-ink-400 mb-2">
+            <FileText className="w-4 h-4" />
+            <span className="text-xs uppercase tracking-wide">Queries</span>
+          </div>
+          <div className="text-2xl font-display text-sand-100">{stats.total_queries}</div>
+          <div className="text-xs text-ink-400 mt-1">
+            <span className="text-emerald-400">{stats.success_queries} ✓</span>
+            {stats.failed_queries > 0 && <span className="text-red-400 ml-2">{stats.failed_queries} ✗</span>}
+          </div>
+        </div>
+
+        {/* Reviewed */}
+        <div className="bg-ink-800/50 rounded-lg p-4 border border-ink-700">
+          <div className="flex items-center gap-2 text-ink-400 mb-2">
+            <MessageSquare className="w-4 h-4" />
+            <span className="text-xs uppercase tracking-wide">Reviewed</span>
+          </div>
+          <div className="text-2xl font-display text-sand-100">
+            {stats.reviewed_threads}
+            <span className="text-lg text-ink-400">/{stats.total_threads}</span>
+          </div>
+          <div className="text-xs text-ink-400 mt-1">
+            {stats.review_progress_percent.toFixed(0)}% complete
+          </div>
+        </div>
+
+        {/* Failure Modes */}
+        <div className="bg-ink-800/50 rounded-lg p-4 border border-ink-700">
+          <div className="flex items-center gap-2 text-ink-400 mb-2">
+            <AlertTriangle className="w-4 h-4" />
+            <span className="text-xs uppercase tracking-wide">Failures</span>
+          </div>
+          <div className="text-2xl font-display text-sand-100">{stats.total_failure_modes}</div>
+          <div className="text-xs text-ink-400 mt-1">
+            {stats.total_categorized_notes} notes categorized
+          </div>
+        </div>
+      </div>
+
+      {/* Progress Bars */}
+      <div className="grid grid-cols-2 gap-6 mb-6">
+        {/* Review Progress */}
+        <div>
+          <div className="flex items-center justify-between text-sm mb-2">
+            <span className="text-ink-400">Review Progress</span>
+            <span className="text-sand-200">{stats.review_progress_percent.toFixed(0)}%</span>
+          </div>
+          <div className="h-2 bg-ink-800 rounded-full overflow-hidden">
+            <div 
+              className="h-full bg-accent-teal rounded-full transition-all"
+              style={{ width: `${Math.min(stats.review_progress_percent, 100)}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Saturation */}
+        <div>
+          <div className="flex items-center justify-between text-sm mb-2">
+            <span className="text-ink-400">Saturation</span>
+            <span className={saturationColorClass}>
+              {stats.saturation_score.toFixed(0)}% ({stats.saturation_status})
+            </span>
+          </div>
+          <div className="h-2 bg-ink-800 rounded-full overflow-hidden">
+            <div 
+              className={`h-full rounded-full transition-all ${
+                stats.saturation_status === "saturated" ? "bg-emerald-500" :
+                stats.saturation_status === "approaching" ? "bg-amber-500" : "bg-accent-teal"
+              }`}
+              style={{ width: `${Math.min(stats.saturation_score, 100)}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Activity & Top Failure */}
+      <div className="grid grid-cols-2 gap-6 mb-6">
+        {/* Latest Batch */}
+        {stats.latest_batch_name && (
+          <div className="flex items-start gap-3 text-sm">
+            <Clock className="w-4 h-4 text-ink-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <span className="text-ink-400">Latest Batch: </span>
+              <span className="text-sand-200">{stats.latest_batch_name}</span>
+              {stats.latest_batch_completed_at && (
+                <span className="text-ink-500 ml-1">
+                  ({formatTimeAgo(stats.latest_batch_completed_at)})
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Top Failure Mode */}
+        {stats.top_failure_mode && (
+          <div className="flex items-start gap-3 text-sm">
+            <TrendingUp className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <span className="text-ink-400">Top Failure: </span>
+              <span className="text-sand-200">{stats.top_failure_mode}</span>
+              {stats.top_failure_mode_percent && (
+                <span className="text-red-400 ml-1">
+                  ({stats.top_failure_mode_percent}%)
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Quick Links */}
+      <div className="flex items-center gap-3 pt-4 border-t border-ink-700">
+        <button 
+          onClick={() => onNavigate("synthetic")}
+          className="text-sm text-accent-amber hover:text-accent-amber/80 flex items-center gap-1"
+        >
+          <Zap className="w-4 h-4" />
+          View Synthetic Data
+          <ArrowRight className="w-3 h-3" />
+        </button>
+        <span className="text-ink-600">|</span>
+        <button 
+          onClick={() => onNavigate("threads")}
+          className="text-sm text-accent-teal hover:text-accent-teal/80 flex items-center gap-1"
+        >
+          <MessageSquare className="w-4 h-4" />
+          View Threads
+          <ArrowRight className="w-3 h-3" />
+        </button>
+        <span className="text-ink-600">|</span>
+        <button 
+          onClick={() => onNavigate("taxonomy")}
+          className="text-sm text-accent-plum hover:text-accent-plum/80 flex items-center gap-1"
+        >
+          <BarChart3 className="w-4 h-4" />
+          View Taxonomy
+          <ArrowRight className="w-3 h-3" />
+        </button>
+      </div>
+    </Panel>
+  );
+}
+
+// Helper function to format time ago
+function formatTimeAgo(isoString: string): string {
+  const date = new Date(isoString);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  if (diffMins < 1) return "just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  return `${diffDays}d ago`;
 }
 
 function AgentForm({

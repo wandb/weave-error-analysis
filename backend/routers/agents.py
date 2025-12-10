@@ -12,9 +12,10 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from database import get_db, generate_id, now_iso
+from database import get_db, get_db_readonly, generate_id, now_iso
 from services.agent_info import parse_agent_info, validate_agent_info, generate_template
 from services.agui_client import AGUIClient, AGUIEvent
+from models import AgentStats
 
 router = APIRouter(prefix="/api", tags=["agents"])
 
@@ -224,6 +225,156 @@ async def validate_agent_info_endpoint(content: str = Query(..., description="AG
     """
     result = validate_agent_info(content)
     return AgentInfoValidationResult(**result)
+
+
+@router.get("/agents/{agent_id}/stats", response_model=AgentStats)
+async def get_agent_stats(agent_id: str):
+    """
+    Get comprehensive statistics for an agent.
+    
+    Returns batch counts, query stats, thread review progress,
+    failure mode stats, and recent activity.
+    """
+    with get_db_readonly() as conn:
+        cursor = conn.cursor()
+        
+        # Verify agent exists and get name
+        cursor.execute("SELECT id, name FROM agents WHERE id = ?", (agent_id,))
+        agent_row = cursor.fetchone()
+        if not agent_row:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        
+        agent_name = agent_row["name"]
+        
+        # Batch stats
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+                SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed
+            FROM synthetic_batches
+            WHERE agent_id = ?
+        """, (agent_id,))
+        batch_row = cursor.fetchone()
+        total_batches = batch_row["total"] or 0
+        pending_batches = batch_row["pending"] or 0
+        completed_batches = batch_row["completed"] or 0
+        
+        # Query stats - join with batches to filter by agent
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN sq.execution_status != 'pending' THEN 1 ELSE 0 END) as executed,
+                SUM(CASE WHEN sq.execution_status = 'success' THEN 1 ELSE 0 END) as success,
+                SUM(CASE WHEN sq.execution_status = 'error' THEN 1 ELSE 0 END) as failed
+            FROM synthetic_queries sq
+            JOIN synthetic_batches sb ON sq.batch_id = sb.id
+            WHERE sb.agent_id = ?
+        """, (agent_id,))
+        query_row = cursor.fetchone()
+        total_queries = query_row["total"] or 0
+        executed_queries = query_row["executed"] or 0
+        success_queries = query_row["success"] or 0
+        failed_queries = query_row["failed"] or 0
+        
+        # Thread/Session stats - sessions linked to this agent's batches
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN s.is_reviewed = 1 THEN 1 ELSE 0 END) as reviewed,
+                SUM(CASE WHEN s.is_reviewed = 0 OR s.is_reviewed IS NULL THEN 1 ELSE 0 END) as unreviewed
+            FROM sessions s
+            JOIN synthetic_batches sb ON s.batch_id = sb.id
+            WHERE sb.agent_id = ?
+        """, (agent_id,))
+        thread_row = cursor.fetchone()
+        total_threads = thread_row["total"] or 0
+        reviewed_threads = thread_row["reviewed"] or 0
+        unreviewed_threads = thread_row["unreviewed"] or 0
+        review_progress_percent = (reviewed_threads / total_threads * 100) if total_threads > 0 else 0.0
+        
+        # Failure mode stats - global (not per-agent yet, as failure modes are agent-agnostic)
+        cursor.execute("SELECT COUNT(*) as total FROM failure_modes")
+        fm_row = cursor.fetchone()
+        total_failure_modes = fm_row["total"] or 0
+        
+        cursor.execute("SELECT COUNT(*) as total FROM notes WHERE failure_mode_id IS NOT NULL")
+        cat_row = cursor.fetchone()
+        total_categorized_notes = cat_row["total"] or 0
+        
+        # Calculate saturation from saturation_log
+        cursor.execute("""
+            SELECT 
+                SUM(new_modes_created) as new_modes,
+                SUM(existing_modes_matched) as matched
+            FROM saturation_log
+            ORDER BY timestamp DESC
+            LIMIT 20
+        """)
+        sat_row = cursor.fetchone()
+        window_new_modes = sat_row["new_modes"] or 0 if sat_row else 0
+        window_matched = sat_row["matched"] or 0 if sat_row else 0
+        
+        total_window = window_new_modes + window_matched
+        saturation_score = (window_matched / total_window * 100) if total_window > 0 else 0.0
+        
+        if saturation_score >= 90:
+            saturation_status = "saturated"
+        elif saturation_score >= 70:
+            saturation_status = "approaching"
+        else:
+            saturation_status = "discovering"
+        
+        # Top failure mode (by note count)
+        cursor.execute("""
+            SELECT fm.name, COUNT(n.id) as note_count
+            FROM failure_modes fm
+            LEFT JOIN notes n ON n.failure_mode_id = fm.id
+            GROUP BY fm.id
+            ORDER BY note_count DESC
+            LIMIT 1
+        """)
+        top_fm_row = cursor.fetchone()
+        top_failure_mode = top_fm_row["name"] if top_fm_row and top_fm_row["note_count"] > 0 else None
+        top_failure_mode_percent = None
+        if top_fm_row and top_fm_row["note_count"] > 0 and total_categorized_notes > 0:
+            top_failure_mode_percent = round(top_fm_row["note_count"] / total_categorized_notes * 100, 1)
+        
+        # Latest batch activity for this agent
+        cursor.execute("""
+            SELECT name, completed_at
+            FROM synthetic_batches
+            WHERE agent_id = ? AND status = 'completed'
+            ORDER BY completed_at DESC
+            LIMIT 1
+        """, (agent_id,))
+        latest_row = cursor.fetchone()
+        latest_batch_name = latest_row["name"] if latest_row else None
+        latest_batch_completed_at = latest_row["completed_at"] if latest_row else None
+    
+    return AgentStats(
+        agent_id=agent_id,
+        agent_name=agent_name,
+        total_batches=total_batches,
+        pending_batches=pending_batches,
+        completed_batches=completed_batches,
+        total_queries=total_queries,
+        executed_queries=executed_queries,
+        success_queries=success_queries,
+        failed_queries=failed_queries,
+        total_threads=total_threads,
+        reviewed_threads=reviewed_threads,
+        unreviewed_threads=unreviewed_threads,
+        review_progress_percent=round(review_progress_percent, 1),
+        total_failure_modes=total_failure_modes,
+        total_categorized_notes=total_categorized_notes,
+        saturation_score=round(saturation_score, 1),
+        saturation_status=saturation_status,
+        top_failure_mode=top_failure_mode,
+        top_failure_mode_percent=top_failure_mode_percent,
+        latest_batch_name=latest_batch_name,
+        latest_batch_completed_at=latest_batch_completed_at
+    )
 
 
 @router.get("/agents/{agent_id}", response_model=AgentDetailResponse)

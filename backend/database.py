@@ -199,6 +199,19 @@ def init_db():
                 )
             """)
             
+            # Saturation snapshots - tracks cumulative discovery curve
+            # Records a point on the "failure modes vs threads reviewed" chart
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS saturation_snapshots (
+                    id TEXT PRIMARY KEY,
+                    snapshot_date TEXT NOT NULL,
+                    threads_reviewed INTEGER NOT NULL,
+                    failure_modes_count INTEGER NOT NULL,
+                    categorized_notes INTEGER NOT NULL DEFAULT 0,
+                    saturation_score REAL NOT NULL DEFAULT 0.0
+                )
+            """)
+            
             # Reviewed threads table - tracks which threads have been reviewed
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS reviewed_threads (
@@ -318,6 +331,10 @@ def init_db():
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_saturation_timestamp 
                 ON saturation_log(timestamp)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_saturation_snapshots_threads 
+                ON saturation_snapshots(threads_reviewed)
             """)
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_reviewed_threads_date 
@@ -684,8 +701,8 @@ def get_db_stats() -> dict:
     
     # Get table counts
     tables = [
-        "failure_modes", "notes", "saturation_log", "reviewed_threads",
-        "agents", "agent_dimensions", "agent_versions", 
+        "failure_modes", "notes", "saturation_log", "saturation_snapshots",
+        "reviewed_threads", "agents", "agent_dimensions", "agent_versions", 
         "synthetic_batches", "synthetic_queries", "auto_reviews",
         "sessions", "session_notes", "sync_status"
     ]

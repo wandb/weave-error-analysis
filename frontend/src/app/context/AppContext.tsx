@@ -17,6 +17,7 @@ import type {
   AnnotationProgress,
   Agent,
   AgentDetail,
+  AgentStats,
   Taxonomy,
   Dimension,
   SyntheticBatch,
@@ -125,12 +126,15 @@ interface AppState {
   // Agents
   agents: Agent[];
   selectedAgent: AgentDetail | null;
+  agentStats: AgentStats | null;
   loadingAgents: boolean;
+  loadingAgentStats: boolean;
   connectionResult: ConnectionTestResult | null;
 
   // Agent Actions
   fetchAgents: () => Promise<void>;
   fetchAgentDetail: (agentId: string) => Promise<void>;
+  fetchAgentStats: (agentId: string) => Promise<void>;
   selectAgentWithData: (agent: Agent) => Promise<void>;
   testAgentConnection: (agentId: string) => Promise<void>;
   createAgent: (name: string, endpoint: string, info: string) => Promise<void>;
@@ -255,7 +259,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Agents state
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedAgent, setSelectedAgent] = useState<AgentDetail | null>(null);
+  const [agentStats, setAgentStats] = useState<AgentStats | null>(null);
   const [loadingAgents, setLoadingAgents] = useState(false);
+  const [loadingAgentStats, setLoadingAgentStats] = useState(false);
   const [connectionResult, setConnectionResult] = useState<ConnectionTestResult | null>(null);
 
   // Taxonomy state
@@ -575,13 +581,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
     try {
       const data = await api.fetchAgentDetail(agentId);
       setSelectedAgent(data);
-      // Load dimensions and batches in parallel for faster loading
+      // Load dimensions, batches, and stats in parallel for faster loading
       await Promise.all([
         fetchDimensionsData(agentId),
-        fetchBatchesData(agentId)
+        fetchBatchesData(agentId),
+        fetchAgentStatsData(agentId)
       ]);
     } catch (error) {
       console.error("Error fetching agent detail:", error);
+    }
+  };
+
+  const fetchAgentStatsData = async (agentId: string) => {
+    setLoadingAgentStats(true);
+    try {
+      const stats = await api.fetchAgentStats(agentId);
+      setAgentStats(stats);
+    } catch (error) {
+      console.error("Error fetching agent stats:", error);
+      setAgentStats(null);
+    } finally {
+      setLoadingAgentStats(false);
     }
   };
 
@@ -927,11 +947,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     agents,
     selectedAgent,
+    agentStats,
     loadingAgents,
+    loadingAgentStats,
     connectionResult,
 
     fetchAgents: fetchAgentsData,
     fetchAgentDetail: fetchAgentDetailData,
+    fetchAgentStats: fetchAgentStatsData,
     selectAgentWithData,
     testAgentConnection: testAgentConnectionAction,
     createAgent: createAgentAction,

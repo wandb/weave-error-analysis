@@ -216,6 +216,40 @@ export interface AgentDetail extends Agent {
   }>;
 }
 
+export interface AgentStats {
+  agent_id: string;
+  agent_name: string;
+  
+  // Batch stats
+  total_batches: number;
+  pending_batches: number;
+  completed_batches: number;
+  
+  // Query stats
+  total_queries: number;
+  executed_queries: number;
+  success_queries: number;
+  failed_queries: number;
+  
+  // Thread/Session stats
+  total_threads: number;
+  reviewed_threads: number;
+  unreviewed_threads: number;
+  review_progress_percent: number;
+  
+  // Failure mode stats
+  total_failure_modes: number;
+  total_categorized_notes: number;
+  saturation_score: number;
+  saturation_status: "discovering" | "approaching" | "saturated";
+  top_failure_mode: string | null;
+  top_failure_mode_percent: number | null;
+  
+  // Activity
+  latest_batch_name: string | null;
+  latest_batch_completed_at: string | null;
+}
+
 export interface ConnectionTestResult {
   success: boolean;
   status_code: number | null;

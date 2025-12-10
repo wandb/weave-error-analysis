@@ -90,6 +90,27 @@ async def get_saturation_stats(window_size: int = Query(20, ge=5, le=100)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/saturation-history")
+async def get_saturation_history():
+    """
+    Get the full saturation discovery history for the chart visualization.
+    
+    Returns:
+    - snapshots: List of (threads_reviewed, failure_modes_count) points for the curve
+    - current_threads: Current number of reviewed threads
+    - current_modes: Current number of failure modes
+    - last_discovery_at_threads: Thread count when last new mode was discovered
+    - threads_since_last_discovery: Threads reviewed since last new mode
+    - saturation_status: "no_data", "discovering", "approaching_saturation", "saturated"
+    - recommendation: Actionable guidance based on status
+    - recommendation_type: "info", "action", or "success"
+    """
+    try:
+        return taxonomy_service.get_saturation_history()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============================================================================
 # Failure Mode CRUD Endpoints
 # ============================================================================

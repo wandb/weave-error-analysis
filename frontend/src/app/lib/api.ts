@@ -5,6 +5,7 @@ import type {
   AnnotationProgress,
   Agent,
   AgentDetail,
+  AgentStats,
   ConnectionTestResult,
   Taxonomy,
   AISuggestion,
@@ -202,6 +203,14 @@ export async function getAgentInfoTemplate(name: string = "My Agent"): Promise<s
   return data.template;
 }
 
+export async function fetchAgentStats(agentId: string): Promise<AgentStats> {
+  const response = await fetch(`${API_BASE}/agents/${agentId}/stats`);
+  if (!response.ok) {
+    throw new Error("Failed to fetch agent stats");
+  }
+  return response.json();
+}
+
 // ============================================================================
 // Taxonomy API
 // ============================================================================
@@ -222,6 +231,34 @@ export async function autoCategorize(): Promise<{ categorized: number }> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({}),
   });
+  return response.json();
+}
+
+// Saturation History API
+export interface SaturationSnapshot {
+  threads_reviewed: number;
+  failure_modes_count: number;
+  categorized_notes: number;
+  saturation_score: number;
+  snapshot_date: string;
+}
+
+export interface SaturationHistory {
+  snapshots: SaturationSnapshot[];
+  current_threads: number;
+  current_modes: number;
+  current_notes: number;
+  last_discovery_at_threads: number;
+  threads_since_last_discovery: number;
+  saturation_score: number;
+  saturation_status: "no_data" | "discovering" | "approaching_saturation" | "saturated";
+  recommendation: string;
+  recommendation_type: "info" | "action" | "success";
+  recent_discoveries: number;
+}
+
+export async function fetchSaturationHistory(): Promise<SaturationHistory> {
+  const response = await fetch(`${API_BASE}/taxonomy/saturation-history`);
   return response.json();
 }
 

@@ -116,7 +116,7 @@ async def update_setting(key: str, request: UpdateSettingRequest):
     """
     # Don't allow empty values for required settings
     required_for_function = {
-        "llm_api_key": "LLM features (synthetic generation, auto-review)",
+        "llm_api_key": "LLM features (synthetic generation, AI suggestions)",
         "weave_api_key": "Weave trace retrieval",
     }
     

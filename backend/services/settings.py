@@ -46,7 +46,7 @@ DEFAULT_SETTINGS = {
     "llm_model": {
         "value": "gpt-4o-mini",
         "is_secret": False,
-        "description": "Model name for synthetic data generation and auto-review"
+        "description": "Model name for synthetic data generation and AI suggestions"
     },
     "llm_api_key": {
         "value": "",
@@ -76,18 +76,6 @@ DEFAULT_SETTINGS = {
         "description": "Weave project name"
     },
     
-    # Auto-review Settings
-    "auto_review_model": {
-        "value": "openai/gpt-5.1",
-        "is_secret": False,
-        "description": "Model to use for automated trace reviews"
-    },
-    "auto_review_concurrency": {
-        "value": "10",
-        "is_secret": False,
-        "description": "Maximum concurrent LLM calls during auto-review"
-    },
-    
     # AI Suggestions Settings
     "suggestion_confidence_threshold": {
         "value": "0.6",
@@ -97,7 +85,7 @@ DEFAULT_SETTINGS = {
     "suggestion_model": {
         "value": "",
         "is_secret": False,
-        "description": "Model for AI suggestions (leave empty to use auto-review model)"
+        "description": "Model for AI suggestions (leave empty to use default LLM model)"
     },
     "suggestion_auto_analyze": {
         "value": "true",
@@ -269,7 +257,7 @@ def get_settings_grouped() -> List[SettingsGroup]:
     groups = [
         SettingsGroup(
             name="LLM Configuration",
-            description="Settings for the AI model used in synthetic data generation and auto-review",
+            description="Settings for the AI model used in synthetic data generation and AI suggestions",
             settings=[
                 all_settings.get("llm_provider", SettingValue(key="llm_provider", value="")),
                 all_settings.get("llm_model", SettingValue(key="llm_model", value="")),
@@ -284,14 +272,6 @@ def get_settings_grouped() -> List[SettingsGroup]:
                 all_settings.get("weave_api_key", SettingValue(key="weave_api_key", value="", is_secret=True)),
                 all_settings.get("weave_entity", SettingValue(key="weave_entity", value="")),
                 all_settings.get("weave_project", SettingValue(key="weave_project", value="")),
-            ]
-        ),
-        SettingsGroup(
-            name="Auto-Review Settings",
-            description="Configuration for automated trace review",
-            settings=[
-                all_settings.get("auto_review_model", SettingValue(key="auto_review_model", value="")),
-                all_settings.get("auto_review_concurrency", SettingValue(key="auto_review_concurrency", value="")),
             ]
         ),
         SettingsGroup(
@@ -342,7 +322,7 @@ def get_litellm_kwargs() -> Dict[str, Any]:
     """
     Get kwargs for litellm calls based on current settings.
     
-    This allows synthetic generation and auto-review to use the configured LLM.
+    This allows synthetic generation and AI suggestions to use the configured LLM.
     Logs the resolved configuration for visibility.
     """
     kwargs = {}

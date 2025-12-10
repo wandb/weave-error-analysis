@@ -265,6 +265,61 @@ export async function deleteFailureMode(modeId: string): Promise<void> {
   await fetch(`${API_BASE}/taxonomy/failure-modes/${modeId}`, { method: "DELETE" });
 }
 
+// Batch Categorization API
+export interface BatchSuggestion {
+  note_id: string;
+  note_content: string;
+  session_id: string | null;
+  source_type: string | null;
+  suggestion: AISuggestion;
+}
+
+export interface BatchSuggestResult {
+  total_notes: number;
+  suggestions: BatchSuggestion[];
+  errors: Array<{ note_id: string; error: string }>;
+}
+
+export interface BatchApplyAssignment {
+  note_id: string;
+  action: "existing" | "new" | "skip";
+  failure_mode_id?: string;
+  new_category?: {
+    name: string;
+    description: string;
+    severity: string;
+    suggested_fix?: string;
+  };
+}
+
+export interface BatchApplyResult {
+  applied: number;
+  new_modes_created: number;
+  existing_modes_matched: number;
+  skipped: number;
+  errors: Array<{ note_id?: string; error: string }>;
+}
+
+export async function batchSuggestCategories(noteIds?: string[]): Promise<BatchSuggestResult> {
+  const response = await fetch(`${API_BASE}/taxonomy/batch-suggest`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ note_ids: noteIds || null }),
+  });
+  return response.json();
+}
+
+export async function batchApplyCategories(
+  assignments: BatchApplyAssignment[]
+): Promise<BatchApplyResult> {
+  const response = await fetch(`${API_BASE}/taxonomy/batch-apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ assignments }),
+  });
+  return response.json();
+}
+
 // ============================================================================
 // Synthetic Data API
 // ============================================================================

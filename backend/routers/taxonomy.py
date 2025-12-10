@@ -250,6 +250,21 @@ async def unassign_note(note_id: str):
     return {"status": "unassigned", "note_id": note_id}
 
 
+@router.get("/notes/{note_id}/session")
+async def get_note_session(note_id: str):
+    """
+    Get the session info associated with a note.
+    
+    Returns session details if the note came from a session note,
+    or null if it's a Weave feedback note.
+    """
+    try:
+        session_info = taxonomy_service.get_note_session(note_id)
+        return {"session": session_info}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============================================================================
 # AI Categorization Endpoints
 # ============================================================================
@@ -285,6 +300,68 @@ async def auto_categorize(request: AutoCategorizeRequest):
     """
     try:
         result = await taxonomy_service.auto_categorize_notes(request.note_ids)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Batch Categorization Endpoints (Phase 2)
+# ============================================================================
+
+class BatchSuggestRequest(BaseModel):
+    note_ids: Optional[List[str]] = None  # If None, suggest for all uncategorized
+
+
+class BatchApplyAssignment(BaseModel):
+    note_id: str
+    action: str  # "existing" | "new" | "skip"
+    failure_mode_id: Optional[str] = None  # Required if action is "existing"
+    new_category: Optional[dict] = None  # Required if action is "new"
+
+
+class BatchApplyRequest(BaseModel):
+    assignments: List[BatchApplyAssignment]
+
+
+@router.post("/batch-suggest")
+async def batch_suggest_categories(request: BatchSuggestRequest):
+    """
+    Get AI suggestions for multiple notes WITHOUT applying them.
+    
+    This is the first step of the batch categorization workflow:
+    1. Call this endpoint to get suggestions for all uncategorized notes
+    2. User reviews suggestions in the UI
+    3. User confirms/modifies/skips each suggestion
+    4. Call /batch-apply to apply confirmed suggestions
+    
+    Returns a list of suggestions with confidence scores for human review.
+    """
+    try:
+        result = await taxonomy_service.batch_suggest_categories(request.note_ids)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/batch-apply")
+async def batch_apply_categories(request: BatchApplyRequest):
+    """
+    Apply multiple category assignments at once.
+    
+    This is the second step of the batch categorization workflow.
+    Call this after user has reviewed suggestions from /batch-suggest.
+    
+    Each assignment should specify:
+    - note_id: The note to categorize
+    - action: "existing" (assign to existing mode), "new" (create new mode), or "skip"
+    - failure_mode_id: Required if action is "existing"
+    - new_category: Required if action is "new" (with name, description, severity, suggested_fix)
+    """
+    try:
+        # Convert to list of dicts
+        assignments = [a.model_dump() for a in request.assignments]
+        result = taxonomy_service.batch_apply_categories(assignments)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

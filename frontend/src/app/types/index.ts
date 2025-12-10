@@ -249,6 +249,8 @@ export interface TaxonomyNote {
   assignment_method: string | null;
   created_at: string;
   assigned_at: string | null;
+  session_id: string | null;
+  source_type: string | null;
 }
 
 export interface SaturationStats {

@@ -650,13 +650,15 @@ class SessionRepository:
             # This allows session notes to be categorized alongside Weave feedback notes
             cursor.execute("""
                 INSERT INTO notes (
-                    id, content, trace_id, created_at
-                ) VALUES (?, ?, ?, ?)
+                    id, content, trace_id, created_at, session_id, source_type
+                ) VALUES (?, ?, ?, ?, ?, ?)
             """, (
                 note_id,  # Use same ID to link them
                 content,
                 root_trace_id,
-                now
+                now,
+                session_id,
+                'session_note'
             ))
             
             logger.info(f"Created session note {note_id} for session {session_id}, synced to taxonomy")

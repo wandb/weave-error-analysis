@@ -12,7 +12,7 @@ This document outlines improvements needed to transform the Taxonomy tab from a 
 
 Before diving into fixes, let's ground ourselves in what effective error analysis looks like:
 
-### The Error Analysis Process
+### The Error Analysis Process 
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -67,33 +67,29 @@ Before diving into fixes, let's ground ourselves in what effective error analysi
 
 ### What's Broken or Missing
 
-#### 2.1 The Core Workflow is Disconnected
+#### 2.1 The Core Workflow is Partially Connected
 
-**Problem**: The Taxonomy tab operates in isolation.
+**Status Update**: Session notes are now synced to the taxonomy `notes` table. When you create a note in the Sessions tab, it's inserted into BOTH `session_notes` AND `notes` tables (using the same ID to link them). This means session notes DO appear in Taxonomy's uncategorized section and ARE used for taxonomy generation.
 
-- **Sessions → Taxonomy Gap**: When you add a note in the Sessions tab, it goes to `session_notes` table. These notes never appear in Taxonomy. The Taxonomy tab only pulls from Weave feedback (`notes` table).
+- **Sessions → Taxonomy**: ✅ FIXED. Session notes are now automatically synced to the taxonomy `notes` table via dual-insert in `session_repository.create_note()`.
 
-- **AI Review → Taxonomy Gap**: The FAILS pipeline discovers failure categories, but they live in `auto_reviews` table. There's no way to import these as manual taxonomy entries.
+- **AI Review → Taxonomy Gap**: ⚠️ BROKEN. The FAILS pipeline integration is currently broken. Even when working, discovered failure categories live in `auto_reviews` table with no way to import them as manual taxonomy entries.
 
 - **Synthetic → Review Gap**: After running synthetic batches, there's no streamlined path to review results in Taxonomy context.
 
 ```
-Current (Broken):
-Sessions Notes ─┐
-                ├─→ Two separate databases, no connection
-Weave Feedback ─┘
-
-AI Review Categories ───→ Displayed but not actionable
-Manual Taxonomy      ───→ Separate system entirely
-
-What it should be:
+Current State:
 Sessions Notes ────┐
-                   ├─→ Unified Notes Pool ───→ Failure Taxonomy
-Weave Feedback ────┘                              ↑
-                                                  │
-AI Review Categories ─────────────────────────────┘
-                     (can import as starting point)
+                   ├─→ Unified Notes Table (`notes`) ───→ Failure Taxonomy
+Weave Feedback ────┘                                          
+                                                  
+AI Review Categories ───→ Displayed but not actionable (still a gap)
 ```
+
+**Remaining gaps to fix:**
+- ⚠️ FAILS integration is broken and needs to be fixed
+- AI Review categories should be importable as taxonomy failure modes
+- Batch review flow could be more streamlined
 
 #### 2.2 Open Coding (Journaling) is Unsupported
 
@@ -206,49 +202,22 @@ CREATE TABLE note_sources (
 );
 ```
 
-### 3.2 Add Review Mode
+### 3.2 ~~Add Review Mode~~ (Already Implemented in Sessions Tab)
 
-**Priority: P0 (Blocker)**
+**Priority: P2 (Nice to have UX improvements - core features already exist)**
 
-Create a dedicated "Review Mode" for open coding:
+**Status Update**: The Sessions tab already implements the core review workflow:
+- ✅ Session list with filtering (reviewed/unreviewed, has errors, by batch)
+- ✅ Session detail view with full conversation and tool calls
+- ✅ Note-taking capability (notes automatically sync to Taxonomy's `notes` table)
+- ✅ Mark as reviewed / unmark functionality  
+- ✅ Batch review progress tracking (X/Y reviewed, Z remaining)
+- ✅ "Next unreviewed" session navigation
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         REVIEW MODE                                          │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                              │
-│  ┌──────────────────────────┐  ┌─────────────────────────────────────────┐  │
-│  │  Review Queue             │  │  Current Trace                         │  │
-│  │                           │  │                                         │  │
-│  │  ▶ 1/47 unreviewed       │  │  User: How do I get a refund?           │  │
-│  │                           │  │                                         │  │
-│  │  [◀ Prev] [Next ▶]       │  │  Agent: I can help with that...         │  │
-│  │  [Skip] [Mark Reviewed]   │  │  [Tool: check_subscription_status]      │  │
-│  │                           │  │                                         │  │
-│  │  ─────────────────────── │  │  Agent: Your subscription...             │  │
-│  │                           │  │                                         │  │
-│  │  Filters:                 │  │  ─────────────────────────────────────  │  │
-│  │  ☑ Has errors            │  │                                         │  │
-│  │  ☐ From batch only       │  │  [ Add Note ]                           │  │
-│  │  ☐ Random sample         │  │                                         │  │
-│  │                           │  │  ┌─────────────────────────────────┐    │  │
-│  │  Progress:                │  │  │ The agent didn't verify the     │    │  │
-│  │  ▓▓▓▓▓▓░░░░░░ 23/47      │  │  │ user's identity before giving   │    │  │
-│  │                           │  │  │ account information...           │    │  │
-│  │                           │  │  └─────────────────────────────────┘    │  │
-│  │                           │  │                                         │  │
-│  │                           │  │  [ Save & Next → ]                      │  │
-│  └──────────────────────────┘  └─────────────────────────────────────────┘  │
-│                                                                              │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-**Key Features**:
-- Queue of unreviewed sessions (filterable by batch, errors, random sample)
-- Full conversation view with tool calls expanded
-- Inline note-taking with keyboard shortcuts (Cmd+Enter to save & next)
-- Progress tracking
-- Ability to mark as "no issues found" (still counts as reviewed)
+**Potential UX improvements** (not blockers):
+- Keyboard shortcuts (Cmd+Enter to save note & go to next)
+- Random sampling filter for large batches
+- Dedicated "focus mode" that hides the session list for distraction-free review
 
 ### 3.3 Improve Categorization UX
 
@@ -567,37 +536,36 @@ Generate synthetic queries specifically targeting known failure modes:
 
 ## Part 4: Implementation Roadmap
 
-### Phase 1: Foundation (P0 - Must Have)
+### Phase 1: Foundation (P0 - Must Have) ✅ IMPLEMENTED
 
-1. **Unify Note Sources** (Backend)
-   - Add `session_id` column to `notes` table
-   - When creating session note, also create taxonomy note
-   - Add "View Trace" action to taxonomy notes
+1. **Unify Note Sources** (Backend) ✅
+   - ✅ Added `session_id` and `source_type` columns to `notes` table
+   - ✅ Session notes automatically sync to taxonomy `notes` table via `session_repository.create_note()`
+   - ✅ "View Session" button in Taxonomy when note has session_id
 
-2. **Note Context Panel** (Frontend)
-   - When note is selected, fetch and show trace context
-   - Link to full session view
+2. **Note Context Panel** (Frontend) ✅
+   - ✅ Notes show "Session Note" badge when from sessions
+   - ✅ "View Session" button navigates to Sessions tab with that session loaded
 
-3. **Review Mode** (Frontend + Backend)
-   - New route/tab within Taxonomy: "Review Mode"
-   - Queue of unreviewed sessions
-   - Inline note-taking with keyboard shortcuts
-   - Progress tracking
+3. **Review Mode** (Already in Sessions Tab) ✅
+   - ✅ Already implemented in Sessions tab (filtering, review progress, note-taking)
 
 ### Phase 2: Categorization UX (P1 - High Priority)
 
-1. **Batch Categorization Flow**
-   - `POST /api/taxonomy/batch-suggest` - AI suggest for all uncategorized
-   - Review UI with grid of suggestions
-   - Bulk apply confirmed suggestions
+1. **Batch Categorization Flow** ✅ IMPLEMENTED
+   - ✅ `POST /api/taxonomy/batch-suggest` - AI suggest for all uncategorized
+   - ✅ `POST /api/taxonomy/batch-apply` - Apply confirmed categorizations
+   - ✅ Review UI modal with grid of suggestions
+   - ✅ Accept/Skip controls for each suggestion
+   - ✅ Stats bar showing confirmed/new/skipped counts
 
-2. **Context Panel in Categorization**
-   - Side panel showing trace when categorizing
-   - No more blind categorization
+2. **Context Panel in Categorization** ✅ IMPLEMENTED
+   - ✅ "View Session" button links notes to their source session
+   - ✅ "Session Note" badge identifies note source
 
-3. **AI Review Import**
-   - `POST /api/taxonomy/import-from-review` endpoint
-   - UI to map AI categories to existing modes or create new
+3. **AI Review Import** (⚠️ FAILS integration currently broken)
+   - `POST /api/taxonomy/import-from-review` endpoint - pending
+   - UI to map AI categories to existing modes or create new - pending
 
 ### Phase 3: Taxonomy Management (P2 - Medium Priority)
 
@@ -729,16 +697,19 @@ After implementing these improvements, we should see:
 
 ---
 
-## Summary: What to Build First
+## Summary: What to Build Next
 
-If you can only do one thing, **build Review Mode**. Without it, the error analysis workflow is fundamentally broken—you can't do proper open coding without seeing the traces you're reviewing.
+**Phase 1 and Phase 2 (core) are complete!**
 
-**Priority Order**:
-1. Review Mode (P0) - Enables proper open coding
-2. Note Context Panel (P0) - Makes categorization informed
-3. Batch Categorization (P1) - 10x faster categorization
-4. AI Review Import (P1) - Leverage FAILS insights
-5. Everything else (P2/P3) - Nice to have
+**Completed**:
+1. ~~Review Mode (P0)~~ ✅ Done (in Sessions tab)
+2. ~~Note Context Panel (P0)~~ ✅ Done (View Session button)
+3. ~~Batch Categorization (P1)~~ ✅ Done (batch-suggest + batch-apply + review modal)
+
+**Remaining Priority Order**:
+1. **AI Review Import (P1)** - Leverage FAILS insights (⚠️ FAILS integration currently broken, fix that first)
+2. **Taxonomy Management (P2)** - Merge UI, inline editing, status tracking
+3. **Iteration Support (P3)** - Version tracking, targeted query generation
 
 The goal is to transform Taxonomy from "a place where notes go to die" into "the command center for understanding your agent's failures."
 

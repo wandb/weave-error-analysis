@@ -23,6 +23,7 @@ import {
   FileText,
   Tag,
   Play,
+  Eye,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { formatRelativeTime, getSeverityColor, getSeverityBorder, formatTaxonomyForCopy, formatSingleModeForCopy } from "../../utils/formatters";
@@ -44,6 +45,8 @@ export function TaxonomyTab() {
     syntheticBatches,
     selectedAgent,
     fetchBatches,
+    setActiveTab,
+    fetchSessionDetail,
   } = useApp();
 
   // Local UI state
@@ -67,6 +70,13 @@ export function TaxonomyTab() {
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [showReviewReport, setShowReviewReport] = useState(false);
   const [batchDropdownOpen, setBatchDropdownOpen] = useState(false);
+
+  // Batch categorization state
+  const [showBatchModal, setShowBatchModal] = useState(false);
+  const [batchSuggestions, setBatchSuggestions] = useState<api.BatchSuggestion[]>([]);
+  const [loadingBatchSuggestions, setLoadingBatchSuggestions] = useState(false);
+  const [batchAssignments, setBatchAssignments] = useState<Map<string, api.BatchApplyAssignment>>(new Map());
+  const [applyingBatch, setApplyingBatch] = useState(false);
 
   // Get completed batches for AI review
   const completedBatches = syntheticBatches.filter((b) => b.status === "completed");
@@ -98,6 +108,90 @@ export function TaxonomyTab() {
       }
       return next;
     });
+  };
+
+  // Navigate to Sessions tab and show the session for a note
+  const handleViewSession = async (sessionId: string) => {
+    await fetchSessionDetail(sessionId);
+    setActiveTab("sessions");
+  };
+
+  // Batch categorization handlers
+  const startBatchCategorization = async () => {
+    setShowBatchModal(true);
+    setLoadingBatchSuggestions(true);
+    setBatchSuggestions([]);
+    setBatchAssignments(new Map());
+    
+    try {
+      const result = await api.batchSuggestCategories();
+      setBatchSuggestions(result.suggestions);
+      
+      // Initialize assignments with AI suggestions
+      const initialAssignments = new Map<string, api.BatchApplyAssignment>();
+      for (const suggestion of result.suggestions) {
+        const s = suggestion.suggestion;
+        if (s.match_type === "existing" && s.existing_mode_id) {
+          initialAssignments.set(suggestion.note_id, {
+            note_id: suggestion.note_id,
+            action: "existing",
+            failure_mode_id: s.existing_mode_id,
+          });
+        } else if (s.match_type === "new" && s.new_category) {
+          initialAssignments.set(suggestion.note_id, {
+            note_id: suggestion.note_id,
+            action: "new",
+            new_category: s.new_category,
+          });
+        } else {
+          initialAssignments.set(suggestion.note_id, {
+            note_id: suggestion.note_id,
+            action: "skip",
+          });
+        }
+      }
+      setBatchAssignments(initialAssignments);
+    } catch (error) {
+      console.error("Failed to get batch suggestions:", error);
+    } finally {
+      setLoadingBatchSuggestions(false);
+    }
+  };
+
+  const updateBatchAssignment = (noteId: string, assignment: api.BatchApplyAssignment) => {
+    setBatchAssignments((prev) => {
+      const next = new Map(prev);
+      next.set(noteId, assignment);
+      return next;
+    });
+  };
+
+  const applyBatchCategorization = async () => {
+    setApplyingBatch(true);
+    try {
+      const assignments = Array.from(batchAssignments.values());
+      await api.batchApplyCategories(assignments);
+      setShowBatchModal(false);
+      fetchTaxonomy(); // Refresh taxonomy
+    } catch (error) {
+      console.error("Failed to apply batch categorization:", error);
+    } finally {
+      setApplyingBatch(false);
+    }
+  };
+
+  const getBatchStats = () => {
+    let confirmed = 0;
+    let newModes = 0;
+    let skipped = 0;
+    
+    batchAssignments.forEach((a) => {
+      if (a.action === "existing") confirmed++;
+      else if (a.action === "new") newModes++;
+      else skipped++;
+    });
+    
+    return { confirmed, newModes, skipped, total: batchAssignments.size };
   };
 
   const copyTaxonomyToClipboard = async () => {
@@ -471,6 +565,18 @@ export function TaxonomyTab() {
               icon={<ClipboardList className="w-5 h-5 text-amber-400" />}
               title="Uncategorized"
               badge={<Badge variant="gold">{taxonomy?.uncategorized_notes.length || 0}</Badge>}
+              actions={
+                taxonomy?.uncategorized_notes.length ? (
+                  <button
+                    onClick={startBatchCategorization}
+                    disabled={loadingBatchSuggestions}
+                    className="btn-ghost text-xs flex items-center gap-1 px-2 py-1"
+                  >
+                    <Zap className="w-3.5 h-3.5" />
+                    Batch Categorize
+                  </button>
+                ) : null
+              }
             />
 
             <div className="space-y-2 max-h-[calc(100vh-480px)] overflow-y-auto">
@@ -526,6 +632,7 @@ export function TaxonomyTab() {
                 onSuggest={() => suggestCategoryForNote(selectedNote.id)}
                 onAssign={(modeId) => assignNoteToMode(selectedNote.id, modeId)}
                 onApplySuggestion={applySuggestion}
+                onViewSession={handleViewSession}
               />
             )}
           </Panel>
@@ -640,6 +747,190 @@ export function TaxonomyTab() {
           </div>
         </div>
       </Modal>
+
+      {/* Batch Categorization Modal */}
+      {showBatchModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm">
+          <div className="bg-moon-800 rounded-lg border border-moon-700 p-6 w-full max-w-4xl max-h-[80vh] shadow-xl flex flex-col">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-display text-lg text-moon-50">
+                Batch Categorization Review
+              </h3>
+              <button
+                onClick={() => setShowBatchModal(false)}
+                className="text-moon-500 hover:text-moon-300"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {loadingBatchSuggestions ? (
+              <div className="flex-1 flex items-center justify-center">
+                <div className="text-center">
+                  <RefreshCw className="w-8 h-8 animate-spin text-gold mx-auto mb-2" />
+                  <p className="text-moon-400">Getting AI suggestions for {taxonomy?.uncategorized_notes.length || 0} notes...</p>
+                  <p className="text-xs text-moon-500 mt-1">This may take a moment</p>
+                </div>
+              </div>
+            ) : (
+              <>
+                {/* Stats Bar */}
+                <div className="flex items-center gap-4 mb-4 p-3 bg-moon-900/60 rounded-lg">
+                  {(() => {
+                    const stats = getBatchStats();
+                    return (
+                      <>
+                        <div className="text-sm">
+                          <span className="text-moon-400">Total: </span>
+                          <span className="text-moon-200 font-medium">{stats.total}</span>
+                        </div>
+                        <div className="text-sm">
+                          <span className="text-accent-teal">✓ Confirmed: </span>
+                          <span className="font-medium">{stats.confirmed}</span>
+                        </div>
+                        <div className="text-sm">
+                          <span className="text-emerald-400">+ New: </span>
+                          <span className="font-medium">{stats.newModes}</span>
+                        </div>
+                        <div className="text-sm">
+                          <span className="text-moon-500">○ Skip: </span>
+                          <span className="font-medium">{stats.skipped}</span>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+
+                {/* Suggestions List */}
+                <div className="flex-1 overflow-y-auto space-y-2 min-h-0">
+                  {batchSuggestions.map((item) => {
+                    const assignment = batchAssignments.get(item.note_id);
+                    const s = item.suggestion;
+                    
+                    return (
+                      <div
+                        key={item.note_id}
+                        className={`p-3 rounded-lg border transition-colors ${
+                          assignment?.action === "skip"
+                            ? "bg-moon-900/30 border-moon-800"
+                            : "bg-moon-900/60 border-moon-700"
+                        }`}
+                      >
+                        <div className="flex items-start gap-4">
+                          {/* Note content */}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-moon-300 line-clamp-2">{item.note_content}</p>
+                            {item.source_type === "session_note" && (
+                              <span className="text-[10px] px-1.5 py-0.5 bg-accent-teal/20 text-accent-teal rounded mt-1 inline-block">
+                                Session Note
+                              </span>
+                            )}
+                          </div>
+                          
+                          {/* AI Suggestion */}
+                          <div className="w-48 flex-shrink-0">
+                            {s.match_type === "existing" ? (
+                              <div className="text-xs">
+                                <span className="text-moon-500">→ </span>
+                                <span className="text-accent-teal">
+                                  {taxonomy?.failure_modes.find((m) => m.id === s.existing_mode_id)?.name || "Unknown"}
+                                </span>
+                                <span className="text-moon-600 ml-1">({Math.round(s.confidence * 100)}%)</span>
+                              </div>
+                            ) : (
+                              <div className="text-xs">
+                                <span className="text-moon-500">+ </span>
+                                <span className="text-emerald-400">{s.new_category?.name}</span>
+                              </div>
+                            )}
+                          </div>
+                          
+                          {/* Action buttons */}
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            <button
+                              onClick={() => {
+                                if (s.match_type === "existing" && s.existing_mode_id) {
+                                  updateBatchAssignment(item.note_id, {
+                                    note_id: item.note_id,
+                                    action: "existing",
+                                    failure_mode_id: s.existing_mode_id,
+                                  });
+                                } else if (s.match_type === "new" && s.new_category) {
+                                  updateBatchAssignment(item.note_id, {
+                                    note_id: item.note_id,
+                                    action: "new",
+                                    new_category: s.new_category,
+                                  });
+                                }
+                              }}
+                              className={`px-2 py-1 text-xs rounded ${
+                                assignment?.action === "existing" || assignment?.action === "new"
+                                  ? "bg-accent-teal text-moon-900"
+                                  : "bg-moon-700 text-moon-300 hover:bg-moon-600"
+                              }`}
+                              title="Accept suggestion"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => {
+                                updateBatchAssignment(item.note_id, {
+                                  note_id: item.note_id,
+                                  action: "skip",
+                                });
+                              }}
+                              className={`px-2 py-1 text-xs rounded ${
+                                assignment?.action === "skip"
+                                  ? "bg-moon-600 text-moon-200"
+                                  : "bg-moon-700 text-moon-400 hover:bg-moon-600"
+                              }`}
+                              title="Skip this note"
+                            >
+                              Skip
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Footer Actions */}
+                <div className="flex items-center justify-between mt-4 pt-4 border-t border-moon-700">
+                  <div className="text-sm text-moon-500">
+                    Review suggestions and click Apply to categorize notes
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setShowBatchModal(false)}
+                      className="btn-ghost"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={applyBatchCategorization}
+                      disabled={applyingBatch || getBatchStats().confirmed + getBatchStats().newModes === 0}
+                      className="btn-primary flex items-center gap-2"
+                    >
+                      {applyingBatch ? (
+                        <>
+                          <RefreshCw className="w-4 h-4 animate-spin" />
+                          Applying...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-4 h-4" />
+                          Apply {getBatchStats().confirmed + getBatchStats().newModes} Categorizations
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -684,6 +975,7 @@ function NoteAssignmentPanel({
   onSuggest,
   onAssign,
   onApplySuggestion,
+  onViewSession,
 }: {
   note: TaxonomyNote;
   suggestion: AISuggestion | null;
@@ -693,17 +985,36 @@ function NoteAssignmentPanel({
   onSuggest: () => void;
   onAssign: (modeId: string) => void;
   onApplySuggestion: () => void;
+  onViewSession?: (sessionId: string) => void;
 }) {
   return (
     <div className="mt-4 pt-4 border-t border-moon-800">
       <div className="bg-moon-900/60 rounded-lg p-3 border border-gold/30">
         <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-medium text-gold">Selected Note</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-medium text-gold">Selected Note</span>
+            {note.source_type === "session_note" && (
+              <span className="text-[10px] px-1.5 py-0.5 bg-accent-teal/20 text-accent-teal rounded">
+                Session Note
+              </span>
+            )}
+          </div>
           <button onClick={onClose} className="text-moon-500 hover:text-moon-300">
             <X className="w-4 h-4" />
           </button>
         </div>
         <p className="text-sm text-moon-300 mb-3 line-clamp-2">{note.content}</p>
+
+        {/* View Session button for session notes */}
+        {note.session_id && onViewSession && (
+          <button
+            onClick={() => onViewSession(note.session_id!)}
+            className="w-full btn-ghost text-sm flex items-center justify-center gap-2 mb-2 border border-accent-teal/30 hover:bg-accent-teal/10 text-accent-teal"
+          >
+            <Eye className="w-4 h-4" />
+            View Session
+          </button>
+        )}
 
         <button
           onClick={onSuggest}

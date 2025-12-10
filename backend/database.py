@@ -162,9 +162,20 @@ def init_db():
                     assignment_method TEXT,
                     created_at TEXT NOT NULL,
                     assigned_at TEXT,
-                    FOREIGN KEY (failure_mode_id) REFERENCES failure_modes(id)
+                    session_id TEXT,
+                    source_type TEXT DEFAULT 'weave_feedback',
+                    FOREIGN KEY (failure_mode_id) REFERENCES failure_modes(id),
+                    FOREIGN KEY (session_id) REFERENCES sessions(id)
                 )
             """)
+            
+            # Migration: Add session_id and source_type columns if they don't exist
+            cursor.execute("PRAGMA table_info(notes)")
+            columns = [col[1] for col in cursor.fetchall()]
+            if "session_id" not in columns:
+                cursor.execute("ALTER TABLE notes ADD COLUMN session_id TEXT")
+            if "source_type" not in columns:
+                cursor.execute("ALTER TABLE notes ADD COLUMN source_type TEXT DEFAULT 'weave_feedback'")
             
             # Saturation log - tracks discovery of new failure modes over time
             cursor.execute("""

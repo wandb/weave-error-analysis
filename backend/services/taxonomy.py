@@ -75,7 +75,9 @@ class TaxonomyNote:
         failure_mode_id: Optional[str] = None,
         assignment_method: Optional[str] = None,
         created_at: Optional[str] = None,
-        assigned_at: Optional[str] = None
+        assigned_at: Optional[str] = None,
+        session_id: Optional[str] = None,
+        source_type: Optional[str] = None
     ):
         self.id = id
         self.content = content
@@ -87,6 +89,8 @@ class TaxonomyNote:
         self.assignment_method = assignment_method
         self.created_at = created_at or now_iso()
         self.assigned_at = assigned_at
+        self.session_id = session_id
+        self.source_type = source_type or 'weave_feedback'
     
     def to_dict(self) -> dict:
         return {
@@ -99,7 +103,9 @@ class TaxonomyNote:
             "failure_mode_id": self.failure_mode_id,
             "assignment_method": self.assignment_method,
             "created_at": self.created_at,
-            "assigned_at": self.assigned_at
+            "assigned_at": self.assigned_at,
+            "session_id": self.session_id,
+            "source_type": self.source_type
         }
 
 
@@ -317,7 +323,9 @@ class TaxonomyService:
                 failure_mode_id=row["failure_mode_id"],
                 assignment_method=row["assignment_method"],
                 created_at=row["created_at"],
-                assigned_at=row["assigned_at"]
+                assigned_at=row["assigned_at"],
+                session_id=row["session_id"] if "session_id" in row.keys() else None,
+                source_type=row["source_type"] if "source_type" in row.keys() else "weave_feedback"
             ) for row in rows]
     
     def get_uncategorized_notes(self) -> list[TaxonomyNote]:
@@ -341,8 +349,55 @@ class TaxonomyService:
                 failure_mode_id=None,
                 assignment_method=None,
                 created_at=row["created_at"],
-                assigned_at=None
+                assigned_at=None,
+                session_id=row["session_id"] if "session_id" in row.keys() else None,
+                source_type=row["source_type"] if "source_type" in row.keys() else "weave_feedback"
             ) for row in rows]
+    
+    def get_note_session(self, note_id: str) -> Optional[dict]:
+        """
+        Get the session info for a note if it came from a session.
+        
+        Returns:
+            Session info dict with id, query, created_at, etc. or None if not a session note
+        """
+        with get_db() as conn:
+            cursor = conn.cursor()
+            
+            # First get the note to check if it has a session_id
+            cursor.execute("SELECT session_id, source_type FROM notes WHERE id = ?", (note_id,))
+            note_row = cursor.fetchone()
+            
+            if not note_row:
+                return None
+            
+            session_id = note_row["session_id"] if "session_id" in note_row.keys() else None
+            
+            if not session_id:
+                return None
+            
+            # Fetch the session details
+            cursor.execute("""
+                SELECT id, query, first_message, is_error, is_reviewed, 
+                       turn_count, created_at, batch_id
+                FROM sessions 
+                WHERE id = ?
+            """, (session_id,))
+            session_row = cursor.fetchone()
+            
+            if not session_row:
+                return None
+            
+            return {
+                "id": session_row["id"],
+                "query": session_row["query"],
+                "first_message": session_row["first_message"],
+                "is_error": bool(session_row["is_error"]),
+                "is_reviewed": bool(session_row["is_reviewed"]),
+                "turn_count": session_row["turn_count"],
+                "created_at": session_row["created_at"],
+                "batch_id": session_row["batch_id"]
+            }
     
     def sync_notes_from_weave(self, weave_notes: list[dict]) -> dict:
         """
@@ -726,6 +781,161 @@ Respond in JSON format:
                     for e in events[:10]
                 ]
             }
+    
+    # ------------------------------------------------------------------------
+    # Batch Categorization (Phase 2)
+    # ------------------------------------------------------------------------
+    
+    async def batch_suggest_categories(self, note_ids: Optional[list[str]] = None) -> dict:
+        """
+        Get AI suggestions for multiple notes WITHOUT applying them.
+        
+        Returns a list of suggestions that the user can review before applying.
+        This is for the "batch categorization review" workflow.
+        """
+        if note_ids:
+            # Get specific notes
+            with get_db() as conn:
+                cursor = conn.cursor()
+                placeholders = ",".join("?" * len(note_ids))
+                cursor.execute(f"""
+                    SELECT * FROM notes WHERE id IN ({placeholders})
+                """, note_ids)
+                rows = cursor.fetchall()
+                notes = [TaxonomyNote(
+                    id=row["id"],
+                    content=row["content"],
+                    trace_id=row["trace_id"],
+                    weave_ref=row["weave_ref"],
+                    weave_url=row["weave_url"],
+                    weave_feedback_id=row["weave_feedback_id"],
+                    failure_mode_id=row["failure_mode_id"],
+                    assignment_method=row["assignment_method"],
+                    created_at=row["created_at"],
+                    assigned_at=row["assigned_at"],
+                    session_id=row["session_id"] if "session_id" in row.keys() else None,
+                    source_type=row["source_type"] if "source_type" in row.keys() else "weave_feedback"
+                ) for row in rows]
+        else:
+            # Get all uncategorized notes
+            notes = self.get_uncategorized_notes()
+        
+        suggestions = []
+        errors = []
+        
+        for note in notes:
+            try:
+                suggestion = await self.suggest_category_for_note(note.id)
+                suggestions.append({
+                    "note_id": note.id,
+                    "note_content": note.content[:200] + "..." if len(note.content) > 200 else note.content,
+                    "session_id": note.session_id,
+                    "source_type": note.source_type,
+                    "suggestion": suggestion
+                })
+            except Exception as e:
+                errors.append({
+                    "note_id": note.id,
+                    "error": str(e)
+                })
+        
+        return {
+            "total_notes": len(notes),
+            "suggestions": suggestions,
+            "errors": errors
+        }
+    
+    def batch_apply_categories(self, assignments: list[dict]) -> dict:
+        """
+        Apply multiple category assignments at once.
+        
+        Each assignment should have:
+        - note_id: str
+        - action: "existing" | "new" | "skip"
+        - failure_mode_id: str (if action is "existing")
+        - new_category: dict with name, description, severity, suggested_fix (if action is "new")
+        
+        Returns stats about what was applied.
+        """
+        results = {
+            "applied": 0,
+            "new_modes_created": 0,
+            "existing_modes_matched": 0,
+            "skipped": 0,
+            "errors": []
+        }
+        
+        for assignment in assignments:
+            note_id = assignment.get("note_id")
+            action = assignment.get("action")
+            
+            if not note_id:
+                results["errors"].append({"error": "Missing note_id"})
+                continue
+            
+            if action == "skip":
+                results["skipped"] += 1
+                continue
+            
+            try:
+                if action == "existing":
+                    failure_mode_id = assignment.get("failure_mode_id")
+                    if not failure_mode_id:
+                        results["errors"].append({"note_id": note_id, "error": "Missing failure_mode_id"})
+                        continue
+                    
+                    success = self.assign_note_to_failure_mode(
+                        note_id=note_id,
+                        failure_mode_id=failure_mode_id,
+                        method="ai_batch"
+                    )
+                    if success:
+                        results["applied"] += 1
+                        results["existing_modes_matched"] += 1
+                    else:
+                        results["errors"].append({"note_id": note_id, "error": "Failed to assign"})
+                
+                elif action == "new":
+                    new_category = assignment.get("new_category")
+                    if not new_category or not new_category.get("name"):
+                        results["errors"].append({"note_id": note_id, "error": "Missing new_category"})
+                        continue
+                    
+                    # Create the new failure mode
+                    new_mode = self.create_failure_mode(
+                        name=new_category["name"],
+                        description=new_category.get("description", ""),
+                        severity=new_category.get("severity", "medium"),
+                        suggested_fix=new_category.get("suggested_fix")
+                    )
+                    
+                    # Assign the note to it
+                    success = self.assign_note_to_failure_mode(
+                        note_id=note_id,
+                        failure_mode_id=new_mode.id,
+                        method="ai_batch"
+                    )
+                    if success:
+                        results["applied"] += 1
+                        results["new_modes_created"] += 1
+                    else:
+                        results["errors"].append({"note_id": note_id, "error": "Failed to assign to new mode"})
+                
+                else:
+                    results["errors"].append({"note_id": note_id, "error": f"Unknown action: {action}"})
+            
+            except Exception as e:
+                results["errors"].append({"note_id": note_id, "error": str(e)})
+        
+        # Log saturation event
+        if results["applied"] > 0:
+            self._log_saturation_event(
+                notes_processed=results["applied"],
+                new_modes=results["new_modes_created"],
+                matched_modes=results["existing_modes_matched"]
+            )
+        
+        return results
     
     def get_taxonomy_summary(self) -> dict:
         """Get a full summary of the taxonomy."""

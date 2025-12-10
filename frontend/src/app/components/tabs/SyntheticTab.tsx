@@ -72,7 +72,7 @@ export function SyntheticTab() {
   // Generation settings
   const [batchSize, setBatchSize] = useState(20);
   const [batchStrategy, setBatchStrategy] = useState<"cross_product" | "llm_guided">("llm_guided");
-  const [model, setModel] = useState("gpt-4o-mini");
+  const [model, setModel] = useState("gpt-5.1");
   const [temperature, setTemperature] = useState(0.7);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
   
@@ -889,6 +889,8 @@ Return ONLY the user message, nothing else. No quotes around it.`);
                 className="w-full px-3 py-2 rounded text-sm"
                 style={{ backgroundColor: '#171A1F', border: '1px solid #333333', color: '#FDFDFD' }}
               >
+                <option value="gpt-4.1">gpt-5.1</option>
+                <option value="gpt-4.1-mini">gpt-5.1-mini</option>
                 <option value="gpt-4o-mini">gpt-4o-mini</option>
                 <option value="gpt-4o">gpt-4o</option>
                 <option value="gpt-4-turbo">gpt-4-turbo</option>

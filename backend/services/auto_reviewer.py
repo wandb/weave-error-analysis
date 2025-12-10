@@ -133,13 +133,19 @@ class AutoReviewer:
         self,
         agent_id: str,
         batch_id: str,
-        model: str = "openai/gpt-4o-mini",
-        max_concurrent_llm_calls: int = 10
+        model: str = "openai/gpt-4.1",
+        max_concurrent_llm_calls: int = 10,
+        n_samples: Optional[int] = None,
+        debug: bool = False,
+        filter_failures_only: bool = False
     ):
         self.agent_id = agent_id
         self.batch_id = batch_id
         self.model = model
         self.max_concurrent_llm_calls = max_concurrent_llm_calls
+        self.n_samples = n_samples
+        self.debug = debug
+        self.filter_failures_only = filter_failures_only
         self._review_id: Optional[str] = None
     
     def _get_agent_info(self) -> Dict[str, Any]:
@@ -229,16 +235,30 @@ class AutoReviewer:
         Get all traces from the batch that have been executed.
         
         Returns traces in a format suitable for the FAILS pipeline.
+        Supports filtering to only error/failed traces if filter_failures_only is True.
         """
         with get_db() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT id, query_text, response_text, trace_id, 
-                       dimension_tuple, execution_status, error_message
-                FROM synthetic_queries
-                WHERE batch_id = ? AND execution_status = 'success'
-                ORDER BY id
-            """, (self.batch_id,))
+            
+            # Build query based on filter_failures_only setting
+            if self.filter_failures_only:
+                # Only get error traces
+                cursor.execute("""
+                    SELECT id, query_text, response_text, trace_id, 
+                           dimension_tuple, execution_status, error_message
+                    FROM synthetic_queries
+                    WHERE batch_id = ? AND execution_status = 'error'
+                    ORDER BY id
+                """, (self.batch_id,))
+            else:
+                # Get all executed traces (both success and error)
+                cursor.execute("""
+                    SELECT id, query_text, response_text, trace_id, 
+                           dimension_tuple, execution_status, error_message
+                    FROM synthetic_queries
+                    WHERE batch_id = ? AND execution_status IN ('success', 'error')
+                    ORDER BY id
+                """, (self.batch_id,))
             
             traces = []
             for row in cursor.fetchall():
@@ -261,12 +281,14 @@ class AutoReviewer:
                         "dimensions": dimension_tuple
                     },
                     "output": {
-                        "response": row_dict["response_text"]
+                        "response": row_dict["response_text"],
+                        "error": row_dict["error_message"]
                     },
                     "scores": {
-                        # We don't have explicit scores, but we can mark all as "needs_review"
+                        # Include execution status as a score for FAILS to understand
                         "auto_review": True,
-                        "execution_status": row_dict["execution_status"]
+                        "execution_status": row_dict["execution_status"],
+                        "has_error": row_dict["execution_status"] == "error"
                     }
                 })
             
@@ -347,6 +369,8 @@ class AutoReviewer:
         Returns:
             AutoReviewResult with failure categories and classifications
         """
+        import random
+        
         if not FAILS_AVAILABLE:
             raise RuntimeError(
                 "FAILS library is not available. Please ensure the 'fails' package is installed."
@@ -363,9 +387,10 @@ class AutoReviewer:
             traces = self._get_batch_traces()
             
             if not traces:
+                filter_msg = " (with filter_failures_only=True)" if self.filter_failures_only else ""
                 self._update_review_status(
                     AutoReviewStatus.FAILED,
-                    error_message="No traces found in batch"
+                    error_message=f"No traces found in batch{filter_msg}"
                 )
                 return AutoReviewResult(
                     id=review_id,
@@ -377,22 +402,26 @@ class AutoReviewer:
                     classifications=[],
                     total_traces=0,
                     created_at=now_iso(),
-                    error_message="No traces found in batch"
+                    error_message=f"No traces found in batch{filter_msg}"
                 )
+            
+            # Apply n_samples if specified (random sample)
+            if self.n_samples and self.n_samples < len(traces):
+                traces = random.sample(traces, self.n_samples)
             
             # Build user context from AGENT_INFO
             user_context = self._build_user_context()
             
             # Run FAILS pipeline
             from rich.console import Console
-            console = Console(quiet=True)  # Suppress output in backend
+            console = Console(quiet=not self.debug)  # Show output in debug mode
             
             pipeline_result = await run_pipeline(
                 trace_data=traces,
                 user_context=user_context,
                 model=self.model,
                 max_concurrent_llm_calls=self.max_concurrent_llm_calls,
-                debug=False,
+                debug=self.debug,
                 console=console
             )
             
@@ -581,6 +610,184 @@ def get_auto_review(review_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+# =============================================================================
+# Session-to-FAILS Trace Conversion (Sprint 3)
+# =============================================================================
+
+def get_session_traces_for_fails(session_ids: List[str]) -> List[Dict[str, Any]]:
+    """
+    Convert session traces to FAILS-compatible format.
+    
+    Each session's conversation is converted into trace entries with:
+    - inputs: The user message + context
+    - output: The assistant response + tool calls  
+    - scores: Any feedback or evaluation data we have
+    
+    Args:
+        session_ids: List of session IDs to convert
+        
+    Returns:
+        List of trace dicts in FAILS format
+    """
+    traces = []
+    
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        for session_id in session_ids:
+            # Get session metadata
+            cursor.execute("""
+                SELECT id, weave_session_id, batch_id, turn_count, 
+                       has_error, error_summary, query_text, is_reviewed
+                FROM sessions 
+                WHERE id = ?
+            """, (session_id,))
+            session_row = cursor.fetchone()
+            
+            if not session_row:
+                continue
+            
+            session = dict(session_row)
+            
+            # Get session notes (as evaluation/feedback data)
+            cursor.execute("""
+                SELECT id, content, note_type, call_id, created_at
+                FROM session_notes
+                WHERE session_id = ?
+                ORDER BY created_at
+            """, (session_id,))
+            notes = [dict(r) for r in cursor.fetchall()]
+            
+            # Build feedback info from notes
+            feedback_notes = [n["content"] for n in notes if n.get("note_type") in ("observation", "issue", "bug")]
+            
+            # Create a trace entry for the entire session
+            # (FAILS analyzes at the trace level, and each session is a trace)
+            trace = {
+                "id": session_id,
+                "session_id": session_id,
+                "inputs": {
+                    "query": session.get("query_text") or "(multi-turn session)",
+                    "session_type": "batch" if session.get("batch_id") else "organic",
+                    "turn_count": session.get("turn_count", 0),
+                },
+                "output": {
+                    "has_error": session.get("has_error", False),
+                    "error_summary": session.get("error_summary"),
+                    "turn_count": session.get("turn_count", 0),
+                },
+                "scores": {
+                    "is_reviewed": session.get("is_reviewed", False),
+                    "has_error": session.get("has_error", False),
+                    "has_feedback_notes": len(feedback_notes) > 0,
+                    "feedback_notes": feedback_notes[:3] if feedback_notes else [],  # Limit to 3 notes
+                }
+            }
+            
+            traces.append(trace)
+    
+    return traces
+
+
+class SessionAutoReviewer(AutoReviewer):
+    """
+    Automated reviewer for session traces using the FAILS pipeline.
+    
+    This reviewer analyzes sessions directly rather than synthetic batch data,
+    allowing discovery of failure patterns from real user interactions.
+    """
+    
+    def __init__(
+        self,
+        agent_id: str,
+        session_ids: List[str],
+        model: str = "openai/gpt-4.1",
+        max_concurrent_llm_calls: int = 10,
+        n_samples: Optional[int] = None,
+        debug: bool = False,
+        filter_failures_only: bool = False
+    ):
+        # Initialize base but override batch_id with None
+        super().__init__(
+            agent_id=agent_id,
+            batch_id="sessions",  # Placeholder
+            model=model,
+            max_concurrent_llm_calls=max_concurrent_llm_calls,
+            n_samples=n_samples,
+            debug=debug,
+            filter_failures_only=filter_failures_only
+        )
+        self.session_ids = session_ids
+    
+    def _get_batch_traces(self) -> List[Dict[str, Any]]:
+        """Override to get session traces instead of batch traces."""
+        traces = get_session_traces_for_fails(self.session_ids)
+        
+        # Apply failure filter if enabled
+        if self.filter_failures_only:
+            traces = [t for t in traces if t.get("scores", {}).get("has_error", False)]
+        
+        return traces
+    
+    def _create_review_record(self) -> str:
+        """Create a review record for session review."""
+        review_id = generate_id()
+        self._review_id = review_id
+        
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO auto_reviews (
+                    id, batch_id, agent_id, status, model_used, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                review_id,
+                f"sessions:{len(self.session_ids)}",  # Mark as session review
+                self.agent_id,
+                AutoReviewStatus.PENDING.value,
+                self.model,
+                now_iso()
+            ))
+        
+        return review_id
+
+
+async def run_session_auto_review(
+    agent_id: str,
+    session_ids: List[str],
+    model: str = "openai/gpt-4.1",
+    max_concurrent_llm_calls: int = 10,
+    n_samples: Optional[int] = None,
+    debug: bool = False,
+    filter_failures_only: bool = False
+) -> AutoReviewResult:
+    """
+    Run automated review on session traces.
+    
+    Args:
+        agent_id: ID of the agent
+        session_ids: List of session IDs to review
+        model: LLM model to use for review
+        max_concurrent_llm_calls: Maximum concurrent LLM API calls
+        n_samples: Maximum number of traces to analyze (None = all)
+        debug: Enable debug mode (verbose output, cheaper model)
+        filter_failures_only: Only analyze failed/error sessions
+        
+    Returns:
+        AutoReviewResult with the review findings
+    """
+    reviewer = SessionAutoReviewer(
+        agent_id=agent_id,
+        session_ids=session_ids,
+        model=model,
+        max_concurrent_llm_calls=max_concurrent_llm_calls,
+        n_samples=n_samples,
+        debug=debug,
+        filter_failures_only=filter_failures_only
+    )
+    return await reviewer.run_review()
+
+
 def get_batch_reviews(batch_id: str) -> List[Dict[str, Any]]:
     """Get all auto-reviews for a batch."""
     with get_db() as conn:
@@ -635,8 +842,11 @@ def delete_auto_review(review_id: str) -> bool:
 async def run_auto_review(
     agent_id: str,
     batch_id: str,
-    model: str = "openai/gpt-4o-mini",
-    max_concurrent_llm_calls: int = 10
+    model: str = "openai/gpt-4.1",
+    max_concurrent_llm_calls: int = 10,
+    n_samples: Optional[int] = None,
+    debug: bool = False,
+    filter_failures_only: bool = False
 ) -> AutoReviewResult:
     """
     Convenience function to run an automated review.
@@ -646,6 +856,9 @@ async def run_auto_review(
         batch_id: ID of the batch to review
         model: LLM model to use for review
         max_concurrent_llm_calls: Maximum concurrent LLM API calls
+        n_samples: Maximum number of traces to analyze (None = all)
+        debug: Enable debug mode (verbose output, cheaper model)
+        filter_failures_only: Only analyze failed/error traces
         
     Returns:
         AutoReviewResult with the review findings
@@ -654,7 +867,10 @@ async def run_auto_review(
         agent_id=agent_id,
         batch_id=batch_id,
         model=model,
-        max_concurrent_llm_calls=max_concurrent_llm_calls
+        max_concurrent_llm_calls=max_concurrent_llm_calls,
+        n_samples=n_samples,
+        debug=debug,
+        filter_failures_only=filter_failures_only
     )
     return await reviewer.run_review()
 

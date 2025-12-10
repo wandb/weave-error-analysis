@@ -548,6 +548,9 @@ export async function* streamSSE(
 export interface AutoReviewConfig {
   model?: string;
   max_concurrent_llm_calls?: number;
+  n_samples?: number;  // Max traces to analyze (undefined = all)
+  debug?: boolean;  // Verbose output, uses cheaper model
+  filter_failures_only?: boolean;  // Only analyze failed/error traces
 }
 
 export async function runAutoReview(
@@ -558,8 +561,11 @@ export async function runAutoReview(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: config.model || "gemini/gemini-2.5-pro",
+      model: config.model,
       max_concurrent_llm_calls: config.max_concurrent_llm_calls || 10,
+      n_samples: config.n_samples,
+      debug: config.debug || false,
+      filter_failures_only: config.filter_failures_only || false,
     }),
   });
 
@@ -598,6 +604,40 @@ export async function fetchReview(reviewId: string): Promise<AutoReview> {
 
 export async function deleteReview(reviewId: string): Promise<void> {
   await fetch(`${API_BASE}/synthetic/reviews/${reviewId}`, { method: "DELETE" });
+}
+
+// Session Auto-Review (Sprint 3)
+export interface SessionAutoReviewConfig {
+  session_ids: string[];
+  model?: string;
+  max_concurrent_llm_calls?: number;
+  n_samples?: number;
+  debug?: boolean;
+  filter_failures_only?: boolean;
+}
+
+export async function runSessionAutoReview(
+  config: SessionAutoReviewConfig
+): Promise<AutoReview> {
+  const response = await fetch(`${API_BASE}/sessions/auto-review`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      session_ids: config.session_ids,
+      model: config.model,
+      max_concurrent_llm_calls: config.max_concurrent_llm_calls || 10,
+      n_samples: config.n_samples,
+      debug: config.debug || false,
+      filter_failures_only: config.filter_failures_only || false,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to run session auto-review");
+  }
+
+  return response.json();
 }
 
 // ============================================================================

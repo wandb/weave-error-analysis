@@ -348,6 +348,11 @@ export interface SyntheticBatch {
   status: string;
   query_count: number;
   created_at: string;
+  // Enhanced stats for batch selector
+  executed_count?: number;
+  success_count?: number;
+  failure_count?: number;
+  pending_count?: number;
 }
 
 export interface SyntheticQuery {
@@ -448,6 +453,25 @@ export interface AutoReview {
   completed_at?: string;
   error_message?: string;
 }
+
+// ============================================================================
+// Trace Source Types (Sprint 3 - Session Traces)
+// ============================================================================
+
+export type TraceSourceType = "synthetic_batch" | "sessions";
+
+export interface TraceSourceSyntheticBatch {
+  type: "synthetic_batch";
+  batchId: string;
+}
+
+export interface TraceSourceSessions {
+  type: "sessions";
+  sessionIds: string[];
+  batchId?: string;  // Optional: filter sessions by batch
+}
+
+export type TraceSource = TraceSourceSyntheticBatch | TraceSourceSessions;
 
 // ============================================================================
 // Settings Types

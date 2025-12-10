@@ -43,7 +43,7 @@ import {
 } from "../../utils/formatters";
 import { Panel, PanelHeader, Badge, ProgressBar, Modal, StatusBadge } from "../ui";
 import { SaturationChart } from "../SaturationChart";
-import type { TaxonomyNote, AISuggestion, AutoReview, SyntheticBatch, FailureMode, FailureModeStatus } from "../../types";
+import type { TaxonomyNote, AISuggestion, AutoReview, SyntheticBatch, FailureMode, FailureModeStatus, TraceSourceType, Session } from "../../types";
 import * as api from "../../lib/api";
 
 // Status filter options
@@ -97,6 +97,19 @@ export function TaxonomyTab() {
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set());
   const [showReviewReport, setShowReviewReport] = useState(false);
   const [batchDropdownOpen, setBatchDropdownOpen] = useState(false);
+  
+  // AI Review configuration (FAILS options)
+  const [reviewNSamples, setReviewNSamples] = useState<string>("");  // Empty = all
+  const [reviewDebug, setReviewDebug] = useState(false);
+  const [reviewFilterFailures, setReviewFilterFailures] = useState(false);
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
+  
+  // Data Source selector (Sprint 3)
+  const [traceSourceType, setTraceSourceType] = useState<TraceSourceType>("synthetic_batch");
+  const [sessionBatchDropdownOpen, setSessionBatchDropdownOpen] = useState(false);
+  const [selectedSessionBatch, setSelectedSessionBatch] = useState<SyntheticBatch | null>(null);
+  const [sessionSessions, setSessionSessions] = useState<Session[]>([]);
+  const [loadingSessions, setLoadingSessions] = useState(false);
 
   // Batch categorization state
   const [showBatchModal, setShowBatchModal] = useState(false);
@@ -415,13 +428,55 @@ export function TaxonomyTab() {
     }
   };
 
+  // Load sessions when session batch is selected (Sprint 3)
+  const loadSessionsForBatch = async (batchId: string) => {
+    setLoadingSessions(true);
+    try {
+      const response = await api.fetchSessions({ batch_id: batchId, limit: 100 });
+      setSessionSessions(response.sessions);
+    } catch (error) {
+      console.error("Error loading sessions:", error);
+      setSessionSessions([]);
+    } finally {
+      setLoadingSessions(false);
+    }
+  };
+
+  // Handle session batch selection
+  const handleSessionBatchSelect = (batch: SyntheticBatch) => {
+    setSelectedSessionBatch(batch);
+    setSessionBatchDropdownOpen(false);
+    loadSessionsForBatch(batch.id);
+  };
+
   // AI Review functions
-  const runAutoReview = async (batchId: string) => {
+  const runAutoReview = async () => {
     setRunningAutoReview(true);
     setAutoReview(null);
+    setShowReviewReport(true);  // Auto-show results when running
     
     try {
-      const result = await api.runAutoReview(batchId);
+      let result: AutoReview;
+      
+      if (traceSourceType === "synthetic_batch" && selectedBatchForReview) {
+        // Use batch-based review
+        result = await api.runAutoReview(selectedBatchForReview.id, {
+          n_samples: reviewNSamples ? parseInt(reviewNSamples, 10) : undefined,
+          debug: reviewDebug,
+          filter_failures_only: reviewFilterFailures,
+        });
+      } else if (traceSourceType === "sessions" && sessionSessions.length > 0) {
+        // Use session-based review
+        result = await api.runSessionAutoReview({
+          session_ids: sessionSessions.map(s => s.id),
+          n_samples: reviewNSamples ? parseInt(reviewNSamples, 10) : undefined,
+          debug: reviewDebug,
+          filter_failures_only: reviewFilterFailures,
+        });
+      } else {
+        throw new Error("No data source selected");
+      }
+      
       setAutoReview(result);
     } catch (error) {
       console.error("Error running auto-review:", error);
@@ -724,101 +779,357 @@ export function TaxonomyTab() {
             </div>
           </Panel>
 
-          {/* AI Review Mini Panel */}
+          {/* Notes Panel */}
           <Panel>
-            <PanelHeader icon={<Sparkles className="w-4 h-4 text-gold" />} title="AI Review" />
-            <div className="space-y-2">
-              <div className="relative">
-                <button
-                  onClick={() => setBatchDropdownOpen(!batchDropdownOpen)}
-                  className="w-full flex items-center justify-between gap-2 bg-moon-900/60 border border-moon-700 hover:border-moon-600 rounded-lg px-3 py-2 text-left transition-colors text-sm"
-                >
-                  {selectedBatchForReview ? (
-                    <span className="text-moon-100 truncate text-xs">{selectedBatchForReview.name}</span>
-                  ) : (
-                    <span className="text-moon-500 text-xs">Select batch...</span>
-                  )}
-                  <ChevronDown
-                    className={`w-3 h-3 text-moon-450 transition-transform ${batchDropdownOpen ? "rotate-180" : ""}`}
-                  />
-                </button>
-
-                {batchDropdownOpen && (
-                  <>
-                    <div className="fixed inset-0 z-10" onClick={() => setBatchDropdownOpen(false)} />
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-moon-800 border border-moon-700 rounded-lg shadow-xl z-20 max-h-32 overflow-y-auto">
-                      {completedBatches.length > 0 ? (
-                        completedBatches.map((batch) => (
-                          <button
-                            key={batch.id}
-                            onClick={() => {
-                              setSelectedBatchForReview(batch);
-                              setBatchDropdownOpen(false);
-                            }}
-                            className="w-full px-3 py-2 text-left transition-colors hover:bg-moon-700/50 text-xs"
-                          >
-                            <span className="text-moon-200 truncate block">{batch.name}</span>
-                          </button>
-                        ))
-                      ) : (
-                        <div className="px-3 py-2 text-center text-moon-500 text-xs">No completed batches</div>
-                      )}
-                    </div>
-                  </>
-                )}
-        </div>
-
-              {selectedBatchForReview && (
-                  <button
-                  onClick={() => runAutoReview(selectedBatchForReview.id)}
-                  disabled={runningAutoReview}
-                  className="w-full btn-primary text-xs py-2 flex items-center justify-center gap-2"
-                >
-                  {runningAutoReview ? (
-                    <>
-                      <RefreshCw className="w-3 h-3 animate-spin" />
-                      Analyzing...
-                      </>
-                    ) : (
-                      <>
-                      <Play className="w-3 h-3" />
-                      Run Review
-                      </>
-                    )}
-                  </button>
-              )}
-
-              {autoReview && (
-                <button
-                  onClick={() => setShowReviewReport(!showReviewReport)}
-                  className="w-full btn-ghost text-xs flex items-center justify-center gap-1"
-                >
-                  <FileText className="w-3 h-3" />
-                  {showReviewReport ? "Hide" : "Show"} Results
-                </button>
-              )}
+            <PanelHeader icon={<FileText className="w-4 h-4 text-moon-400" />} title="Quick Notes" />
+            <div className="text-xs text-moon-500 space-y-2 p-1">
+              <p>Use <span className="text-gold">AI Review</span> below to automatically discover failure categories from batch traces.</p>
+              <p className="text-moon-600">Results can be added to your Failure Modes taxonomy.</p>
             </div>
           </Panel>
         </div>
       </div>
 
-      {/* AI Review Results (when expanded) */}
-      {autoReview && showReviewReport && (
-        <Panel>
-          <div className="flex items-center justify-between mb-4">
-            <PanelHeader
-              icon={<Sparkles className="w-5 h-5 text-gold" />}
-              title="AI Review Results"
-              badge={<Badge variant="gold">{autoReview.failure_categories.filter((c) => c.count > 0).length} categories</Badge>}
+      {/* ========================================================================= */}
+      {/* AI Review Section (Full Width) */}
+      {/* ========================================================================= */}
+      <Panel>
+        <div className="flex items-center justify-between mb-4">
+          <PanelHeader
+            icon={<Sparkles className="w-5 h-5 text-gold" />}
+            title="AI Review"
+            badge={autoReview ? <Badge variant="gold">{autoReview.failure_categories.filter((c) => c.count > 0).length} categories found</Badge> : null}
+          />
+          {autoReview && (
+            <button onClick={() => setShowReviewReport(!showReviewReport)} className="btn-ghost text-xs flex items-center gap-1">
+              {showReviewReport ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+              {showReviewReport ? "Hide Results" : "Show Results"}
+            </button>
+          )}
+        </div>
+
+        {/* Data Source Selector (Sprint 3) */}
+        <div className="flex items-center gap-4 mb-4 p-3 bg-moon-900/40 rounded-lg border border-moon-800">
+          <span className="text-xs text-moon-500">Data Source:</span>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="traceSource"
+              value="synthetic_batch"
+              checked={traceSourceType === "synthetic_batch"}
+              onChange={() => setTraceSourceType("synthetic_batch")}
+              className="w-4 h-4 text-gold focus:ring-gold"
             />
-            <button onClick={() => setShowReviewReport(false)} className="btn-ghost p-1.5">
-              <X className="w-4 h-4" />
+            <span className={`text-sm ${traceSourceType === "synthetic_batch" ? "text-moon-100" : "text-moon-500"}`}>
+              Synthetic Batch
+            </span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name="traceSource"
+              value="sessions"
+              checked={traceSourceType === "sessions"}
+              onChange={() => setTraceSourceType("sessions")}
+              className="w-4 h-4 text-gold focus:ring-gold"
+            />
+            <span className={`text-sm ${traceSourceType === "sessions" ? "text-moon-100" : "text-moon-500"}`}>
+              Sessions
+            </span>
+          </label>
+          <span className="text-xs text-moon-600 ml-4">
+            {traceSourceType === "synthetic_batch" 
+              ? "Analyze executed batch traces" 
+              : "Analyze real session conversations"}
+          </span>
+        </div>
+
+        {/* Controls Row */}
+        <div className="flex items-start gap-6 mb-4">
+          {/* Synthetic Batch Selector (shown when traceSourceType === "synthetic_batch") */}
+          {traceSourceType === "synthetic_batch" && (
+          <div className="flex-1 max-w-md">
+            <label className="block text-xs text-moon-500 mb-1.5">Select Batch</label>
+            <div className="relative">
+              <button
+                onClick={() => setBatchDropdownOpen(!batchDropdownOpen)}
+                className="w-full flex items-center justify-between gap-2 bg-moon-900/60 border border-moon-700 hover:border-moon-600 rounded-lg px-3 py-2.5 text-left transition-colors"
+              >
+                {selectedBatchForReview ? (
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-moon-100 truncate text-sm">{selectedBatchForReview.name}</span>
+                      {selectedBatchForReview.status === "completed" && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">✓ executed</span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 text-[10px] text-moon-500 mt-0.5">
+                      <span>{selectedBatchForReview.query_count} queries</span>
+                      {selectedBatchForReview.success_count !== undefined && (
+                        <>
+                          <span className="text-emerald-400">{selectedBatchForReview.success_count} success</span>
+                          {(selectedBatchForReview.failure_count || 0) > 0 && (
+                            <span className="text-red-400">{selectedBatchForReview.failure_count} failed</span>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <span className="text-moon-500 text-sm">Select a completed batch...</span>
+                )}
+                <ChevronDown className={`w-4 h-4 text-moon-450 flex-shrink-0 transition-transform ${batchDropdownOpen ? "rotate-180" : ""}`} />
+              </button>
+
+              {batchDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setBatchDropdownOpen(false)} />
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-moon-800 border border-moon-700 rounded-lg shadow-xl z-20 max-h-60 overflow-y-auto">
+                    {completedBatches.length > 0 ? (
+                      completedBatches.map((batch) => (
+                        <button
+                          key={batch.id}
+                          onClick={() => {
+                            setSelectedBatchForReview(batch);
+                            setBatchDropdownOpen(false);
+                          }}
+                          className="w-full px-3 py-2.5 text-left transition-colors hover:bg-moon-700/50 border-b border-moon-700/50 last:border-0"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-moon-200 text-sm">{batch.name}</span>
+                            {batch.status === "completed" && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400">✓</span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-3 text-[10px] text-moon-500 mt-0.5">
+                            <span>{batch.query_count} queries</span>
+                            {batch.success_count !== undefined && (
+                              <>
+                                <span className="text-emerald-400/70">{batch.success_count} success</span>
+                                {(batch.failure_count || 0) > 0 && (
+                                  <span className="text-red-400/70">{batch.failure_count} failed</span>
+                                )}
+                              </>
+                            )}
+                            <span className="text-moon-600">{formatRelativeTime(batch.created_at)}</span>
+                          </div>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="px-3 py-4 text-center text-moon-500 text-sm">
+                        <p>No completed batches</p>
+                        <p className="text-xs text-moon-600 mt-1">Run batches from the Synthetic tab first</p>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+          )}
+
+          {/* Sessions Batch Selector (shown when traceSourceType === "sessions") */}
+          {traceSourceType === "sessions" && (
+          <div className="flex-1 max-w-md">
+            <label className="block text-xs text-moon-500 mb-1.5">Select Batch (Sessions)</label>
+            <div className="relative">
+              <button
+                onClick={() => setSessionBatchDropdownOpen(!sessionBatchDropdownOpen)}
+                className="w-full flex items-center justify-between gap-2 bg-moon-900/60 border border-moon-700 hover:border-moon-600 rounded-lg px-3 py-2.5 text-left transition-colors"
+              >
+                {selectedSessionBatch ? (
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-moon-100 truncate text-sm">{selectedSessionBatch.name}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal/20 text-teal">sessions</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-[10px] text-moon-500 mt-0.5">
+                      {loadingSessions ? (
+                        <span>Loading sessions...</span>
+                      ) : (
+                        <>
+                          <span>{sessionSessions.length} sessions loaded</span>
+                          <span>{sessionSessions.filter(s => s.has_error).length} with errors</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <span className="text-moon-500 text-sm">Select a batch to load sessions...</span>
+                )}
+                <ChevronDown className={`w-4 h-4 text-moon-450 flex-shrink-0 transition-transform ${sessionBatchDropdownOpen ? "rotate-180" : ""}`} />
+              </button>
+
+              {sessionBatchDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setSessionBatchDropdownOpen(false)} />
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-moon-800 border border-moon-700 rounded-lg shadow-xl z-20 max-h-60 overflow-y-auto">
+                    {completedBatches.length > 0 ? (
+                      completedBatches.map((batch) => (
+                        <button
+                          key={batch.id}
+                          onClick={() => handleSessionBatchSelect(batch)}
+                          className="w-full px-3 py-2.5 text-left transition-colors hover:bg-moon-700/50 border-b border-moon-700/50 last:border-0"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-moon-200 text-sm">{batch.name}</span>
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal/20 text-teal">sessions</span>
+                          </div>
+                          <div className="flex items-center gap-3 text-[10px] text-moon-500 mt-0.5">
+                            <span>{batch.query_count} queries</span>
+                            <span className="text-moon-600">{formatRelativeTime(batch.created_at)}</span>
+                          </div>
+                        </button>
+                      ))
+                    ) : (
+                      <div className="px-3 py-4 text-center text-moon-500 text-sm">
+                        <p>No completed batches</p>
+                        <p className="text-xs text-moon-600 mt-1">Run batches from the Synthetic tab first</p>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+            
+            {/* Session stats */}
+            {selectedSessionBatch && sessionSessions.length > 0 && (
+              <div className="mt-2 flex items-center gap-3 text-xs">
+                <span className="text-moon-400">
+                  <span className="text-moon-200 font-medium">{sessionSessions.length}</span> sessions
+                </span>
+                <span className="text-emerald-400">
+                  {sessionSessions.filter(s => s.is_reviewed).length} reviewed
+                </span>
+                {sessionSessions.filter(s => s.has_error).length > 0 && (
+                  <span className="text-red-400">
+                    {sessionSessions.filter(s => s.has_error).length} with errors
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+          )}
+
+          {/* Run Button */}
+          <div className="pt-5">
+            <button
+              onClick={runAutoReview}
+              disabled={
+                runningAutoReview ||
+                (traceSourceType === "synthetic_batch" && !selectedBatchForReview) ||
+                (traceSourceType === "sessions" && sessionSessions.length === 0)
+              }
+              className="btn-primary px-6 py-2.5 flex items-center gap-2 disabled:opacity-50"
+            >
+              {runningAutoReview ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  Analyzing...
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4" />
+                  Run AI Review
+                </>
+              )}
             </button>
           </div>
 
-          <AutoReviewResults review={autoReview} expandedCategories={expandedCategories} toggleCategory={toggleReviewCategory} />
-        </Panel>
-      )}
+          {/* Advanced Options Toggle */}
+          <div className="pt-5">
+            <button
+              onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+              className="btn-ghost text-xs flex items-center gap-1"
+            >
+              <Wrench className="w-3.5 h-3.5" />
+              Options
+              {showAdvancedOptions ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+            </button>
+          </div>
+        </div>
+
+        {/* Advanced Options (Collapsible) */}
+        {showAdvancedOptions && (
+          <div className="mb-4 p-4 bg-moon-900/40 rounded-lg border border-moon-800">
+            <div className="grid grid-cols-4 gap-4">
+              <div>
+                <label className="block text-xs text-moon-500 mb-1">Sample Limit</label>
+                <input
+                  type="number"
+                  value={reviewNSamples}
+                  onChange={(e) => setReviewNSamples(e.target.value)}
+                  placeholder="All traces"
+                  min="1"
+                  className="w-full text-sm bg-moon-900 border border-moon-700 rounded px-3 py-1.5"
+                />
+                <p className="text-[10px] text-moon-600 mt-1">Max traces to analyze</p>
+              </div>
+              <div className="flex flex-col justify-center">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={reviewFilterFailures}
+                    onChange={(e) => setReviewFilterFailures(e.target.checked)}
+                    className="w-4 h-4 rounded border-moon-600 bg-moon-900 text-gold focus:ring-gold"
+                  />
+                  <span className="text-sm text-moon-300">Failures only</span>
+                </label>
+                <p className="text-[10px] text-moon-600 mt-1 ml-6">Only analyze error traces</p>
+              </div>
+              <div className="flex flex-col justify-center">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={reviewDebug}
+                    onChange={(e) => setReviewDebug(e.target.checked)}
+                    className="w-4 h-4 rounded border-moon-600 bg-moon-900 text-gold focus:ring-gold"
+                  />
+                  <span className="text-sm text-moon-300">Debug mode</span>
+                </label>
+                <p className="text-[10px] text-moon-600 mt-1 ml-6">Uses cheaper model, verbose output</p>
+              </div>
+              <div className="flex items-end">
+                <button
+                  onClick={() => {
+                    setReviewNSamples("");
+                    setReviewFilterFailures(false);
+                    setReviewDebug(false);
+                  }}
+                  className="btn-ghost text-xs"
+                >
+                  Reset to defaults
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Results Section */}
+        {autoReview && showReviewReport && (
+          <div className="border-t border-moon-800 pt-4">
+            <AutoReviewResults review={autoReview} expandedCategories={expandedCategories} toggleCategory={toggleReviewCategory} />
+          </div>
+        )}
+
+        {/* Empty State */}
+        {!autoReview && !runningAutoReview && (
+          <div className="text-center py-8 text-moon-500 border-t border-moon-800">
+            <Sparkles className="w-8 h-8 mx-auto mb-2 opacity-40" />
+            <p className="text-sm">Select a batch and run AI Review to discover failure categories</p>
+            <p className="text-xs text-moon-600 mt-1">FAILS will analyze traces and cluster them into meaningful failure modes</p>
+          </div>
+        )}
+
+        {/* Running State */}
+        {runningAutoReview && (
+          <div className="text-center py-8 border-t border-moon-800">
+            <RefreshCw className="w-8 h-8 mx-auto mb-2 text-gold animate-spin" />
+            <p className="text-sm text-moon-300">Analyzing traces with FAILS pipeline...</p>
+            <p className="text-xs text-moon-500 mt-1">This may take a moment depending on batch size</p>
+          </div>
+        )}
+      </Panel>
 
       {/* Create Failure Mode Modal */}
       <Modal
@@ -1594,7 +1905,7 @@ function AutoReviewResults({
 
       {/* Failure Categories */}
       {sortedCategories.length > 0 ? (
-        <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-3">
           {sortedCategories.map((category) => {
             const percentage = total > 0 ? ((category.count / total) * 100).toFixed(1) : 0;
             const isExpanded = expandedCategories.has(category.name);

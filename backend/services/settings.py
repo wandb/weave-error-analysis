@@ -78,7 +78,7 @@ DEFAULT_SETTINGS = {
     
     # Auto-review Settings
     "auto_review_model": {
-        "value": "gpt-4o-mini",
+        "value": "openai/gpt-5.1",
         "is_secret": False,
         "description": "Model to use for automated trace reviews"
     },

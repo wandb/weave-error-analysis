@@ -103,6 +103,11 @@ class BatchResponse(BaseModel):
     query_count: int
     created_at: str
     queries: Optional[List[QueryResponse]] = None
+    # Enhanced stats for batch selector
+    executed_count: Optional[int] = None
+    success_count: Optional[int] = None
+    failure_count: Optional[int] = None
+    pending_count: Optional[int] = None
 
 
 # =============================================================================
@@ -658,17 +663,37 @@ async def create_batch_streaming(request: BatchCreateRequest):
 
 @router.get("/synthetic/batches")
 async def list_batches(agent_id: Optional[str] = None) -> List[BatchResponse]:
-    """List all synthetic batches, optionally filtered by agent."""
+    """List all synthetic batches, optionally filtered by agent, with stats."""
     with get_db() as conn:
         cursor = conn.cursor()
         
+        # Query batches with aggregated query stats
         if agent_id:
             cursor.execute("""
-                SELECT * FROM synthetic_batches WHERE agent_id = ? ORDER BY created_at DESC
+                SELECT 
+                    sb.*,
+                    COUNT(sq.id) as total_queries,
+                    SUM(CASE WHEN sq.execution_status = 'success' THEN 1 ELSE 0 END) as success_count,
+                    SUM(CASE WHEN sq.execution_status = 'error' THEN 1 ELSE 0 END) as failure_count,
+                    SUM(CASE WHEN sq.execution_status = 'pending' THEN 1 ELSE 0 END) as pending_count
+                FROM synthetic_batches sb
+                LEFT JOIN synthetic_queries sq ON sb.id = sq.batch_id
+                WHERE sb.agent_id = ?
+                GROUP BY sb.id
+                ORDER BY sb.created_at DESC
             """, (agent_id,))
         else:
             cursor.execute("""
-                SELECT * FROM synthetic_batches ORDER BY created_at DESC
+                SELECT 
+                    sb.*,
+                    COUNT(sq.id) as total_queries,
+                    SUM(CASE WHEN sq.execution_status = 'success' THEN 1 ELSE 0 END) as success_count,
+                    SUM(CASE WHEN sq.execution_status = 'error' THEN 1 ELSE 0 END) as failure_count,
+                    SUM(CASE WHEN sq.execution_status = 'pending' THEN 1 ELSE 0 END) as pending_count
+                FROM synthetic_batches sb
+                LEFT JOIN synthetic_queries sq ON sb.id = sq.batch_id
+                GROUP BY sb.id
+                ORDER BY sb.created_at DESC
             """)
         
         rows = cursor.fetchall()
@@ -680,7 +705,11 @@ async def list_batches(agent_id: Optional[str] = None) -> List[BatchResponse]:
             name=row["name"] or f"Batch {row['id'][:8]}",
             status=row["status"],
             query_count=row["query_count"],
-            created_at=row["created_at"]
+            created_at=row["created_at"],
+            executed_count=(row["success_count"] or 0) + (row["failure_count"] or 0),
+            success_count=row["success_count"] or 0,
+            failure_count=row["failure_count"] or 0,
+            pending_count=row["pending_count"] or 0
         )
         for row in rows
     ]
@@ -1105,6 +1134,9 @@ class AutoReviewRequest(BaseModel):
     """Request to run an automated review."""
     model: Optional[str] = None  # Uses settings default if not provided
     max_concurrent_llm_calls: Optional[int] = None  # Uses settings default if not provided
+    n_samples: Optional[int] = None  # Max traces to analyze (None = all)
+    debug: bool = False  # Verbose output, uses cheaper model
+    filter_failures_only: bool = False  # Only analyze failed/error traces
 
 
 class AutoReviewResponse(BaseModel):
@@ -1134,7 +1166,7 @@ async def run_batch_auto_review(batch_id: str, request: AutoReviewRequest = None
     
     Args:
         batch_id: The batch to review
-        request: Review configuration (model, concurrency)
+        request: Review configuration (model, concurrency, n_samples, debug, filter_failures_only)
         
     Returns:
         AutoReviewResponse with failure categories and classifications
@@ -1145,7 +1177,9 @@ async def run_batch_auto_review(batch_id: str, request: AutoReviewRequest = None
         request = AutoReviewRequest()
     
     # Get model and concurrency from settings if not provided in request
-    model = request.model or get_setting("auto_review_model", "openai/gpt-4o-mini")
+    # In debug mode, use a cheaper model
+    default_model = "openai/gpt-4.1-mini" if request.debug else get_setting("auto_review_model", "openai/gpt-4.1")
+    model = request.model or default_model
     concurrency_str = get_setting("auto_review_concurrency", "10")
     max_concurrent = request.max_concurrent_llm_calls or int(concurrency_str)
     
@@ -1172,12 +1206,15 @@ async def run_batch_auto_review(batch_id: str, request: AutoReviewRequest = None
         agent_id = row["agent_id"]
     
     try:
-        # Run the automated review
+        # Run the automated review with all FAILS options
         result = await run_auto_review(
             agent_id=agent_id,
             batch_id=batch_id,
             model=model,
-            max_concurrent_llm_calls=max_concurrent
+            max_concurrent_llm_calls=max_concurrent,
+            n_samples=request.n_samples,
+            debug=request.debug,
+            filter_failures_only=request.filter_failures_only
         )
         
         return AutoReviewResponse(
@@ -1215,23 +1252,26 @@ async def list_batch_reviews(batch_id: str) -> List[AutoReviewResponse]:
     
     reviews = get_batch_reviews(batch_id)
     
-    return [
-        AutoReviewResponse(
+    result = []
+    for r in reviews:
+        # Handle None values for lists
+        classifications = r.get("classifications") or []
+        failure_categories = r.get("failure_categories") or []
+        result.append(AutoReviewResponse(
             id=r["id"],
             batch_id=r["batch_id"],
             agent_id=r["agent_id"],
             status=r["status"],
             model_used=r.get("model_used", "unknown"),
-            failure_categories=r.get("failure_categories", []),
-            classifications=r.get("classifications", []),
+            failure_categories=failure_categories,
+            classifications=classifications,
             report_markdown=r.get("report_markdown"),
-            total_traces=len(r.get("classifications", [])),
+            total_traces=len(classifications),
             created_at=r["created_at"],
             completed_at=r.get("completed_at"),
             error_message=r.get("error_message")
-        )
-        for r in reviews
-    ]
+        ))
+    return result
 
 
 @router.get("/synthetic/batches/{batch_id}/reviews/latest")
@@ -1244,16 +1284,20 @@ async def get_latest_review(batch_id: str) -> AutoReviewResponse:
     if not review:
         raise HTTPException(status_code=404, detail="No reviews found for this batch")
     
+    # Handle None values for lists - .get() only returns default if key is missing, not if value is None
+    classifications = review.get("classifications") or []
+    failure_categories = review.get("failure_categories") or []
+    
     return AutoReviewResponse(
         id=review["id"],
         batch_id=review["batch_id"],
         agent_id=review["agent_id"],
         status=review["status"],
         model_used=review.get("model_used", "unknown"),
-        failure_categories=review.get("failure_categories", []),
-        classifications=review.get("classifications", []),
+        failure_categories=failure_categories,
+        classifications=classifications,
         report_markdown=review.get("report_markdown"),
-        total_traces=len(review.get("classifications", [])),
+        total_traces=len(classifications),
         created_at=review["created_at"],
         completed_at=review.get("completed_at"),
         error_message=review.get("error_message")
@@ -1270,16 +1314,20 @@ async def get_review_by_id(review_id: str) -> AutoReviewResponse:
     if not review:
         raise HTTPException(status_code=404, detail="Review not found")
     
+    # Handle None values for lists - .get() only returns default if key is missing, not if value is None
+    classifications = review.get("classifications") or []
+    failure_categories = review.get("failure_categories") or []
+    
     return AutoReviewResponse(
         id=review["id"],
         batch_id=review["batch_id"],
         agent_id=review["agent_id"],
         status=review["status"],
         model_used=review.get("model_used", "unknown"),
-        failure_categories=review.get("failure_categories", []),
-        classifications=review.get("classifications", []),
+        failure_categories=failure_categories,
+        classifications=classifications,
         report_markdown=review.get("report_markdown"),
-        total_traces=len(review.get("classifications", [])),
+        total_traces=len(classifications),
         created_at=review["created_at"],
         completed_at=review.get("completed_at"),
         error_message=review.get("error_message")

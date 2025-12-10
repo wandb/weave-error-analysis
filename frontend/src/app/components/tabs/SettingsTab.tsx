@@ -41,7 +41,7 @@ const SETTING_PLACEHOLDERS: Record<string, string> = {
   weave_api_key: "Your W&B API key",
   weave_entity: "Your W&B username or team",
   weave_project: "error-analysis-demo",
-  auto_review_model: "gpt-4o-mini",
+  auto_review_model: "openai/gpt-5.1",
   auto_review_concurrency: "10",
 };
 

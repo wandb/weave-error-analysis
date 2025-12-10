@@ -385,18 +385,18 @@ class SuggestionConfig:
 
 ## Implementation Plan
 
-### Sprint 1: Core Service
-- [ ] Create `SuggestionService` class
-- [ ] Implement AGENT_INFO.md parsing -- I think this already exist but if you need something custom do feel free to check it out.
-- [ ] Build analysis prompt
-- [ ] Add `trace_suggestions` table
-- [ ] Create `/analyze` endpoint
+### Sprint 1: Core Service ✅
+- [x] Create `SuggestionService` class (`backend/services/suggestion.py`)
+- [x] Implement AGENT_INFO.md parsing (reused existing `services/agent_info.py`)
+- [x] Build analysis prompt (with agent context, taxonomy, and recent notes)
+- [x] Add `trace_suggestions` table (`backend/database.py`)
+- [x] Create `/analyze` endpoint (`backend/routers/suggestions.py`)
 
-### Sprint 2: UI Integration  
-- [ ] Add suggestion display to Threads tab
-- [ ] Implement Accept/Edit/Skip actions
-- [ ] Show "suggestions ready" badge on batches
-- [ ] Add progress indicator during analysis
+### Sprint 2: UI Integration ✅
+- [x] Add suggestion display to Threads tab
+- [x] Implement Accept/Edit/Skip actions
+- [x] Show "suggestions ready" badge on batches
+- [x] Add progress indicator during analysis
 
 ### Sprint 3: Polish
 - [ ] Bulk accept/reject actions

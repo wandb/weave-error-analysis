@@ -44,6 +44,7 @@ from routers import (
     synthetic_router,
     settings_router,
     sessions_router,
+    suggestions_router,
 )
 
 
@@ -108,6 +109,7 @@ app.include_router(agents_router)
 app.include_router(synthetic_router)
 app.include_router(settings_router)
 app.include_router(sessions_router)  # New: local-first session management
+app.include_router(suggestions_router)  # AI suggestion service for trace quality
 
 
 @app.get("/")

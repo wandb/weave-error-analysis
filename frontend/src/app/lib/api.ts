@@ -26,6 +26,10 @@ import type {
   FilterRanges,
   FailureMode,
   FailureModeStatus,
+  TraceSuggestion,
+  SuggestionAnalysisResponse,
+  SuggestionStats,
+  AcceptSuggestionResult,
 } from "../types";
 import { createLogger } from "./logger";
 
@@ -936,6 +940,138 @@ export async function fetchBatchOptions(): Promise<{ batches: { id: string; name
 
 export async function fetchFilterRanges(): Promise<FilterRanges> {
   const response = await fetch(`${API_BASE}/sessions/options/filter-ranges`);
+  return response.json();
+}
+
+// ============================================================================
+// AI Suggestions API (Sprint 2 - Suggestion Service)
+// ============================================================================
+
+export async function analyzeSession(
+  sessionId: string,
+  model?: string
+): Promise<SuggestionAnalysisResponse> {
+  const response = await fetch(`${API_BASE}/suggestions/sessions/${sessionId}/analyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ model }),
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to analyze session");
+  }
+  
+  return response.json();
+}
+
+export async function analyzeBatch(
+  batchId: string,
+  maxConcurrent: number = 10,
+  model?: string
+): Promise<SuggestionAnalysisResponse> {
+  const response = await fetch(`${API_BASE}/suggestions/batches/${batchId}/analyze`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ max_concurrent: maxConcurrent, model }),
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to analyze batch");
+  }
+  
+  return response.json();
+}
+
+export async function fetchSessionSuggestions(sessionId: string): Promise<TraceSuggestion[]> {
+  const response = await fetch(`${API_BASE}/suggestions/sessions/${sessionId}`);
+  return response.json();
+}
+
+export async function fetchBatchSuggestions(batchId: string): Promise<TraceSuggestion[]> {
+  const response = await fetch(`${API_BASE}/suggestions/batches/${batchId}`);
+  return response.json();
+}
+
+export async function fetchPendingSuggestions(
+  batchId?: string,
+  minConfidence: number = 0.6
+): Promise<TraceSuggestion[]> {
+  const params = new URLSearchParams();
+  if (batchId) params.append("batch_id", batchId);
+  params.append("min_confidence", String(minConfidence));
+  
+  const response = await fetch(`${API_BASE}/suggestions/pending?${params}`);
+  return response.json();
+}
+
+export async function fetchSuggestionStats(batchId?: string): Promise<SuggestionStats> {
+  const params = batchId ? `?batch_id=${batchId}` : "";
+  const response = await fetch(`${API_BASE}/suggestions/stats${params}`);
+  return response.json();
+}
+
+export async function acceptSuggestion(
+  suggestionId: string,
+  editedText?: string,
+  failureModeId?: string
+): Promise<AcceptSuggestionResult> {
+  const response = await fetch(`${API_BASE}/suggestions/${suggestionId}/accept`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ 
+      edited_text: editedText,
+      failure_mode_id: failureModeId 
+    }),
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to accept suggestion");
+  }
+  
+  return response.json();
+}
+
+export async function skipSuggestion(suggestionId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/suggestions/${suggestionId}/skip`, {
+    method: "POST",
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to skip suggestion");
+  }
+}
+
+export async function rejectSuggestion(suggestionId: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/suggestions/${suggestionId}/reject`, {
+    method: "POST",
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to reject suggestion");
+  }
+}
+
+export async function bulkAcceptSuggestions(suggestionIds: string[]): Promise<{
+  accepted: number;
+  failed: number;
+  notes_created: AcceptSuggestionResult[];
+}> {
+  const response = await fetch(`${API_BASE}/suggestions/bulk-accept`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ suggestion_ids: suggestionIds }),
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to bulk accept suggestions");
+  }
+  
   return response.json();
 }
 

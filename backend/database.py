@@ -415,6 +415,65 @@ def init_db():
             """)
             
             # =====================================================================
+            # AI Suggestions Table (for suggestion service)
+            # =====================================================================
+            # 
+            # Stores AI-generated suggestions for trace quality issues.
+            # These are pre-computed during batch analysis and shown during
+            # human review to speed up annotation.
+            #
+            # See: fails.md for full design
+            # =====================================================================
+            
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS trace_suggestions (
+                    id TEXT PRIMARY KEY,
+                    trace_id TEXT NOT NULL,
+                    batch_id TEXT,
+                    session_id TEXT,
+                    
+                    -- Analysis result
+                    has_issue BOOLEAN NOT NULL,
+                    suggested_note TEXT,
+                    confidence REAL,
+                    thinking TEXT,
+                    
+                    -- Category suggestion (one of these will be set)
+                    failure_mode_id TEXT,
+                    suggested_category TEXT,
+                    
+                    -- User action
+                    status TEXT DEFAULT 'pending',
+                    user_note_id TEXT,
+                    
+                    created_at TEXT DEFAULT (datetime('now')),
+                    reviewed_at TEXT,
+                    
+                    FOREIGN KEY (batch_id) REFERENCES synthetic_batches(id),
+                    FOREIGN KEY (session_id) REFERENCES sessions(id),
+                    FOREIGN KEY (failure_mode_id) REFERENCES failure_modes(id)
+                )
+            """)
+            
+            # Indexes for trace_suggestions
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_suggestions_batch 
+                ON trace_suggestions(batch_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_suggestions_session 
+                ON trace_suggestions(session_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_suggestions_status 
+                ON trace_suggestions(status)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_suggestions_failure_mode 
+                ON trace_suggestions(failure_mode_id)
+            """)
+            
+            # =====================================================================
             # Settings Table - Application configuration
             # =====================================================================
             

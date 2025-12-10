@@ -25,12 +25,20 @@ import {
   AlertCircle,
   Layers,
   ChevronDown,
+  Sparkles,
+  Check,
+  Edit3,
+  SkipForward,
+  ThumbsDown,
+  Loader2,
+  Tag,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { formatRelativeTime } from "../../utils/formatters";
 import { ConversationMessage } from "../ConversationMessage";
 import { Panel, PanelHeader, Badge, ProgressBar, LoadingCards, NoThreadsFound, SelectPrompt, DualRangeSlider } from "../ui";
 import * as api from "../../lib/api";
+import type { TraceSuggestion } from "../../types";
 
 // =============================================================================
 // Batch Filter Dropdown Types
@@ -256,6 +264,197 @@ function FilterPill({ active, onClick, children, variant = "coral" }: FilterPill
 }
 
 // =============================================================================
+// AI Suggestion Card Component
+// =============================================================================
+
+interface SuggestionCardProps {
+  suggestion: TraceSuggestion;
+  onAccept: (suggestionId: string, editedText?: string) => Promise<void>;
+  onSkip: (suggestionId: string) => Promise<void>;
+  onReject: (suggestionId: string) => Promise<void>;
+  isLoading?: boolean;
+}
+
+function SuggestionCard({ suggestion, onAccept, onSkip, onReject, isLoading }: SuggestionCardProps) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedText, setEditedText] = useState(suggestion.suggested_note || "");
+  const [actionLoading, setActionLoading] = useState<"accept" | "skip" | "reject" | null>(null);
+
+  const confidencePercent = Math.round(suggestion.confidence * 100);
+  const confidenceColor = suggestion.confidence >= 0.8 
+    ? "text-accent-teal" 
+    : suggestion.confidence >= 0.6 
+    ? "text-accent-gold" 
+    : "text-ink-400";
+
+  const handleAccept = async () => {
+    setActionLoading("accept");
+    try {
+      await onAccept(suggestion.id, isEditing ? editedText : undefined);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleSkip = async () => {
+    setActionLoading("skip");
+    try {
+      await onSkip(suggestion.id);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleReject = async () => {
+    setActionLoading("reject");
+    try {
+      await onReject(suggestion.id);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Don't show if already handled
+  if (suggestion.status !== "pending") {
+    return null;
+  }
+
+  return (
+    <div className="bg-gradient-to-r from-accent-plum/10 to-accent-coral/10 border border-accent-plum/30 rounded-lg p-4 animate-fade-in">
+      {/* Header */}
+      <div className="flex items-center gap-2 mb-3">
+        <Sparkles className="w-4 h-4 text-accent-plum" />
+        <span className="text-sm font-medium text-accent-plum">AI Suggested Issue</span>
+        <span className={`text-xs ${confidenceColor}`}>
+          {confidencePercent}% confidence
+        </span>
+      </div>
+
+      {/* Suggested Note */}
+      <div className="mb-3">
+        {isEditing ? (
+          <textarea
+            value={editedText}
+            onChange={(e) => setEditedText(e.target.value)}
+            className="w-full text-sm bg-ink-950 border border-ink-700 rounded-lg p-2 resize-none focus:border-accent-plum focus:ring-1 focus:ring-accent-plum"
+            rows={3}
+            autoFocus
+          />
+        ) : (
+          <p className="text-sm text-sand-200 leading-relaxed">
+            {suggestion.suggested_note}
+          </p>
+        )}
+      </div>
+
+      {/* Category Badge */}
+      <div className="flex items-center gap-2 mb-4">
+        <Tag className="w-3 h-3 text-ink-500" />
+        {suggestion.failure_mode_name ? (
+          <Badge variant="teal" className="text-xs">
+            {suggestion.failure_mode_name}
+          </Badge>
+        ) : suggestion.suggested_category ? (
+          <Badge variant="gold" className="text-xs">
+            New: {suggestion.suggested_category}
+          </Badge>
+        ) : (
+          <span className="text-xs text-ink-500">No category</span>
+        )}
+      </div>
+
+      {/* Thinking (collapsible) */}
+      {suggestion.thinking && (
+        <details className="mb-4 text-xs">
+          <summary className="cursor-pointer text-ink-500 hover:text-ink-400">
+            View AI reasoning
+          </summary>
+          <p className="mt-2 text-ink-400 italic pl-2 border-l border-ink-700">
+            {suggestion.thinking}
+          </p>
+        </details>
+      )}
+
+      {/* Actions */}
+      <div className="flex items-center gap-2">
+        {isEditing ? (
+          <>
+            <button
+              onClick={handleAccept}
+              disabled={!editedText.trim() || actionLoading !== null}
+              className="btn-primary text-xs flex items-center gap-1.5 px-3 py-1.5 disabled:opacity-50"
+            >
+              {actionLoading === "accept" ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Check className="w-3 h-3" />
+              )}
+              Save as Note
+            </button>
+            <button
+              onClick={() => {
+                setIsEditing(false);
+                setEditedText(suggestion.suggested_note || "");
+              }}
+              className="btn-ghost text-xs px-3 py-1.5"
+            >
+              Cancel
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={handleAccept}
+              disabled={actionLoading !== null}
+              className="btn-primary text-xs flex items-center gap-1.5 px-3 py-1.5 disabled:opacity-50"
+            >
+              {actionLoading === "accept" ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Check className="w-3 h-3" />
+              )}
+              Accept
+            </button>
+            <button
+              onClick={() => setIsEditing(true)}
+              disabled={actionLoading !== null}
+              className="btn-ghost text-xs flex items-center gap-1.5 px-3 py-1.5 disabled:opacity-50"
+            >
+              <Edit3 className="w-3 h-3" />
+              Edit
+            </button>
+            <button
+              onClick={handleSkip}
+              disabled={actionLoading !== null}
+              className="btn-ghost text-xs flex items-center gap-1.5 px-3 py-1.5 text-ink-500 hover:text-ink-300 disabled:opacity-50"
+            >
+              {actionLoading === "skip" ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <SkipForward className="w-3 h-3" />
+              )}
+              Skip
+            </button>
+            <button
+              onClick={handleReject}
+              disabled={actionLoading !== null}
+              className="btn-ghost text-xs flex items-center gap-1.5 px-3 py-1.5 text-red-400 hover:text-red-300 disabled:opacity-50"
+              title="Mark as incorrect"
+            >
+              {actionLoading === "reject" ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <ThumbsDown className="w-3 h-3" />
+              )}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// =============================================================================
 // Main Threads Tab
 // =============================================================================
 
@@ -325,6 +524,12 @@ export function ThreadsTab() {
   const [showBatchDropdown, setShowBatchDropdown] = useState(false);
   const batchDropdownRef = useRef<HTMLDivElement>(null);
 
+  // AI Suggestions state
+  const [suggestions, setSuggestions] = useState<TraceSuggestion[]>([]);
+  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
+  const [analyzingSession, setAnalyzingSession] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState<{ analyzed: boolean; issuesFound: number } | null>(null);
+
   // Fetch batch options on mount
   useEffect(() => {
     const fetchBatches = async () => {
@@ -340,6 +545,31 @@ export function ThreadsTab() {
     };
     fetchBatches();
   }, []);
+
+  // Fetch AI suggestions when session changes
+  useEffect(() => {
+    if (!selectedSession) {
+      setSuggestions([]);
+      setAnalysisResult(null);
+      return;
+    }
+
+    const fetchSuggestions = async () => {
+      setLoadingSuggestions(true);
+      setAnalysisResult(null);
+      try {
+        const data = await api.fetchSessionSuggestions(selectedSession.id);
+        // Filter to only pending suggestions with issues
+        setSuggestions(data.filter(s => s.has_issue && s.status === "pending"));
+      } catch (error) {
+        console.error("Error fetching suggestions:", error);
+        setSuggestions([]);
+      } finally {
+        setLoadingSuggestions(false);
+      }
+    };
+    fetchSuggestions();
+  }, [selectedSession?.id]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -392,6 +622,60 @@ export function ThreadsTab() {
     setFilterBatchId(batchId);
     setFilterBatchName(batchName);
     setShowBatchDropdown(false);
+  };
+
+  // AI Suggestion handlers
+  const handleAnalyzeSession = async () => {
+    if (!selectedSession) return;
+    setAnalyzingSession(true);
+    setAnalysisResult(null);
+    try {
+      const result = await api.analyzeSession(selectedSession.id);
+      // Filter to pending suggestions with issues
+      const pending = result.suggestions.filter(s => s.has_issue && s.status === "pending");
+      setSuggestions(pending);
+      // Store analysis result for feedback
+      setAnalysisResult({
+        analyzed: true,
+        issuesFound: result.issues_found
+      });
+    } catch (error) {
+      console.error("Error analyzing session:", error);
+    } finally {
+      setAnalyzingSession(false);
+    }
+  };
+
+  const handleAcceptSuggestion = async (suggestionId: string, editedText?: string) => {
+    try {
+      await api.acceptSuggestion(suggestionId, editedText);
+      // Remove from list and refresh notes
+      setSuggestions(prev => prev.filter(s => s.id !== suggestionId));
+      // Refresh session detail to get updated notes
+      if (selectedSession) {
+        await fetchSessionDetail(selectedSession.id);
+      }
+    } catch (error) {
+      console.error("Error accepting suggestion:", error);
+    }
+  };
+
+  const handleSkipSuggestion = async (suggestionId: string) => {
+    try {
+      await api.skipSuggestion(suggestionId);
+      setSuggestions(prev => prev.filter(s => s.id !== suggestionId));
+    } catch (error) {
+      console.error("Error skipping suggestion:", error);
+    }
+  };
+
+  const handleRejectSuggestion = async (suggestionId: string) => {
+    try {
+      await api.rejectSuggestion(suggestionId);
+      setSuggestions(prev => prev.filter(s => s.id !== suggestionId));
+    } catch (error) {
+      console.error("Error rejecting suggestion:", error);
+    }
   };
 
   const clearAllFilters = () => {
@@ -981,6 +1265,73 @@ export function ThreadsTab() {
                       title="No conversation data extracted"
                       description={`Raw calls available: ${selectedSession.call_count}`}
                     />
+                  )}
+                </div>
+
+                {/* AI Suggestions Section */}
+                <div className="border-t border-ink-800 pt-4 mt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-xs font-medium text-ink-400 flex items-center gap-2">
+                      <Sparkles className="w-3.5 h-3.5 text-accent-plum" />
+                      AI Suggestions
+                      {suggestions.length > 0 && (
+                        <Badge variant="plum" className="text-xs">
+                          {suggestions.length}
+                        </Badge>
+                      )}
+                    </h4>
+                    <button
+                      onClick={handleAnalyzeSession}
+                      disabled={analyzingSession}
+                      className="text-xs text-ink-400 hover:text-accent-plum flex items-center gap-1 px-2 py-1 rounded border border-ink-700 hover:border-accent-plum/50 transition-colors disabled:opacity-50"
+                    >
+                      {analyzingSession ? (
+                        <>
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          Analyzing...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-3 h-3" />
+                          Analyze
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {loadingSuggestions ? (
+                    <div className="flex items-center gap-2 text-sm text-ink-500 py-4">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Loading suggestions...
+                    </div>
+                  ) : suggestions.length > 0 ? (
+                    <div className="space-y-3">
+                      {suggestions.map(suggestion => (
+                        <SuggestionCard
+                          key={suggestion.id}
+                          suggestion={suggestion}
+                          onAccept={handleAcceptSuggestion}
+                          onSkip={handleSkipSuggestion}
+                          onReject={handleRejectSuggestion}
+                        />
+                      ))}
+                    </div>
+                  ) : analysisResult ? (
+                    analysisResult.issuesFound > 0 ? (
+                      <div className="text-sm text-accent-gold py-2 flex items-center gap-2">
+                        <AlertCircle className="w-4 h-4" />
+                        {analysisResult.issuesFound} issue(s) found - all have been addressed.
+                      </div>
+                    ) : (
+                      <div className="text-sm text-accent-teal py-2 flex items-center gap-2">
+                        <CheckCircle className="w-4 h-4" />
+                        Analysis complete: No issues found. Looks good!
+                      </div>
+                    )
+                  ) : (
+                    <div className="text-sm text-ink-500 py-2">
+                      No pending suggestions. Click "Analyze" to check for issues.
+                    </div>
                   )}
                 </div>
 

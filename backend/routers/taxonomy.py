@@ -371,6 +371,21 @@ class BatchApplyRequest(BaseModel):
     assignments: List[BatchApplyAssignment]
 
 
+class AddFromReviewRequest(BaseModel):
+    """Request to add discovered categories from AI review to taxonomy."""
+    review_id: str
+    categories: List[str]  # Category names to add
+    merge_mappings: Optional[dict] = None  # Map category_name -> existing_mode_id for merges
+
+
+class AddFromReviewResult(BaseModel):
+    """Result of adding categories from review."""
+    created: List[dict]  # New failure modes created
+    merged: List[dict]   # Categories merged into existing modes
+    skipped: List[str]   # Categories not processed
+    similarity_suggestions: List[dict]  # Suggested merges based on name similarity
+
+
 @router.post("/batch-suggest")
 async def batch_suggest_categories(request: BatchSuggestRequest):
     """
@@ -474,6 +489,254 @@ If the taxonomy looks good, return empty suggestions array."""
         
         return json.loads(response.choices[0].message.content)
         
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# Add Categories from AI Review (Sprint 4)
+# ============================================================================
+
+@router.post("/add-from-review", response_model=AddFromReviewResult)
+async def add_categories_from_review(request: AddFromReviewRequest):
+    """
+    Add discovered failure categories from an AI review to the taxonomy.
+    
+    This endpoint:
+    1. Fetches the review and its failure categories
+    2. Checks for similarity with existing failure modes
+    3. Creates new failure modes for selected categories
+    4. Optionally merges categories into existing modes
+    5. Tracks which traces belong to which failure modes
+    
+    Args:
+        request: AddFromReviewRequest with review_id, category names, and optional merge mappings
+        
+    Returns:
+        AddFromReviewResult with created modes, merges, and similarity suggestions
+    """
+    import json
+    from difflib import SequenceMatcher
+    from services.auto_reviewer import get_auto_review
+    
+    try:
+        # Get the review
+        review = get_auto_review(request.review_id)
+        if not review:
+            raise HTTPException(status_code=404, detail="Review not found")
+        
+        # Get failure categories from review
+        failure_categories = review.get("failure_categories", [])
+        if not failure_categories:
+            raise HTTPException(status_code=400, detail="Review has no failure categories")
+        
+        # Build a map of category name -> category data
+        category_map = {cat["name"]: cat for cat in failure_categories}
+        
+        # Get existing failure modes for similarity check
+        existing_modes = taxonomy_service.get_all_failure_modes()
+        existing_names = {m.name.lower(): m for m in existing_modes}
+        
+        # Initialize merge mappings
+        merge_mappings = request.merge_mappings or {}
+        
+        created = []
+        merged = []
+        skipped = []
+        similarity_suggestions = []
+        
+        for category_name in request.categories:
+            if category_name not in category_map:
+                skipped.append(category_name)
+                continue
+            
+            category = category_map[category_name]
+            
+            # Check if this category should be merged into an existing mode
+            if category_name in merge_mappings:
+                target_mode_id = merge_mappings[category_name]
+                target_mode = taxonomy_service.get_failure_mode(target_mode_id)
+                if target_mode:
+                    # Update the existing mode's description if needed
+                    # and increment its count
+                    merged.append({
+                        "category_name": category_name,
+                        "merged_into": target_mode.to_dict(),
+                        "trace_count": category.get("count", 0)
+                    })
+                    continue
+            
+            # Check for similar existing modes
+            similar_modes = []
+            for existing_mode in existing_modes:
+                # Use sequence matching for similarity
+                similarity = SequenceMatcher(
+                    None, 
+                    category_name.lower().replace("_", " "), 
+                    existing_mode.name.lower().replace("_", " ")
+                ).ratio()
+                
+                if similarity > 0.6:  # Threshold for suggesting merge
+                    similar_modes.append({
+                        "mode_id": existing_mode.id,
+                        "mode_name": existing_mode.name,
+                        "similarity": round(similarity, 2)
+                    })
+            
+            if similar_modes:
+                similarity_suggestions.append({
+                    "category_name": category_name,
+                    "similar_modes": sorted(similar_modes, key=lambda x: -x["similarity"])
+                })
+            
+            # Create new failure mode
+            # Convert category name from snake_case to Title Case for display
+            display_name = category_name.replace("_", " ").title()
+            
+            new_mode = taxonomy_service.create_failure_mode(
+                name=display_name,
+                description=category.get("definition", "Discovered by AI Review"),
+                severity="medium",  # Default severity
+                suggested_fix=category.get("notes")
+            )
+            
+            # Store the association between this failure mode and its review
+            _store_review_category_association(
+                review_id=request.review_id,
+                failure_mode_id=new_mode.id,
+                category_name=category_name,
+                trace_ids=category.get("trace_ids", [])
+            )
+            
+            created.append({
+                **new_mode.to_dict(),
+                "original_category_name": category_name,
+                "trace_count": category.get("count", 0),
+                "trace_ids": category.get("trace_ids", [])
+            })
+        
+        return AddFromReviewResult(
+            created=created,
+            merged=merged,
+            skipped=skipped,
+            similarity_suggestions=similarity_suggestions
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def _store_review_category_association(
+    review_id: str,
+    failure_mode_id: str,
+    category_name: str,
+    trace_ids: List[str]
+):
+    """
+    Store the association between a review's category and a failure mode.
+    
+    This enables tracking which traces belong to which failure modes,
+    and linking back from failure modes to the review that discovered them.
+    """
+    from database import get_db, now_iso
+    
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        # Check if review_category_associations table exists, create if not
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS review_category_associations (
+                id TEXT PRIMARY KEY,
+                review_id TEXT NOT NULL,
+                failure_mode_id TEXT NOT NULL,
+                category_name TEXT NOT NULL,
+                trace_ids TEXT,  -- JSON array of trace IDs
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (failure_mode_id) REFERENCES failure_modes(id)
+            )
+        """)
+        
+        # Insert association
+        import json
+        from database import generate_id
+        
+        cursor.execute("""
+            INSERT INTO review_category_associations 
+            (id, review_id, failure_mode_id, category_name, trace_ids, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, (
+            generate_id(),
+            review_id,
+            failure_mode_id,
+            category_name,
+            json.dumps(trace_ids),
+            now_iso()
+        ))
+
+
+@router.get("/failure-modes/{mode_id}/traces")
+async def get_failure_mode_traces(mode_id: str):
+    """
+    Get traces associated with a failure mode.
+    
+    Returns traces that were classified into this failure mode by AI review.
+    """
+    import json
+    from database import get_db
+    
+    try:
+        mode = taxonomy_service.get_failure_mode(mode_id)
+        if not mode:
+            raise HTTPException(status_code=404, detail="Failure mode not found")
+        
+        with get_db() as conn:
+            cursor = conn.cursor()
+            
+            # Check if table exists
+            cursor.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='review_category_associations'
+            """)
+            if not cursor.fetchone():
+                return {
+                    "failure_mode_id": mode_id,
+                    "failure_mode_name": mode.name,
+                    "traces": [],
+                    "total_count": 0
+                }
+            
+            # Get all trace associations for this failure mode
+            cursor.execute("""
+                SELECT review_id, category_name, trace_ids, created_at
+                FROM review_category_associations
+                WHERE failure_mode_id = ?
+                ORDER BY created_at DESC
+            """, (mode_id,))
+            
+            rows = cursor.fetchall()
+            
+            all_traces = []
+            for row in rows:
+                trace_ids = json.loads(row["trace_ids"]) if row["trace_ids"] else []
+                for trace_id in trace_ids:
+                    all_traces.append({
+                        "trace_id": trace_id,
+                        "review_id": row["review_id"],
+                        "category_name": row["category_name"],
+                        "discovered_at": row["created_at"]
+                    })
+            
+            return {
+                "failure_mode_id": mode_id,
+                "failure_mode_name": mode.name,
+                "traces": all_traces,
+                "total_count": len(all_traces)
+            }
+            
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

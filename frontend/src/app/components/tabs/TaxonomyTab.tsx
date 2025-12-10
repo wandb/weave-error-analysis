@@ -43,7 +43,7 @@ import {
 } from "../../utils/formatters";
 import { Panel, PanelHeader, Badge, ProgressBar, Modal, StatusBadge } from "../ui";
 import { SaturationChart } from "../SaturationChart";
-import type { TaxonomyNote, AISuggestion, AutoReview, SyntheticBatch, FailureMode, FailureModeStatus, TraceSourceType, Session } from "../../types";
+import type { TaxonomyNote, AISuggestion, AutoReview, SyntheticBatch, FailureMode, FailureModeStatus } from "../../types";
 import * as api from "../../lib/api";
 
 // Status filter options
@@ -104,12 +104,6 @@ export function TaxonomyTab() {
   const [reviewFilterFailures, setReviewFilterFailures] = useState(false);
   const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
   
-  // Data Source selector (Sprint 3)
-  const [traceSourceType, setTraceSourceType] = useState<TraceSourceType>("synthetic_batch");
-  const [sessionBatchDropdownOpen, setSessionBatchDropdownOpen] = useState(false);
-  const [selectedSessionBatch, setSelectedSessionBatch] = useState<SyntheticBatch | null>(null);
-  const [sessionSessions, setSessionSessions] = useState<Session[]>([]);
-  const [loadingSessions, setLoadingSessions] = useState(false);
 
   // Batch categorization state
   const [showBatchModal, setShowBatchModal] = useState(false);
@@ -428,54 +422,20 @@ export function TaxonomyTab() {
     }
   };
 
-  // Load sessions when session batch is selected (Sprint 3)
-  const loadSessionsForBatch = async (batchId: string) => {
-    setLoadingSessions(true);
-    try {
-      const response = await api.fetchSessions({ batch_id: batchId, limit: 100 });
-      setSessionSessions(response.sessions);
-    } catch (error) {
-      console.error("Error loading sessions:", error);
-      setSessionSessions([]);
-    } finally {
-      setLoadingSessions(false);
-    }
-  };
-
-  // Handle session batch selection
-  const handleSessionBatchSelect = (batch: SyntheticBatch) => {
-    setSelectedSessionBatch(batch);
-    setSessionBatchDropdownOpen(false);
-    loadSessionsForBatch(batch.id);
-  };
-
   // AI Review functions
   const runAutoReview = async () => {
+    if (!selectedBatchForReview) return;
+    
     setRunningAutoReview(true);
     setAutoReview(null);
     setShowReviewReport(true);  // Auto-show results when running
     
     try {
-      let result: AutoReview;
-      
-      if (traceSourceType === "synthetic_batch" && selectedBatchForReview) {
-        // Use batch-based review
-        result = await api.runAutoReview(selectedBatchForReview.id, {
-          n_samples: reviewNSamples ? parseInt(reviewNSamples, 10) : undefined,
-          debug: reviewDebug,
-          filter_failures_only: reviewFilterFailures,
-        });
-      } else if (traceSourceType === "sessions" && sessionSessions.length > 0) {
-        // Use session-based review
-        result = await api.runSessionAutoReview({
-          session_ids: sessionSessions.map(s => s.id),
-          n_samples: reviewNSamples ? parseInt(reviewNSamples, 10) : undefined,
-          debug: reviewDebug,
-          filter_failures_only: reviewFilterFailures,
-        });
-      } else {
-        throw new Error("No data source selected");
-      }
+      const result = await api.runAutoReview(selectedBatchForReview.id, {
+        n_samples: reviewNSamples ? parseInt(reviewNSamples, 10) : undefined,
+        debug: reviewDebug,
+        filter_failures_only: reviewFilterFailures,
+      });
       
       setAutoReview(result);
     } catch (error) {
@@ -808,49 +768,10 @@ export function TaxonomyTab() {
           )}
         </div>
 
-        {/* Data Source Selector (Sprint 3) */}
-        <div className="flex items-center gap-4 mb-4 p-3 bg-moon-900/40 rounded-lg border border-moon-800">
-          <span className="text-xs text-moon-500">Data Source:</span>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="radio"
-              name="traceSource"
-              value="synthetic_batch"
-              checked={traceSourceType === "synthetic_batch"}
-              onChange={() => setTraceSourceType("synthetic_batch")}
-              className="w-4 h-4 text-gold focus:ring-gold"
-            />
-            <span className={`text-sm ${traceSourceType === "synthetic_batch" ? "text-moon-100" : "text-moon-500"}`}>
-              Synthetic Batch
-            </span>
-          </label>
-          <label className="flex items-center gap-2 cursor-pointer">
-            <input
-              type="radio"
-              name="traceSource"
-              value="sessions"
-              checked={traceSourceType === "sessions"}
-              onChange={() => setTraceSourceType("sessions")}
-              className="w-4 h-4 text-gold focus:ring-gold"
-            />
-            <span className={`text-sm ${traceSourceType === "sessions" ? "text-moon-100" : "text-moon-500"}`}>
-              Sessions
-            </span>
-          </label>
-          <span className="text-xs text-moon-600 ml-4">
-            {traceSourceType === "synthetic_batch" 
-              ? "Analyze executed batch traces" 
-              : "Analyze real session conversations"}
-          </span>
-        </div>
-
         {/* Controls Row */}
-        <div className="flex items-start gap-6 mb-4">
-          {/* Synthetic Batch Selector (shown when traceSourceType === "synthetic_batch") */}
-          {traceSourceType === "synthetic_batch" && (
-          <div className="flex-1 max-w-md">
-            <label className="block text-xs text-moon-500 mb-1.5">Select Batch</label>
-            <div className="relative">
+        <div className="flex items-center gap-4 mb-4">
+          {/* Batch Selector */}
+          <div className="flex-1 max-w-md relative">
               <button
                 onClick={() => setBatchDropdownOpen(!batchDropdownOpen)}
                 className="w-full flex items-center justify-between gap-2 bg-moon-900/60 border border-moon-700 hover:border-moon-600 rounded-lg px-3 py-2.5 text-left transition-colors"
@@ -925,128 +846,35 @@ export function TaxonomyTab() {
                 </>
               )}
             </div>
-          </div>
-          )}
-
-          {/* Sessions Batch Selector (shown when traceSourceType === "sessions") */}
-          {traceSourceType === "sessions" && (
-          <div className="flex-1 max-w-md">
-            <label className="block text-xs text-moon-500 mb-1.5">Select Batch (Sessions)</label>
-            <div className="relative">
-              <button
-                onClick={() => setSessionBatchDropdownOpen(!sessionBatchDropdownOpen)}
-                className="w-full flex items-center justify-between gap-2 bg-moon-900/60 border border-moon-700 hover:border-moon-600 rounded-lg px-3 py-2.5 text-left transition-colors"
-              >
-                {selectedSessionBatch ? (
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-moon-100 truncate text-sm">{selectedSessionBatch.name}</span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal/20 text-teal">sessions</span>
-                    </div>
-                    <div className="flex items-center gap-3 text-[10px] text-moon-500 mt-0.5">
-                      {loadingSessions ? (
-                        <span>Loading sessions...</span>
-                      ) : (
-                        <>
-                          <span>{sessionSessions.length} sessions loaded</span>
-                          <span>{sessionSessions.filter(s => s.has_error).length} with errors</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                ) : (
-                  <span className="text-moon-500 text-sm">Select a batch to load sessions...</span>
-                )}
-                <ChevronDown className={`w-4 h-4 text-moon-450 flex-shrink-0 transition-transform ${sessionBatchDropdownOpen ? "rotate-180" : ""}`} />
-              </button>
-
-              {sessionBatchDropdownOpen && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setSessionBatchDropdownOpen(false)} />
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-moon-800 border border-moon-700 rounded-lg shadow-xl z-20 max-h-60 overflow-y-auto">
-                    {completedBatches.length > 0 ? (
-                      completedBatches.map((batch) => (
-                        <button
-                          key={batch.id}
-                          onClick={() => handleSessionBatchSelect(batch)}
-                          className="w-full px-3 py-2.5 text-left transition-colors hover:bg-moon-700/50 border-b border-moon-700/50 last:border-0"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="text-moon-200 text-sm">{batch.name}</span>
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-teal/20 text-teal">sessions</span>
-                          </div>
-                          <div className="flex items-center gap-3 text-[10px] text-moon-500 mt-0.5">
-                            <span>{batch.query_count} queries</span>
-                            <span className="text-moon-600">{formatRelativeTime(batch.created_at)}</span>
-                          </div>
-                        </button>
-                      ))
-                    ) : (
-                      <div className="px-3 py-4 text-center text-moon-500 text-sm">
-                        <p>No completed batches</p>
-                        <p className="text-xs text-moon-600 mt-1">Run batches from the Synthetic tab first</p>
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-            
-            {/* Session stats */}
-            {selectedSessionBatch && sessionSessions.length > 0 && (
-              <div className="mt-2 flex items-center gap-3 text-xs">
-                <span className="text-moon-400">
-                  <span className="text-moon-200 font-medium">{sessionSessions.length}</span> sessions
-                </span>
-                <span className="text-emerald-400">
-                  {sessionSessions.filter(s => s.is_reviewed).length} reviewed
-                </span>
-                {sessionSessions.filter(s => s.has_error).length > 0 && (
-                  <span className="text-red-400">
-                    {sessionSessions.filter(s => s.has_error).length} with errors
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-          )}
 
           {/* Run Button */}
-          <div className="pt-5">
-            <button
-              onClick={runAutoReview}
-              disabled={
-                runningAutoReview ||
-                (traceSourceType === "synthetic_batch" && !selectedBatchForReview) ||
-                (traceSourceType === "sessions" && sessionSessions.length === 0)
-              }
-              className="btn-primary px-6 py-2.5 flex items-center gap-2 disabled:opacity-50"
-            >
-              {runningAutoReview ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  Analyzing...
-                </>
-              ) : (
-                <>
-                  <Play className="w-4 h-4" />
-                  Run AI Review
-                </>
-              )}
-            </button>
-          </div>
+          <button
+            onClick={runAutoReview}
+            disabled={runningAutoReview || !selectedBatchForReview}
+            className="btn-primary px-6 py-2.5 flex items-center gap-2 disabled:opacity-50"
+          >
+            {runningAutoReview ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                Analyzing...
+              </>
+            ) : (
+              <>
+                <Play className="w-4 h-4" />
+                Run AI Review
+              </>
+            )}
+          </button>
 
           {/* Advanced Options Toggle */}
-          <div className="pt-5">
-            <button
-              onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
-              className="btn-ghost text-xs flex items-center gap-1"
-            >
-              <Wrench className="w-3.5 h-3.5" />
-              Options
-              {showAdvancedOptions ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-            </button>
-          </div>
+          <button
+            onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+            className="btn-ghost text-sm flex items-center gap-1.5 px-3 py-2"
+          >
+            <Wrench className="w-4 h-4" />
+            Options
+            {showAdvancedOptions ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
         </div>
 
         {/* Advanced Options (Collapsible) */}
@@ -1108,7 +936,16 @@ export function TaxonomyTab() {
         {/* Results Section */}
         {autoReview && showReviewReport && (
           <div className="border-t border-moon-800 pt-4">
-            <AutoReviewResults review={autoReview} expandedCategories={expandedCategories} toggleCategory={toggleReviewCategory} />
+            <AutoReviewResults 
+              review={autoReview} 
+              expandedCategories={expandedCategories} 
+              toggleCategory={toggleReviewCategory}
+              existingModes={taxonomy?.failure_modes}
+              onCategoriesAdded={() => {
+                // Refresh taxonomy after adding categories
+                fetchTaxonomy();
+              }}
+            />
           </div>
         )}
 
@@ -1866,25 +1703,102 @@ function InboxNoteCard({
 }
 
 // =============================================================================
-// Auto Review Results Component
+// Auto Review Results Component (Sprint 4: Add to Taxonomy)
 // =============================================================================
 
 function AutoReviewResults({
   review,
   expandedCategories,
   toggleCategory,
+  existingModes,
+  onCategoriesAdded,
 }: {
   review: AutoReview;
   expandedCategories: Set<string>;
   toggleCategory: (name: string) => void;
+  existingModes?: FailureMode[];
+  onCategoriesAdded?: () => void;
 }) {
   const [showReport, setShowReport] = useState(false);
+  const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
+  const [addingToTaxonomy, setAddingToTaxonomy] = useState(false);
+  const [addResult, setAddResult] = useState<api.AddFromReviewResult | null>(null);
+  const [showMergeModal, setShowMergeModal] = useState(false);
+  const [mergeMappings, setMergeMappings] = useState<Record<string, string>>({});
   
   // Sort categories by count
   const sortedCategories = [...review.failure_categories].filter((c) => c.count > 0).sort((a, b) => b.count - a.count);
   
   // Calculate percentages
   const total = review.classifications.length;
+
+  // Toggle category selection
+  const toggleCategorySelection = (categoryName: string) => {
+    setSelectedCategories((prev) => {
+      const next = new Set(prev);
+      if (next.has(categoryName)) {
+        next.delete(categoryName);
+      } else {
+        next.add(categoryName);
+      }
+      return next;
+    });
+  };
+
+  // Select all categories
+  const selectAllCategories = () => {
+    setSelectedCategories(new Set(sortedCategories.map((c) => c.name)));
+  };
+
+  // Deselect all
+  const deselectAllCategories = () => {
+    setSelectedCategories(new Set());
+  };
+
+  // Add selected categories to taxonomy
+  const handleAddToTaxonomy = async () => {
+    if (selectedCategories.size === 0) return;
+    
+    setAddingToTaxonomy(true);
+    setAddResult(null);
+    
+    try {
+      const result = await api.addCategoriesFromReview({
+        review_id: review.id,
+        categories: Array.from(selectedCategories),
+        merge_mappings: Object.keys(mergeMappings).length > 0 ? mergeMappings : undefined,
+      });
+      
+      setAddResult(result);
+      
+      // If there are similarity suggestions, show merge modal
+      if (result.similarity_suggestions.length > 0) {
+        setShowMergeModal(true);
+      } else {
+        // Clear selections and notify parent
+        setSelectedCategories(new Set());
+        setMergeMappings({});
+        if (onCategoriesAdded) onCategoriesAdded();
+      }
+    } catch (error) {
+      console.error("Failed to add categories:", error);
+    } finally {
+      setAddingToTaxonomy(false);
+    }
+  };
+
+  // Handle merge mapping update
+  const updateMergeMapping = (categoryName: string, modeId: string | null) => {
+    setMergeMappings((prev) => {
+      const next = { ...prev };
+      if (modeId) {
+        next[categoryName] = modeId;
+      } else {
+        delete next[categoryName];
+      }
+      return next;
+    });
+  };
 
   return (
     <div className="space-y-4">
@@ -1894,41 +1808,132 @@ function AutoReviewResults({
           <StatusBadge status={review.status} />
           <span className="text-sm text-moon-450">{total} traces analyzed</span>
         </div>
-        <button
-          onClick={() => setShowReport(!showReport)}
-          className="text-sm text-moon-450 hover:text-moon-200 flex items-center gap-1.5"
-        >
-          <FileText className="w-4 h-4" />
-          {showReport ? "Hide" : "Show"} Markdown Report
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowReport(!showReport)}
+            className="text-sm text-moon-450 hover:text-moon-200 flex items-center gap-1.5"
+          >
+            <FileText className="w-4 h-4" />
+            {showReport ? "Hide" : "Show"} Report
+          </button>
+        </div>
       </div>
 
-      {/* Failure Categories */}
+      {/* Add to Taxonomy Controls (Sprint 4) */}
+      {sortedCategories.length > 0 && (
+        <div className="flex items-center justify-between p-3 bg-emerald-900/20 rounded-lg border border-emerald-900/30">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={selectedCategories.size === sortedCategories.length}
+                onChange={(e) => (e.target.checked ? selectAllCategories() : deselectAllCategories())}
+                className="w-4 h-4 rounded border-moon-600 bg-moon-900 text-emerald-500 focus:ring-emerald-500"
+              />
+              <span className="text-sm text-moon-300">
+                {selectedCategories.size} of {sortedCategories.length} selected
+              </span>
+            </div>
+            {selectedCategories.size > 0 && (
+              <button
+                onClick={deselectAllCategories}
+                className="text-xs text-moon-500 hover:text-moon-300"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <button
+            onClick={handleAddToTaxonomy}
+            disabled={selectedCategories.size === 0 || addingToTaxonomy}
+            className="btn-primary px-4 py-2 flex items-center gap-2 disabled:opacity-50 bg-emerald-600 hover:bg-emerald-500"
+          >
+            {addingToTaxonomy ? (
+              <>
+                <RefreshCw className="w-4 h-4 animate-spin" />
+                Adding...
+              </>
+            ) : (
+              <>
+                <Plus className="w-4 h-4" />
+                Add to Taxonomy
+              </>
+            )}
+          </button>
+        </div>
+      )}
+
+      {/* Success message after adding */}
+      {addResult && addResult.created.length > 0 && !showMergeModal && (
+        <div className="p-3 bg-emerald-900/20 rounded-lg border border-emerald-900/30">
+          <div className="flex items-center gap-2 mb-1">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+            <span className="text-sm text-emerald-300">
+              Added {addResult.created.length} failure mode{addResult.created.length !== 1 ? "s" : ""} to taxonomy
+            </span>
+          </div>
+          <p className="text-xs text-moon-400 ml-6">
+            {addResult.created.map((c) => c.name).join(", ")}
+          </p>
+        </div>
+      )}
+
+      {/* Failure Categories with selection */}
       {sortedCategories.length > 0 ? (
         <div className="space-y-3">
           {sortedCategories.map((category) => {
             const percentage = total > 0 ? ((category.count / total) * 100).toFixed(1) : 0;
             const isExpanded = expandedCategories.has(category.name);
+            const isSelected = selectedCategories.has(category.name);
             const categoryTraces = review.classifications.filter((c) => c.failure_category === category.name);
+            
+            // Check if already added to taxonomy
+            const alreadyAdded = addResult?.created.some((c) => c.original_category_name === category.name);
 
             return (
-              <div key={category.name} className="border border-moon-700 rounded-lg overflow-hidden">
+              <div 
+                key={category.name} 
+                className={`border rounded-lg overflow-hidden transition-colors ${
+                  isSelected ? "border-emerald-600 bg-emerald-900/10" : "border-moon-700"
+                } ${alreadyAdded ? "opacity-50" : ""}`}
+              >
                 {/* Category Header */}
-                <button
-                  onClick={() => toggleCategory(category.name)}
-                  className="w-full p-3 bg-moon-800/50 hover:bg-moon-800 flex items-center justify-between"
-                >
-                  <div className="flex items-center gap-3">
-                    {isExpanded ? <ChevronDown className="w-4 h-4 text-moon-500" /> : <ChevronRight className="w-4 h-4 text-moon-500" />}
-                    <div className="text-left">
-                      <span className="text-sm font-medium text-moon-100">{category.name.replace(/_/g, " ")}</span>
-                      <p className="text-xs text-moon-500 mt-0.5 line-clamp-1">{category.definition}</p>
+                <div className="flex items-center">
+                  {/* Selection checkbox */}
+                  <label 
+                    className="p-3 flex items-center cursor-pointer hover:bg-moon-800/30"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      disabled={alreadyAdded}
+                      onChange={() => toggleCategorySelection(category.name)}
+                      className="w-4 h-4 rounded border-moon-600 bg-moon-900 text-emerald-500 focus:ring-emerald-500"
+                    />
+                  </label>
+                  
+                  <button
+                    onClick={() => toggleCategory(category.name)}
+                    className="flex-1 p-3 pl-0 bg-moon-800/50 hover:bg-moon-800 flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-3">
+                      {isExpanded ? <ChevronDown className="w-4 h-4 text-moon-500" /> : <ChevronRight className="w-4 h-4 text-moon-500" />}
+                      <div className="text-left">
+                        <span className="text-sm font-medium text-moon-100">{category.name.replace(/_/g, " ")}</span>
+                        <p className="text-xs text-moon-500 mt-0.5 line-clamp-1">{category.definition}</p>
+                      </div>
                     </div>
-                  </div>
-                  <Badge variant="amber" className="text-xs">
-                    {category.count} ({percentage}%)
-                  </Badge>
-                </button>
+                    <div className="flex items-center gap-2">
+                      {alreadyAdded && (
+                        <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400">Added</span>
+                      )}
+                      <Badge variant="amber" className="text-xs">
+                        {category.count} ({percentage}%)
+                      </Badge>
+                    </div>
+                  </button>
+                </div>
 
                 {/* Category Details */}
                 {isExpanded && (
@@ -1962,6 +1967,90 @@ function AutoReviewResults({
           <CheckCircle2 className="w-10 h-10 mx-auto mb-3 opacity-40" />
           <p className="text-sm font-medium">No failure categories identified</p>
           <p className="text-xs text-moon-500 mt-1">All traces passed review</p>
+        </div>
+      )}
+
+      {/* Similarity Suggestions / Merge Modal */}
+      {showMergeModal && addResult?.similarity_suggestions && addResult.similarity_suggestions.length > 0 && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm">
+          <div className="bg-moon-800 rounded-lg border border-moon-700 p-6 w-full max-w-2xl shadow-xl">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-display text-lg text-moon-50">Similar Categories Found</h3>
+                <p className="text-sm text-moon-450 mt-1">
+                  Some categories may be similar to existing failure modes. Choose to merge or create new.
+                </p>
+              </div>
+              <button onClick={() => setShowMergeModal(false)} className="text-moon-500 hover:text-moon-300">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 max-h-96 overflow-y-auto">
+              {addResult.similarity_suggestions.map((suggestion) => (
+                <div key={suggestion.category_name} className="p-4 bg-moon-900/60 rounded-lg border border-moon-700">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="font-medium text-moon-200">
+                      {suggestion.category_name.replace(/_/g, " ")}
+                    </span>
+                    <Badge variant="amber" className="text-xs">New category</Badge>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <p className="text-xs text-moon-500">Similar to existing modes:</p>
+                    {suggestion.similar_modes.map((mode) => (
+                      <label
+                        key={mode.mode_id}
+                        className="flex items-center gap-3 p-2 rounded hover:bg-moon-800/50 cursor-pointer"
+                      >
+                        <input
+                          type="radio"
+                          name={`merge-${suggestion.category_name}`}
+                          checked={mergeMappings[suggestion.category_name] === mode.mode_id}
+                          onChange={() => updateMergeMapping(suggestion.category_name, mode.mode_id)}
+                          className="w-4 h-4 text-teal focus:ring-teal"
+                        />
+                        <div className="flex-1">
+                          <span className="text-sm text-moon-200">{mode.mode_name}</span>
+                          <span className="text-xs text-moon-500 ml-2">
+                            ({Math.round(mode.similarity * 100)}% similar)
+                          </span>
+                        </div>
+                        <GitMerge className="w-4 h-4 text-teal" />
+                      </label>
+                    ))}
+                    <label className="flex items-center gap-3 p-2 rounded hover:bg-moon-800/50 cursor-pointer">
+                      <input
+                        type="radio"
+                        name={`merge-${suggestion.category_name}`}
+                        checked={!mergeMappings[suggestion.category_name]}
+                        onChange={() => updateMergeMapping(suggestion.category_name, null)}
+                        className="w-4 h-4 text-emerald-500 focus:ring-emerald-500"
+                      />
+                      <span className="text-sm text-emerald-400">Create as new failure mode</span>
+                    </label>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 mt-6 pt-4 border-t border-moon-700">
+              <button onClick={() => setShowMergeModal(false)} className="btn-ghost">
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  setShowMergeModal(false);
+                  setSelectedCategories(new Set());
+                  if (onCategoriesAdded) onCategoriesAdded();
+                }}
+                className="btn-primary flex items-center gap-2"
+              >
+                <Check className="w-4 h-4" />
+                Confirm
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

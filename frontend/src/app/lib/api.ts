@@ -641,6 +641,96 @@ export async function runSessionAutoReview(
 }
 
 // ============================================================================
+// Add Categories from AI Review to Taxonomy (Sprint 4)
+// ============================================================================
+
+export interface SimilarityMatch {
+  mode_id: string;
+  mode_name: string;
+  similarity: number;
+}
+
+export interface SimilaritySuggestion {
+  category_name: string;
+  similar_modes: SimilarityMatch[];
+}
+
+export interface AddFromReviewConfig {
+  review_id: string;
+  categories: string[];  // Category names to add
+  merge_mappings?: Record<string, string>;  // category_name -> existing_mode_id
+}
+
+export interface CreatedFromReview {
+  id: string;
+  name: string;
+  description: string;
+  severity: string;
+  original_category_name: string;
+  trace_count: number;
+  trace_ids: string[];
+}
+
+export interface MergedFromReview {
+  category_name: string;
+  merged_into: {
+    id: string;
+    name: string;
+  };
+  trace_count: number;
+}
+
+export interface AddFromReviewResult {
+  created: CreatedFromReview[];
+  merged: MergedFromReview[];
+  skipped: string[];
+  similarity_suggestions: SimilaritySuggestion[];
+}
+
+export async function addCategoriesFromReview(
+  config: AddFromReviewConfig
+): Promise<AddFromReviewResult> {
+  const response = await fetch(`${API_BASE}/taxonomy/add-from-review`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      review_id: config.review_id,
+      categories: config.categories,
+      merge_mappings: config.merge_mappings,
+    }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to add categories from review");
+  }
+
+  return response.json();
+}
+
+export interface FailureModeTrace {
+  trace_id: string;
+  review_id: string;
+  category_name: string;
+  discovered_at: string;
+}
+
+export interface FailureModeTracesResult {
+  failure_mode_id: string;
+  failure_mode_name: string;
+  traces: FailureModeTrace[];
+  total_count: number;
+}
+
+export async function getFailureModeTraces(modeId: string): Promise<FailureModeTracesResult> {
+  const response = await fetch(`${API_BASE}/taxonomy/failure-modes/${modeId}/traces`);
+  if (!response.ok) {
+    throw new Error("Failed to get failure mode traces");
+  }
+  return response.json();
+}
+
+// ============================================================================
 // Settings API
 // ============================================================================
 

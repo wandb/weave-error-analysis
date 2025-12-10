@@ -9,6 +9,18 @@ Key Features:
 - Auto-sync after batch execution
 """
 
+# =============================================================================
+# Disable Weave/Wandb Tracing for Backend LLM Calls
+# =============================================================================
+# The backend uses litellm for internal LLM calls (taxonomy categorization, etc.)
+# We don't want these internal calls traced to Weave - only agent traces should appear.
+#
+# IMPORTANT: These env vars must be set BEFORE importing weave/wandb/litellm:
+# - WANDB_MODE=disabled prevents wandb SDK from logging
+# - This does NOT affect our WeaveClient (which uses raw HTTP with API key)
+import os
+os.environ["WEAVE_DISABLED"] = "true"  # Disable wandb tracing for this process
+
 import asyncio
 from contextlib import asynccontextmanager
 

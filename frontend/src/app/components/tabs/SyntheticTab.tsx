@@ -19,12 +19,20 @@ import {
   Check,
   HelpCircle,
   Square,
+  Clock,
+  CheckCircle2,
+  AlertTriangle,
+  ExternalLink,
+  Bot,
+  Tag,
+  Eye,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { formatRelativeTime } from "../../utils/formatters";
 import { Panel, Badge, StatusBadge, SelectPrompt, ProgressBar } from "../ui";
 import * as api from "../../lib/api";
 import { getBackendUrl } from "../../lib/api";
+import type { ExecutionProgress, BatchDetail } from "../../types";
 
 export function SyntheticTab() {
   const {
@@ -43,7 +51,22 @@ export function SyntheticTab() {
     setSelectedBatch,
     deleteBatch,
     setActiveTab,
+    setFilterBatchId,
+    setFilterBatchName,
   } = useApp();
+
+  // ========== EXECUTION STATE (merged from RunsTab) ==========
+  const [executingBatchId, setExecutingBatchId] = useState<string | null>(null);
+  const [executionProgress, setExecutionProgress] = useState<ExecutionProgress | null>(null);
+  const executionAbortRef = useRef<AbortController | null>(null);
+  const lastFetchedCountRef = useRef<number>(0);
+
+  // Cleanup execution AbortController on unmount
+  useEffect(() => {
+    return () => {
+      executionAbortRef.current?.abort();
+    };
+  }, []);
 
   // Generation settings
   const [batchSize, setBatchSize] = useState(20);
@@ -106,9 +129,10 @@ Return ONLY the user message, nothing else. No quotes around it.`);
     };
   }, []);
 
-  // Query editing
+  // Query editing and expansion
   const [selectedQueryIds, setSelectedQueryIds] = useState<Set<string>>(new Set());
   const [editingQueryId, setEditingQueryId] = useState<string | null>(null);
+  const [expandedQueryIds, setExpandedQueryIds] = useState<Set<string>>(new Set());
 
   // Dimension editing
   const [editingDimension, setEditingDimension] = useState<string | null>(null);
@@ -213,6 +237,127 @@ Return ONLY the user message, nothing else. No quotes around it.`);
     }
     setGenerating(false);
     setGenProgress(null);
+  };
+
+  // ========== EXECUTION FUNCTIONS (merged from RunsTab) ==========
+  
+  const stopExecution = () => {
+    if (executionAbortRef.current) {
+      executionAbortRef.current.abort();
+      executionAbortRef.current = null;
+    }
+    setExecutingBatchId(null);
+    setExecutionProgress(null);
+  };
+
+  const executeBatch = async (batchId: string, batchName: string, agentId: string) => {
+    // Create abort controller for this execution
+    executionAbortRef.current = new AbortController();
+    // Reset last fetched count ref
+    lastFetchedCountRef.current = 0;
+    
+    setExecutingBatchId(batchId);
+    const startTime = Date.now();
+    setExecutionProgress({
+      batch_id: batchId,
+      status: "starting",
+      total_queries: 0,
+      completed_queries: 0,
+      success_count: 0,
+      failure_count: 0,
+      progress_percent: 0,
+      start_time: startTime,
+    });
+
+    // Immediately select this batch to show results as they come in
+    setSelectedBatch({ id: batchId, name: batchName, queries: [] });
+
+    let hasRefreshedBatches = false;
+
+    try {
+      // Use direct backend URL to avoid Next.js proxy buffering SSE
+      const backendUrl = getBackendUrl();
+      
+      const response = await fetch(`${backendUrl}/api/synthetic/batches/${batchId}/execute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ timeout_per_query: 60.0 }),
+        signal: executionAbortRef.current.signal,
+      });
+
+      if (!response.body) throw new Error("No response body");
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || ""; // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              console.log("[Execute] Progress update:", data);
+              setExecutionProgress({ ...data, start_time: startTime });
+
+              // Refresh batches once when status changes to running (to show in Active section)
+              if (data.status === "running" && !hasRefreshedBatches) {
+                hasRefreshedBatches = true;
+                fetchBatches(agentId);
+              }
+              
+              // Batch refresh: only fetch batch detail every 5 completed queries to reduce re-renders
+              const completedQueries = data.completed_queries || 0;
+              if (completedQueries > 0 && completedQueries - lastFetchedCountRef.current >= 5) {
+                lastFetchedCountRef.current = completedQueries;
+                fetchBatchDetail(batchId);
+              }
+
+              // Final refresh when done
+              if (data.status === "completed" || data.status === "failed" || data.status === "cancelled") {
+                await fetchBatches(agentId);
+                await fetchBatchDetail(batchId);
+              }
+            } catch (e) {
+              console.log("[Execute] Failed to parse:", line, e);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      if ((error as Error).name !== 'AbortError') {
+        console.error("Error executing batch:", error);
+      }
+    } finally {
+      setExecutingBatchId(null);
+      // Ensure final refresh
+      await fetchBatches(agentId);
+      // Don't clear progress immediately so user can see final state
+      setTimeout(() => setExecutionProgress(null), 3000);
+    }
+  };
+
+  const resetBatch = async (batchId: string, agentId: string, onlyFailed: boolean = false) => {
+    try {
+      await api.resetBatch(batchId, onlyFailed);
+      await fetchBatches(agentId);
+      await fetchBatchDetail(batchId);
+    } catch (error) {
+      console.error("Error resetting batch:", error);
+    }
+  };
+
+  const viewInSessions = () => {
+    if (!selectedBatch) return;
+    setFilterBatchId(selectedBatch.id);
+    setFilterBatchName(selectedBatch.name);
+    setActiveTab("sessions");
   };
 
   const generateBatch = async () => {
@@ -1153,7 +1298,13 @@ Return ONLY the user message, nothing else. No quotes around it.`);
               <div className="mt-3 flex-1 flex flex-col overflow-hidden">
             {syntheticBatches.length > 0 ? (
               <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-                {syntheticBatches.map((batch) => (
+                {syntheticBatches.map((batch) => {
+                  const isReady = batch.status === "ready" || batch.status === "pending";
+                  const isRunning = batch.status === "running" || executingBatchId === batch.id;
+                  const isCompleted = batch.status === "completed";
+                  const isFailed = batch.status === "failed";
+                  
+                  return (
                   <div
                     key={batch.id}
                     className="rounded-lg p-3 transition-all"
@@ -1162,11 +1313,15 @@ Return ONLY the user message, nothing else. No quotes around it.`);
                         ? 'rgba(16, 191, 204, 0.1)'
                         : selectedBatch?.id === batch.id 
                           ? 'rgba(16, 191, 204, 0.1)' 
+                          : isRunning
+                          ? 'rgba(252, 188, 50, 0.05)'
                           : '#252830',
                       border: selectedBatchIds.has(batch.id)
                         ? '1px solid rgba(16, 191, 204, 0.3)'
                         : selectedBatch?.id === batch.id 
                           ? '1px solid rgba(16, 191, 204, 0.4)' 
+                          : isRunning
+                          ? '1px solid rgba(252, 188, 50, 0.3)'
                           : '1px solid #333333'
                     }}
                   >
@@ -1184,53 +1339,113 @@ Return ONLY the user message, nothing else. No quotes around it.`);
                         className="w-4 h-4 mt-0.5 rounded flex-shrink-0"
                         style={{ accentColor: '#10BFCC' }}
                       />
-                      <button
-                        onClick={() => {
-                          // Toggle: clicking again deselects
-                          if (selectedBatch?.id === batch.id) {
-                            setSelectedBatch(null);
-                          } else {
-                            fetchBatchDetail(batch.id);
-                          }
-                        }}
-                        className="flex-1 text-left"
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <code 
-                            className="font-mono text-sm font-medium px-1.5 py-0.5 rounded"
-                            style={{ backgroundColor: '#333333', color: '#FCBC32' }}
-                          >
-                            {batch.id.slice(0, 12)}
-                          </code>
-                          <div className="flex items-center gap-1">
-                            <button
-                              onClick={(e) => { e.stopPropagation(); copyBatchId(batch.id); }}
-                              className="p-1 rounded transition-colors"
-                              style={{ color: copiedBatchId === batch.id ? '#10BFCC' : '#8F949E' }}
-                              title="Copy batch ID"
-                            >
-                              {copiedBatchId === batch.id ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                            </button>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); handleDeleteBatch(batch.id); }}
-                              className="p-1 rounded text-red-400 hover:text-red-300"
-                              title="Delete batch"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
+                      <div className="flex-1">
+                        <div 
+                          className="cursor-pointer"
+                          onClick={() => {
+                            // Toggle: clicking again deselects
+                            if (selectedBatch?.id === batch.id) {
+                              setSelectedBatch(null);
+                            } else {
+                              fetchBatchDetail(batch.id);
+                            }
+                          }}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <div className="flex items-center gap-2">
+                              <code 
+                                className="font-mono text-sm font-medium px-1.5 py-0.5 rounded"
+                                style={{ backgroundColor: '#333333', color: '#FCBC32' }}
+                              >
+                                {batch.id.slice(0, 12)}
+                              </code>
+                              {isRunning && (
+                                <RefreshCw className="w-3 h-3 animate-spin" style={{ color: '#FCBC32' }} />
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={(e) => { e.stopPropagation(); copyBatchId(batch.id); }}
+                                className="p-1 rounded transition-colors"
+                                style={{ color: copiedBatchId === batch.id ? '#10BFCC' : '#8F949E' }}
+                                title="Copy batch ID"
+                              >
+                                {copiedBatchId === batch.id ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                              </button>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); handleDeleteBatch(batch.id); }}
+                                className="p-1 rounded text-red-400 hover:text-red-300"
+                                title="Delete batch"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <StatusBadge status={batch.status} />
+                              <span className="text-xs" style={{ color: '#8F949E' }}>{batch.query_count} queries</span>
+                            </div>
+                            <span className="text-xs" style={{ color: '#8F949E' }}>{formatRelativeTime(batch.created_at)}</span>
                           </div>
                         </div>
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <StatusBadge status={batch.status} />
-                            <span className="text-xs" style={{ color: '#8F949E' }}>{batch.query_count} queries</span>
-                          </div>
-                          <span className="text-xs" style={{ color: '#8F949E' }}>{formatRelativeTime(batch.created_at)}</span>
+                        
+                        {/* Run Controls - based on batch status */}
+                        <div className="flex items-center gap-2 mt-2 pt-2" style={{ borderTop: '1px solid #333333' }}>
+                          {isReady && (
+                            <button
+                              onClick={() => executeBatch(batch.id, batch.name, selectedAgent!.id)}
+                              disabled={!!executingBatchId}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-all disabled:opacity-50"
+                              style={{ backgroundColor: '#FCBC32', color: '#171A1F' }}
+                            >
+                              <Play className="w-3 h-3" />
+                              Run
+                            </button>
+                          )}
+                          {isRunning && executingBatchId === batch.id && (
+                            <button
+                              onClick={() => stopExecution()}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-all"
+                              style={{ backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#EF4444' }}
+                            >
+                              <Square className="w-3 h-3 fill-current" />
+                              Stop
+                            </button>
+                          )}
+                          {(isCompleted || isFailed) && (
+                            <>
+                              <button
+                                onClick={() => resetBatch(batch.id, selectedAgent!.id, false)}
+                                disabled={!!executingBatchId}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs transition-all disabled:opacity-50"
+                                style={{ backgroundColor: '#333333', color: '#8F949E' }}
+                              >
+                                <RefreshCw className="w-3 h-3" />
+                                Re-run
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setSelectedBatch({ id: batch.id, name: batch.name, queries: [] });
+                                  fetchBatchDetail(batch.id);
+                                  setFilterBatchId(batch.id);
+                                  setFilterBatchName(batch.name);
+                                  setActiveTab("sessions");
+                                }}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs transition-all"
+                                style={{ color: '#10BFCC' }}
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                                View in Sessions
+                              </button>
+                            </>
+                          )}
                         </div>
-                      </button>
+                      </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div className="flex-1 flex items-center justify-center" style={{ color: '#8F949E' }}>
@@ -1293,6 +1508,91 @@ Return ONLY the user message, nothing else. No quotes around it.`);
           </div>
         )}
 
+        {/* ========== EXECUTION PROGRESS BAR (merged from RunsTab) ========== */}
+        {executionProgress && (
+          <div 
+            className="rounded-lg p-4"
+            style={{ backgroundColor: 'rgba(16, 191, 204, 0.1)', border: '1px solid rgba(16, 191, 204, 0.3)' }}
+          >
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                {(executionProgress.status === 'running' || executionProgress.status === 'starting') && (
+                  <RefreshCw className="w-4 h-4 animate-spin" style={{ color: '#10BFCC' }} />
+                )}
+                <span className="font-medium" style={{ color: '#FDFDFD' }}>
+                  {executionProgress.status === 'completed' 
+                    ? 'Execution complete!' 
+                    : executionProgress.status === 'failed'
+                    ? 'Execution failed'
+                    : executionProgress.status === 'starting' || executionProgress.total_queries === 0
+                    ? 'Starting execution...' 
+                    : `Running queries... (${executionProgress.completed_queries}/${executionProgress.total_queries})`}
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-mono" style={{ color: '#10BFCC' }}>
+                  {executionProgress.completed_queries} / {executionProgress.total_queries || '?'}
+                </span>
+                {executingBatchId && (
+                  <button
+                    onClick={stopExecution}
+                    className="p-1.5 rounded transition-colors hover:bg-red-500/20"
+                    style={{ color: '#EF4444' }}
+                    title="Stop execution"
+                  >
+                    <Square className="w-4 h-4 fill-current" />
+                  </button>
+                )}
+              </div>
+            </div>
+            
+            <div className="w-full rounded-full h-2 mb-2 overflow-hidden" style={{ backgroundColor: '#333333' }}>
+              {(executionProgress.status === 'starting' || executionProgress.total_queries === 0) ? (
+                <div 
+                  className="h-2 rounded-full"
+                  style={{ 
+                    width: '30%', 
+                    background: 'linear-gradient(to right, #10BFCC, #FCBC32)',
+                    animation: 'indeterminate 1.5s ease-in-out infinite'
+                  }}
+                />
+              ) : (
+                <div
+                  className="h-2 rounded-full transition-all duration-300"
+                  style={{ 
+                    width: `${Math.max(executionProgress.progress_percent, 2)}%`, 
+                    background: 'linear-gradient(to right, #10BFCC, #FCBC32)' 
+                  }}
+                />
+              )}
+            </div>
+            
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4 text-xs">
+                <div className="flex items-center gap-1" style={{ color: '#10BFCC' }}>
+                  <CheckCircle2 className="w-3 h-3" />
+                  <span>{executionProgress.success_count} success</span>
+                </div>
+                <div className="flex items-center gap-1" style={{ color: '#EF4444' }}>
+                  <AlertTriangle className="w-3 h-3" />
+                  <span>{executionProgress.failure_count} failed</span>
+                </div>
+                {executionProgress.estimated_remaining_seconds && executionProgress.status === 'running' && (
+                  <div className="flex items-center gap-1" style={{ color: '#8F949E' }}>
+                    <Clock className="w-3 h-3" />
+                    <span>~{executionProgress.estimated_remaining_seconds}s remaining</span>
+                  </div>
+                )}
+              </div>
+              {executionProgress.current_query_text && executionProgress.status === 'running' && (
+                <p className="text-xs truncate max-w-md" style={{ color: '#8F949E' }}>
+                  &quot;{executionProgress.current_query_text}&quot;
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* BOTTOM: Batch Data Preview (full width) */}
         <div 
           className="rounded-lg p-4 flex flex-col flex-1"
@@ -1305,28 +1605,28 @@ Return ONLY the user message, nothing else. No quotes around it.`);
         >
           <div className="flex items-center justify-between mb-3 flex-shrink-0">
             <h2 className="font-display text-lg flex items-center gap-2" style={{ color: '#FDFDFD' }}>
-              <MessageSquare className="w-5 h-5" style={{ color: '#10BFCC' }} />
+              <Eye className="w-5 h-5" style={{ color: '#10BFCC' }} />
               Batch data preview
               {selectedBatch && (
                 <span className="text-xs px-2 py-0.5 rounded ml-1" style={{ backgroundColor: '#333333', color: '#8F949E' }}>
                   {selectedBatch.queries?.length || 0} items
                 </span>
               )}
+              {executingBatchId && selectedBatch?.id === executingBatchId && (
+                <RefreshCw className="w-4 h-4 animate-spin ml-2" style={{ color: '#10BFCC' }} />
+              )}
             </h2>
             <div className="flex items-center gap-3">
-              {/* Execute in Runs CTA - show when batch has queries and is ready for execution */}
-              {selectedBatch && selectedBatch.queries && selectedBatch.queries.length > 0 && (
+              {/* View in Sessions - show when batch has executed queries */}
+              {selectedBatch && selectedBatch.queries && selectedBatch.queries.length > 0 && 
+               selectedBatch.queries.some(q => q.response_text || q.execution_status === 'success') && (
                 <button
-                  onClick={() => setActiveTab("runs")}
+                  onClick={viewInSessions}
                   className="flex items-center gap-2 text-sm transition-all hover:opacity-80"
                   style={{ color: '#10BFCC' }}
                 >
-                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                    <polyline points="15 3 21 3 21 9" />
-                    <line x1="10" y1="14" x2="21" y2="3" />
-                  </svg>
-                  View in Runs
+                  <ExternalLink className="w-4 h-4" />
+                  View in Sessions
                 </button>
               )}
             {/* Actions bar - shows Select All when 1+ selected */}
@@ -1371,54 +1671,101 @@ Return ONLY the user message, nothing else. No quotes around it.`);
           </div>
 
           {selectedBatch && selectedBatch.queries && selectedBatch.queries.length > 0 ? (
-            <div className="flex-1 overflow-y-auto space-y-3 pr-2">
-              {selectedBatch.queries.map((query, idx) => (
+            <div className="flex-1 overflow-y-auto pr-2">
+              {selectedBatch.queries.map((query, idx) => {
+                const isExecuted = query.execution_status === 'success' || query.execution_status === 'error';
+                const isExpanded = expandedQueryIds.has(query.id);
+                const tags = Object.entries(query.tuple_values || {});
+                
+                const toggleExpanded = () => {
+                  const newSet = new Set(expandedQueryIds);
+                  if (isExpanded) newSet.delete(query.id);
+                  else newSet.add(query.id);
+                  setExpandedQueryIds(newSet);
+                };
+                
+                return (
                 <div
                   key={query.id}
-                  className="rounded-lg p-4 transition-all"
-                  style={{ 
-                    backgroundColor: selectedQueryIds.has(query.id) ? 'rgba(16, 191, 204, 0.1)' : '#252830',
-                    border: selectedQueryIds.has(query.id) ? '1px solid rgba(16, 191, 204, 0.3)' : '1px solid #333333'
-                  }}
+                  className="border-b transition-colors"
+                  style={{ borderColor: '#333333' }}
                 >
-                  <div className="flex items-start gap-3">
+                  {/* Collapsed Row Header - Always visible */}
+                  <button
+                    onClick={toggleExpanded}
+                    className="w-full grid gap-4 px-4 py-3 text-left transition-colors hover:bg-white/5 items-center"
+                    style={{ gridTemplateColumns: '24px 60px 80px 1fr auto' }}
+                  >
+                    {/* Checkbox */}
                     <input
                       type="checkbox"
                       checked={selectedQueryIds.has(query.id)}
+                      onClick={(e) => e.stopPropagation()}
                       onChange={(e) => {
+                        e.stopPropagation();
                         const newSet = new Set(selectedQueryIds);
                         if (e.target.checked) newSet.add(query.id);
                         else newSet.delete(query.id);
                         setSelectedQueryIds(newSet);
                       }}
-                      className="w-4 h-4 mt-1 rounded flex-shrink-0"
+                      className="w-4 h-4 rounded"
                       style={{ accentColor: '#FCBC32' }}
                     />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs font-medium px-2 py-0.5 rounded" style={{ backgroundColor: '#333333', color: '#FDFDFD' }}>
-                            #{idx + 1}
-                          </span>
-                          {Object.entries(query.tuple_values || {}).map(([key, val]) => (
-                            <span 
-                              key={key} 
-                              className="text-xs px-1.5 py-0.5 rounded"
-                              style={{ backgroundColor: 'rgba(16, 191, 204, 0.15)', color: '#10BFCC' }}
-                            >
-                              {val}
-                            </span>
-                          ))}
-                        </div>
-                        <button
-                          onClick={(e) => { e.stopPropagation(); copyQueryText(query.id, query.query_text); }}
-                          className="p-1.5 rounded transition-colors hover:bg-opacity-80 flex-shrink-0"
-                          style={{ color: copiedQueryId === query.id ? '#10BFCC' : '#8F949E' }}
-                          title="Copy query text"
+                    
+                    {/* Index */}
+                    <span 
+                      className="text-xs font-mono px-2 py-1 rounded text-center"
+                      style={{ backgroundColor: '#333333', color: '#8F949E' }}
+                    >
+                      {idx + 1}/{selectedBatch.queries.length}
+                    </span>
+                    
+                    {/* Status */}
+                    <div className="flex items-center gap-1">
+                      {query.execution_status === "running" && (
+                        <RefreshCw className="w-3 h-3 animate-spin" style={{ color: '#FCBC32' }} />
+                      )}
+                      <StatusBadge status={query.execution_status || 'pending'} />
+                    </div>
+                    
+                    {/* Query Preview */}
+                    <div className="min-w-0 flex items-center gap-2">
+                      <ChevronDown 
+                        className={`w-4 h-4 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} 
+                        style={{ color: '#8F949E' }} 
+                      />
+                      <span 
+                        className="text-sm truncate"
+                        style={{ color: '#FDFDFD' }}
+                      >
+                        {query.query_text.slice(0, 100)}{query.query_text.length > 100 ? "..." : ""}
+                      </span>
+                    </div>
+                    
+                    {/* Tags */}
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {tags.slice(0, 3).map(([key, val]) => (
+                        <span 
+                          key={key} 
+                          className="text-xs px-2 py-0.5 rounded"
+                          style={{ backgroundColor: 'rgba(16, 191, 204, 0.15)', color: '#10BFCC' }}
                         >
-                          {copiedQueryId === query.id ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                        </button>
-                      </div>
+                          {val}
+                        </span>
+                      ))}
+                      {tags.length > 3 && (
+                        <span className="text-xs" style={{ color: '#8F949E' }}>+{tags.length - 3}</span>
+                      )}
+                    </div>
+                  </button>
+
+                  {/* Expanded Content */}
+                  {isExpanded && (
+                    <div 
+                      className="px-4 pb-4 space-y-4"
+                      style={{ backgroundColor: 'rgba(23, 26, 31, 0.5)' }}
+                    >
+                      {/* Full Query */}
                       {editingQueryId === query.id ? (
                         <div className="space-y-2">
                           <textarea
@@ -1451,29 +1798,111 @@ Return ONLY the user message, nothing else. No quotes around it.`);
                         </div>
                       ) : (
                         <div 
-                          className="cursor-pointer group"
-                          onClick={() => setEditingQueryId(query.id)}
+                          className={`p-4 rounded-lg ${!isExecuted ? 'cursor-pointer group' : ''}`}
+                          style={{ backgroundColor: '#171A1F', border: '1px solid #333333' }}
+                          onClick={() => !isExecuted && setEditingQueryId(query.id)}
                         >
-                          <p className="text-sm leading-relaxed" style={{ color: '#FDFDFD' }}>
+                          <div className="flex items-center justify-between mb-3">
+                            <div className="flex items-center gap-2">
+                              <div 
+                                className="w-6 h-6 rounded flex items-center justify-center"
+                                style={{ backgroundColor: '#333333' }}
+                              >
+                                <span className="text-xs" style={{ color: '#FDFDFD' }}>Q</span>
+                              </div>
+                              <span className="text-xs font-medium uppercase tracking-wider" style={{ color: '#8F949E' }}>User Query</span>
+                            </div>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); copyQueryText(query.id, query.query_text); }}
+                              className="p-1.5 rounded transition-colors hover:bg-white/10"
+                              style={{ color: copiedQueryId === query.id ? '#10BFCC' : '#8F949E' }}
+                              title="Copy query text"
+                            >
+                              {copiedQueryId === query.id ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                            </button>
+                          </div>
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: '#FDFDFD' }}>
                             {query.query_text}
                           </p>
-                          <span 
-                            className="text-xs opacity-0 group-hover:opacity-100 transition-opacity mt-1 inline-block"
-                            style={{ color: '#8F949E' }}
-                          >
-                            Click to edit
-                          </span>
+                          {!isExecuted && (
+                            <span 
+                              className="text-xs opacity-0 group-hover:opacity-100 transition-opacity mt-2 inline-block"
+                              style={{ color: '#8F949E' }}
+                            >
+                              Click to edit
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Full Response */}
+                      {query.response_text && (
+                        <div 
+                          className="p-4 rounded-lg"
+                          style={{ backgroundColor: '#171A1F', border: '1px solid rgba(16, 191, 204, 0.3)' }}
+                        >
+                          <div className="flex items-center gap-2 mb-3">
+                            <div 
+                              className="w-6 h-6 rounded flex items-center justify-center"
+                              style={{ backgroundColor: 'rgba(16, 191, 204, 0.2)' }}
+                            >
+                              <Bot className="w-3.5 h-3.5" style={{ color: '#10BFCC' }} />
+                            </div>
+                            <span className="text-xs font-medium uppercase tracking-wider" style={{ color: '#10BFCC' }}>Agent Response</span>
+                          </div>
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: '#FDFDFD' }}>
+                            {query.response_text}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Error Message */}
+                      {query.error_message && (
+                        <div 
+                          className="p-4 rounded-lg"
+                          style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)' }}
+                        >
+                          <div className="flex items-center gap-2 mb-3">
+                            <div 
+                              className="w-6 h-6 rounded flex items-center justify-center"
+                              style={{ backgroundColor: 'rgba(239, 68, 68, 0.2)' }}
+                            >
+                              <AlertTriangle className="w-3.5 h-3.5" style={{ color: '#EF4444' }} />
+                            </div>
+                            <span className="text-xs font-medium uppercase tracking-wider" style={{ color: '#EF4444' }}>Error</span>
+                          </div>
+                          <p className="text-sm leading-relaxed" style={{ color: '#FCA5A5' }}>
+                            {query.error_message}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* All Tags */}
+                      {tags.length > 0 && (
+                        <div className="flex items-center gap-2 flex-wrap pt-2">
+                          <span className="text-xs uppercase tracking-wider" style={{ color: '#8F949E' }}>Tags:</span>
+                          {tags.map(([key, val]) => (
+                            <span 
+                              key={key} 
+                              className="text-xs px-2 py-1 rounded flex items-center gap-1"
+                              style={{ backgroundColor: 'rgba(16, 191, 204, 0.15)', color: '#10BFCC' }}
+                            >
+                              <Tag className="w-3 h-3 opacity-50" />
+                              <span style={{ color: '#8F949E' }}>{key}:</span> {val}
+                            </span>
+                          ))}
                         </div>
                       )}
                     </div>
-                  </div>
+                  )}
                 </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="flex-1 flex items-center justify-center" style={{ color: '#8F949E' }}>
               <div className="text-center">
-                <MessageSquare className="w-16 h-16 mx-auto mb-4 opacity-30" />
+                <Eye className="w-16 h-16 mx-auto mb-4 opacity-30" />
                 <p className="text-lg mb-2" style={{ color: '#FDFDFD' }}>Select a batch to preview</p>
                 <p className="text-sm">Choose a batch from the "Generated batches" section above to review and edit its data.</p>
               </div>

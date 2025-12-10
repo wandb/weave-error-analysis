@@ -796,7 +796,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (activeTab === "taxonomy") {
       fetchTaxonomyData();
-    } else if (activeTab === "agents" || activeTab === "synthetic" || activeTab === "runs") {
+    } else if (activeTab === "agents" || activeTab === "synthetic") {
       // Only fetch agents if not already loaded (avoid redundant fetches on tab switch)
       if (agents.length === 0) {
         fetchAgentsData();
@@ -804,9 +804,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [activeTab, fetchTaxonomyData, fetchAgentsData, agents.length]);
 
-  // Automatically load agent data when switching to synthetic/runs tabs with a selected agent
+  // Automatically load agent data when switching to synthetic tab with a selected agent
   useEffect(() => {
-    if ((activeTab === "synthetic" || activeTab === "runs") && selectedAgent) {
+    if (activeTab === "synthetic" && selectedAgent) {
       // Load dimensions and batches if not already loaded
       const needsDimensions = dimensions.length === 0;
       const needsBatches = syntheticBatches.length === 0;

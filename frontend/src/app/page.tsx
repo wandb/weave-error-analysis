@@ -6,14 +6,13 @@ import {
   BarChart3,
   Cpu,
   Zap,
-  Play,
   Settings,
   ThumbsUp,
   ThumbsDown,
   RefreshCw,
 } from "lucide-react";
 import { AppProvider, useApp } from "./context/AppContext";
-import { SessionsTab, TaxonomyTab, AgentsTab, SyntheticTab, RunsTab, SettingsTab } from "./components/tabs";
+import { SessionsTab, TaxonomyTab, AgentsTab, SyntheticTab, SettingsTab } from "./components/tabs";
 import { Badge } from "./components/ui";
 import LandingPage from "./components/LandingPage";
 
@@ -59,7 +58,6 @@ function AppLayout() {
         fetchAgents();
         break;
       case "synthetic":
-      case "runs":
         if (selectedAgent) {
           fetchDimensions(selectedAgent.id);
           fetchBatches(selectedAgent.id);
@@ -148,7 +146,6 @@ function AppLayout() {
       <main className="max-w-[1800px] mx-auto px-6 py-6">
         {activeTab === "agents" && <AgentsTab />}
         {activeTab === "synthetic" && <SyntheticTab />}
-        {activeTab === "runs" && <RunsTab />}
         {activeTab === "sessions" && <SessionsTab />}
         {activeTab === "taxonomy" && <TaxonomyTab />}
         {activeTab === "settings" && <SettingsTab />}
@@ -159,13 +156,13 @@ function AppLayout() {
 
 // ============================================================================
 // Tab Navigation Component
-// Workflow order: Agents → Synthetic → Runs → Sessions → Taxonomy
+// Workflow order: Agents → Synthetic → Sessions → Taxonomy
 // Settings moved to corner icon
 // ============================================================================
 
 interface TabNavigationProps {
   activeTab: string;
-  setActiveTab: (tab: "sessions" | "taxonomy" | "agents" | "synthetic" | "runs" | "settings") => void;
+  setActiveTab: (tab: "sessions" | "taxonomy" | "agents" | "synthetic" | "settings") => void;
   taxonomy: ReturnType<typeof useApp>["taxonomy"];
   agents: ReturnType<typeof useApp>["agents"];
   syntheticBatches: ReturnType<typeof useApp>["syntheticBatches"];
@@ -180,7 +177,7 @@ function TabNavigation({
   syntheticBatches,
   executingBatch,
 }: TabNavigationProps) {
-  // Tabs ordered by workflow: Connect → Generate → Run → Review → Categorize
+  // Tabs ordered by workflow: Connect → Generate/Run → Review → Categorize
   const tabs = [
     {
       id: "agents" as const,
@@ -192,32 +189,25 @@ function TabNavigation({
     },
     {
       id: "synthetic" as const,
-      label: "Data",
+      label: "Synthetic",
       icon: Zap,
       step: 2,
       badge: syntheticBatches.length > 0 ? syntheticBatches.length : null,
       badgeVariant: "gold" as const,
-    },
-    {
-      id: "runs" as const,
-      label: "Runs",
-      icon: Play,
-      step: 3,
-      badge: null,
       showPulse: executingBatch,
     },
     {
       id: "sessions" as const,
       label: "Sessions",
       icon: MessageCircle,
-      step: 4,
+      step: 3,
       badge: null,
     },
     {
       id: "taxonomy" as const,
       label: "Taxonomy",
       icon: BarChart3,
-      step: 5,
+      step: 4,
       badge: taxonomy && taxonomy.stats.total_uncategorized > 0 
         ? taxonomy.stats.total_uncategorized 
         : null,

@@ -15,6 +15,7 @@ import {
 import { AppProvider, useApp } from "./context/AppContext";
 import { SessionsTab, TaxonomyTab, AgentsTab, SyntheticTab, RunsTab, SettingsTab } from "./components/tabs";
 import { Badge } from "./components/ui";
+import LandingPage from "./components/LandingPage";
 
 // ============================================================================
 // Main Layout
@@ -35,7 +36,16 @@ function AppLayout() {
     fetchAgents,
     fetchDimensions,
     fetchBatches,
+    setShowLandingPage,
   } = useApp();
+
+  const handleLogoClick = () => {
+    // Clear the localStorage dismissal and show landing page
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('landingPageDismissed');
+    }
+    setShowLandingPage(true);
+  };
 
   const handleRefresh = () => {
     switch (activeTab) {
@@ -68,18 +78,22 @@ function AppLayout() {
         <div className="max-w-[1800px] mx-auto px-6 py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-8">
-              {/* Logo */}
-              <div className="flex items-center gap-3">
+              {/* Logo - Clickable to show landing page */}
+              <button 
+                onClick={handleLogoClick}
+                className="flex items-center gap-3 hover:opacity-90 transition-opacity"
+                title="Show workflow guide"
+              >
                 <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ backgroundColor: '#FCBC32' }}>
                   <Layers className="w-5 h-5" style={{ color: '#171A1F' }} />
                 </div>
-                <div>
+                <div className="text-left">
                   <h1 className="font-display text-lg" style={{ color: '#FDFDFD' }}>
                     Error analysis
                   </h1>
                   <p className="text-xs" style={{ color: '#8F949E' }}>Bottom-up failure mode discovery</p>
                 </div>
-              </div>
+              </button>
 
               {/* Tab Navigation - Reordered for workflow */}
               <TabNavigation
@@ -245,13 +259,43 @@ function TabNavigation({
 }
 
 // ============================================================================
+// App Router - Conditional Landing Page
+// ============================================================================
+
+function AppRouter() {
+  const { 
+    showLandingPage, 
+    workflowProgress, 
+    dismissLandingPage,
+    setActiveTab,
+  } = useApp();
+
+  const handleStart = () => {
+    dismissLandingPage();
+    setActiveTab("agents");
+  };
+
+  if (showLandingPage) {
+    return (
+      <LandingPage
+        progress={workflowProgress}
+        onSkipToAgents={handleStart}
+        onDismiss={dismissLandingPage}
+      />
+    );
+  }
+
+  return <AppLayout />;
+}
+
+// ============================================================================
 // Root Component with Provider
 // ============================================================================
 
 export default function Home() {
   return (
     <AppProvider>
-      <AppLayout />
+      <AppRouter />
     </AppProvider>
   );
 }

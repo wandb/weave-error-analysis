@@ -31,6 +31,7 @@ import type {
   SyncStatus,
   BatchReviewProgress,
   FilterRanges,
+  WorkflowProgress,
 } from "../types";
 import * as api from "../lib/api";
 
@@ -39,6 +40,12 @@ import * as api from "../lib/api";
 // ============================================================================
 
 interface AppState {
+  // Landing Page
+  showLandingPage: boolean;
+  setShowLandingPage: (show: boolean) => void;
+  workflowProgress: WorkflowProgress;
+  dismissLandingPage: () => void;
+
   // Navigation
   activeTab: TabType;
   setActiveTab: (tab: TabType) => void;
@@ -186,6 +193,16 @@ export function useApp() {
 // ============================================================================
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  // Landing Page State
+  const [showLandingPage, setShowLandingPage] = useState<boolean>(() => {
+    // Check localStorage for dismissed state (only on client)
+    if (typeof window !== 'undefined') {
+      const dismissed = localStorage.getItem('landingPageDismissed');
+      return dismissed !== 'true';
+    }
+    return true;
+  });
+
   // Navigation
   // Start with Agents tab - first step in the workflow
   const [activeTab, setActiveTab] = useState<TabType>("agents");
@@ -261,6 +278,26 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [playgroundToolCalls, setPlaygroundToolCalls] = useState<ToolCall[]>([]);
   const [playgroundError, setPlaygroundError] = useState<string | null>(null);
   const [playgroundEvents, setPlaygroundEvents] = useState<PlaygroundEvent[]>([]);
+
+  // ============================================================================
+  // Workflow Progress Computation
+  // ============================================================================
+
+  // Compute workflow progress based on app state
+  const workflowProgress: WorkflowProgress = {
+    hasAgents: agents.length > 0,
+    hasBatches: syntheticBatches.some(b => b.status === 'completed'),
+    hasReviewedSessions: sessions.some(s => s.is_reviewed),
+    hasFailureModes: (taxonomy?.failure_modes?.length ?? 0) > 0,
+  };
+
+  // Dismiss landing page and persist to localStorage
+  const dismissLandingPage = useCallback(() => {
+    setShowLandingPage(false);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('landingPageDismissed', 'true');
+    }
+  }, []);
 
   // ============================================================================
   // Session Actions
@@ -737,7 +774,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     fetchThreads();
     fetchFeedbackSummaryData();
     fetchAnnotationProgressData();
-  }, [fetchThreads, fetchFeedbackSummaryData, fetchAnnotationProgressData]);
+    fetchAgentsData(); // Load agents on startup for auto-selection
+  }, [fetchThreads, fetchFeedbackSummaryData, fetchAnnotationProgressData, fetchAgentsData]);
 
   // Sessions tab - load from local DB
   useEffect(() => {
@@ -782,11 +820,31 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [activeTab, selectedAgent, dimensions.length, syntheticBatches.length]);
 
+  // Auto-select a connected agent when agents are loaded and no agent is selected
+  useEffect(() => {
+    if (!selectedAgent && agents.length > 0 && !loadingAgents) {
+      // Find a connected agent, or fall back to first agent
+      const connectedAgent = agents.find(a => a.connection_status === "connected");
+      const agentToSelect = connectedAgent || agents[0];
+      
+      if (agentToSelect) {
+        // Fetch full agent details and related data
+        fetchAgentDetailData(agentToSelect.id);
+      }
+    }
+  }, [agents, selectedAgent, loadingAgents]);
+
   // ============================================================================
   // Context Value
   // ============================================================================
 
   const value: AppState = {
+    // Landing Page
+    showLandingPage,
+    setShowLandingPage,
+    workflowProgress,
+    dismissLandingPage,
+
     activeTab,
     setActiveTab,
 

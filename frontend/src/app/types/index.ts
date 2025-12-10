@@ -461,3 +461,14 @@ export interface TestConnectionResult {
 
 export type TabType = "sessions" | "taxonomy" | "agents" | "synthetic" | "runs" | "settings";
 
+// ============================================================================
+// Workflow Progress Types
+// ============================================================================
+
+export interface WorkflowProgress {
+  hasAgents: boolean;
+  hasBatches: boolean;
+  hasReviewedSessions: boolean;
+  hasFailureModes: boolean;
+}
+

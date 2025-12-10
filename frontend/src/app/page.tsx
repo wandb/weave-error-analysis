@@ -12,7 +12,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { AppProvider, useApp } from "./context/AppContext";
-import { SessionsTab, TaxonomyTab, AgentsTab, SyntheticTab, SettingsTab } from "./components/tabs";
+import { ThreadsTab, TaxonomyTab, AgentsTab, SyntheticTab, SettingsTab } from "./components/tabs";
 import { Badge } from "./components/ui";
 import LandingPage from "./components/LandingPage";
 
@@ -48,7 +48,7 @@ function AppLayout() {
 
   const handleRefresh = () => {
     switch (activeTab) {
-      case "sessions":
+      case "threads":
         fetchThreads();
         break;
       case "taxonomy":
@@ -146,7 +146,7 @@ function AppLayout() {
       <main className="max-w-[1800px] mx-auto px-6 py-6">
         {activeTab === "agents" && <AgentsTab />}
         {activeTab === "synthetic" && <SyntheticTab />}
-        {activeTab === "sessions" && <SessionsTab />}
+        {activeTab === "threads" && <ThreadsTab />}
         {activeTab === "taxonomy" && <TaxonomyTab />}
         {activeTab === "settings" && <SettingsTab />}
       </main>
@@ -156,13 +156,13 @@ function AppLayout() {
 
 // ============================================================================
 // Tab Navigation Component
-// Workflow order: Agents → Synthetic → Sessions → Taxonomy
+// Workflow order: Agents → Synthetic → Threads → Taxonomy
 // Settings moved to corner icon
 // ============================================================================
 
 interface TabNavigationProps {
   activeTab: string;
-  setActiveTab: (tab: "sessions" | "taxonomy" | "agents" | "synthetic" | "settings") => void;
+  setActiveTab: (tab: "threads" | "taxonomy" | "agents" | "synthetic" | "settings") => void;
   taxonomy: ReturnType<typeof useApp>["taxonomy"];
   agents: ReturnType<typeof useApp>["agents"];
   syntheticBatches: ReturnType<typeof useApp>["syntheticBatches"];
@@ -197,8 +197,8 @@ function TabNavigation({
       showPulse: executingBatch,
     },
     {
-      id: "sessions" as const,
-      label: "Sessions",
+      id: "threads" as const,
+      label: "Threads",
       icon: MessageCircle,
       step: 3,
       badge: null,

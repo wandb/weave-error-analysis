@@ -176,10 +176,10 @@ export function TaxonomyTab() {
     });
   };
 
-  // Navigate to Sessions tab and show the session for a note
+  // Navigate to Threads tab and show the session for a note
   const handleViewSession = async (sessionId: string) => {
     await fetchSessionDetail(sessionId);
-    setActiveTab("sessions");
+    setActiveTab("threads");
   };
 
   // Status update handler

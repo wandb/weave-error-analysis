@@ -464,7 +464,7 @@ export interface TestConnectionResult {
 // Tab Types
 // ============================================================================
 
-export type TabType = "sessions" | "taxonomy" | "agents" | "synthetic" | "settings";
+export type TabType = "threads" | "taxonomy" | "agents" | "synthetic" | "settings";
 
 // ============================================================================
 // Workflow Progress Types

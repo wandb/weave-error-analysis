@@ -58,11 +58,11 @@ export function EmptyState({ icon, title, description, action }: EmptyStateProps
   );
 }
 
-export function NoSessionsFound() {
+export function NoThreadsFound() {
   return (
     <EmptyState
       icon={<AlertTriangle className="w-8 h-8 mx-auto text-moon-450/50" />}
-      title="No sessions found"
+      title="No threads found"
       description="Try adjusting filters"
     />
   );

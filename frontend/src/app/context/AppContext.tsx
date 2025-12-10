@@ -410,6 +410,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const fetchSessionsData = useCallback(async () => {
     setLoadingSessions(true);
     try {
+      // Handle special "__organic__" filter (threads without a batch)
+      const isOrganicFilter = filterBatchId === "__organic__";
+      
       const data = await api.fetchSessions({
         sort_by: sortBy,
         direction: sortDirection,
@@ -423,14 +426,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         max_latency: filterMaxLatency,
         is_reviewed: filterReviewed,
         has_error: filterHasError,
-        batch_id: filterBatchId,
+        batch_id: isOrganicFilter ? null : filterBatchId,
+        exclude_batches: isOrganicFilter ? true : undefined,
         primary_model: filterModel,
         limit: 100,
       });
       setSessions(data.sessions);
       
-      // Fetch batch review progress if filtering by batch
-      if (filterBatchId) {
+      // Fetch batch review progress if filtering by a specific batch (not organic)
+      if (filterBatchId && !isOrganicFilter) {
         try {
           const progress = await api.fetchBatchReviewProgress(filterBatchId);
           setBatchReviewProgress(progress);
@@ -781,9 +785,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
     fetchAgentsData(); // Load agents on startup for auto-selection
   }, [fetchThreads, fetchFeedbackSummaryData, fetchAnnotationProgressData, fetchAgentsData]);
 
-  // Sessions tab - load from local DB
+  // Threads tab - load from local DB
   useEffect(() => {
-    if (activeTab === "sessions") {
+    if (activeTab === "threads") {
       fetchSessionsData();
       refreshSyncStatusData();
       fetchFilterRangesData();

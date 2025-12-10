@@ -354,11 +354,11 @@ Return ONLY the user message, nothing else. No quotes around it.`);
     }
   };
 
-  const viewInSessions = () => {
+  const viewInThreads = () => {
     if (!selectedBatch) return;
     setFilterBatchId(selectedBatch.id);
     setFilterBatchName(selectedBatch.name);
-    setActiveTab("sessions");
+    setActiveTab("threads");
   };
 
   const generateBatch = async () => {
@@ -1431,13 +1431,13 @@ Return ONLY the user message, nothing else. No quotes around it.`);
                                   fetchBatchDetail(batch.id);
                                   setFilterBatchId(batch.id);
                                   setFilterBatchName(batch.name);
-                                  setActiveTab("sessions");
+                                  setActiveTab("threads");
                                 }}
                                 className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs transition-all"
                                 style={{ color: '#10BFCC' }}
                               >
                                 <ExternalLink className="w-3 h-3" />
-                                View in Sessions
+                                View in Threads
                               </button>
                             </>
                           )}
@@ -1618,16 +1618,16 @@ Return ONLY the user message, nothing else. No quotes around it.`);
               )}
             </h2>
             <div className="flex items-center gap-3">
-              {/* View in Sessions - show when batch has executed queries */}
+              {/* View in Threads - show when batch has executed queries */}
               {selectedBatch && selectedBatch.queries && selectedBatch.queries.length > 0 && 
                selectedBatch.queries.some(q => q.response_text || q.execution_status === 'success') && (
                 <button
-                  onClick={viewInSessions}
+                  onClick={viewInThreads}
                   className="flex items-center gap-2 text-sm transition-all hover:opacity-80"
                   style={{ color: '#10BFCC' }}
                 >
                   <ExternalLink className="w-4 h-4" />
-                  View in Sessions
+                  View in Threads
                 </button>
               )}
             {/* Actions bar - shows Select All when 1+ selected */}
@@ -1841,10 +1841,10 @@ Return ONLY the user message, nothing else. No quotes around it.`);
                         <button
                           onClick={async () => {
                             if (query.session_id) {
-                              // Navigate to sessions tab and auto-open this specific session
+                              // Navigate to threads tab and auto-open this specific session
                               setFilterBatchId(selectedBatch?.id || null);
                               setFilterBatchName(selectedBatch?.name || null);
-                              setActiveTab("sessions");
+                              setActiveTab("threads");
                               // Fetch and select the specific session to show its details
                               await fetchSessionDetail(query.session_id);
                             }

@@ -23,11 +23,23 @@ import {
   Cloud,
   CheckCircle,
   AlertCircle,
+  Layers,
+  ChevronDown,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { formatRelativeTime } from "../../utils/formatters";
 import { ConversationMessage } from "../ConversationMessage";
-import { Panel, PanelHeader, Badge, ProgressBar, LoadingCards, NoSessionsFound, SelectPrompt, DualRangeSlider } from "../ui";
+import { Panel, PanelHeader, Badge, ProgressBar, LoadingCards, NoThreadsFound, SelectPrompt, DualRangeSlider } from "../ui";
+import * as api from "../../lib/api";
+
+// =============================================================================
+// Batch Filter Dropdown Types
+// =============================================================================
+
+interface BatchOption {
+  id: string;
+  name: string;
+}
 
 // =============================================================================
 // Sync Status Indicator Component
@@ -85,7 +97,7 @@ function SyncStatusIndicator() {
         onClick={handleSync}
         disabled={isSyncing}
         className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-ink-700 bg-ink-950 hover:bg-ink-900 transition-colors disabled:opacity-50"
-        title="Sync sessions from Weave"
+        title="Sync threads from Weave"
       >
         <RefreshCw className={`w-3 h-3 ${isSyncing ? "animate-spin" : ""}`} />
         Sync
@@ -95,10 +107,10 @@ function SyncStatusIndicator() {
 }
 
 // =============================================================================
-// Session Card Component (with metrics)
+// Thread Card Component (with metrics)
 // =============================================================================
 
-interface SessionCardProps {
+interface ThreadCardProps {
   session: {
     id: string;
     turn_count: number;
@@ -115,7 +127,7 @@ interface SessionCardProps {
   onClick: () => void;
 }
 
-function SessionCard({ session, selected, onClick }: SessionCardProps) {
+function ThreadCard({ session, selected, onClick }: ThreadCardProps) {
   const formatTokens = (tokens: number) => {
     if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M`;
     if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}K`;
@@ -244,12 +256,12 @@ function FilterPill({ active, onClick, children, variant = "coral" }: FilterPill
 }
 
 // =============================================================================
-// Main Sessions Tab
+// Main Threads Tab
 // =============================================================================
 
-export function SessionsTab() {
+export function ThreadsTab() {
   const {
-    // New session state
+    // Session state (using sessions for threads)
     sessions,
     selectedSession,
     syncStatus,
@@ -307,20 +319,45 @@ export function SessionsTab() {
   const [showAddFilter, setShowAddFilter] = useState(false);
   const addFilterRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown when clicking outside
+  // Batch filter state
+  const [batchOptions, setBatchOptions] = useState<BatchOption[]>([]);
+  const [loadingBatches, setLoadingBatches] = useState(false);
+  const [showBatchDropdown, setShowBatchDropdown] = useState(false);
+  const batchDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Fetch batch options on mount
+  useEffect(() => {
+    const fetchBatches = async () => {
+      setLoadingBatches(true);
+      try {
+        const data = await api.fetchBatchOptions();
+        setBatchOptions(data.batches || []);
+      } catch (error) {
+        console.error("Error fetching batch options:", error);
+      } finally {
+        setLoadingBatches(false);
+      }
+    };
+    fetchBatches();
+  }, []);
+
+  // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (addFilterRef.current && !addFilterRef.current.contains(event.target as Node)) {
         setShowAddFilter(false);
       }
+      if (batchDropdownRef.current && !batchDropdownRef.current.contains(event.target as Node)) {
+        setShowBatchDropdown(false);
+      }
     };
-    if (showAddFilter) {
+    if (showAddFilter || showBatchDropdown) {
       document.addEventListener("mousedown", handleClickOutside);
     }
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [showAddFilter]);
+  }, [showAddFilter, showBatchDropdown]);
 
-  // Filter sessions by search query (client-side)
+  // Filter threads by search query (client-side)
   const filteredSessions = sessions.filter((session) => {
     if (!searchQuery) return true;
     return session.id.toLowerCase().includes(searchQuery.toLowerCase());
@@ -351,10 +388,10 @@ export function SessionsTab() {
     }
   };
 
-  const handleRandomSample = async () => {
-    // Use the fetchSessions with random_sample param
-    // For now, this will need to be implemented through filters
-    // This is a placeholder - actual implementation would need API support
+  const handleBatchSelect = (batchId: string | null, batchName: string | null) => {
+    setFilterBatchId(batchId);
+    setFilterBatchName(batchName);
+    setShowBatchDropdown(false);
   };
 
   const clearAllFilters = () => {
@@ -457,10 +494,17 @@ export function SessionsTab() {
     }
   };
 
+  // Get the current batch display name
+  const getCurrentBatchDisplay = () => {
+    if (!filterBatchId) return "All Threads";
+    if (filterBatchId === "__organic__") return "Organic (no batch)";
+    return filterBatchName || filterBatchId;
+  };
+
   return (
     <div className="space-y-4">
-      {/* Batch Filter Indicator */}
-      {filterBatchId && (
+      {/* Batch Filter Indicator - shown when filtering by specific batch */}
+      {filterBatchId && filterBatchId !== "__organic__" && (
         <div className="bg-accent-coral/10 border border-accent-coral/30 rounded-xl p-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Filter className="w-4 h-4 text-accent-coral" />
@@ -482,7 +526,7 @@ export function SessionsTab() {
       )}
 
       {/* Batch Review Progress (when filtering by batch) */}
-      {batchReviewProgress && filterBatchId && (
+      {batchReviewProgress && filterBatchId && filterBatchId !== "__organic__" && (
         <Panel>
           <div className="flex items-center justify-between mb-2">
             <h3 className="font-display text-sm font-semibold text-sand-100 flex items-center gap-2">
@@ -508,14 +552,14 @@ export function SessionsTab() {
       )}
 
       <div className="grid grid-cols-12 gap-6">
-        {/* Left Panel - Session List */}
+        {/* Left Panel - Thread List */}
         <div className="col-span-4 space-y-4 min-w-0">
           <Panel className="overflow-hidden">
             {/* Header with Sync Status */}
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-display text-lg text-sand-100 flex items-center gap-2">
                 <MessageCircle className="w-5 h-5 text-accent-coral" />
-                Sessions
+                Threads
                 <Badge variant="coral">{sessions.length}</Badge>
               </h2>
               <SyncStatusIndicator />
@@ -527,7 +571,7 @@ export function SessionsTab() {
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-ink-500" />
                 <input
                   type="text"
-                  placeholder="Search sessions..."
+                  placeholder="Search threads..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full pl-10 text-sm"
@@ -537,6 +581,77 @@ export function SessionsTab() {
 
             {/* Sort & Filter Controls */}
             <div className="mb-3 space-y-2">
+              {/* Batch Filter Dropdown */}
+              <div className="relative" ref={batchDropdownRef}>
+                <button
+                  onClick={() => setShowBatchDropdown(!showBatchDropdown)}
+                  className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs bg-ink-950 border border-ink-700 rounded-lg hover:border-ink-600 transition-colors"
+                >
+                  <div className="flex items-center gap-2">
+                    <Layers className="w-3.5 h-3.5 text-accent-coral" />
+                    <span className="text-sand-200">{getCurrentBatchDisplay()}</span>
+                  </div>
+                  <ChevronDown className={`w-3.5 h-3.5 text-ink-500 transition-transform ${showBatchDropdown ? 'rotate-180' : ''}`} />
+                </button>
+
+                {showBatchDropdown && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-ink-900 border border-ink-700 rounded-lg shadow-lg z-20 py-1 max-h-[280px] overflow-y-auto">
+                    {/* All Threads option */}
+                    <button
+                      onClick={() => handleBatchSelect(null, null)}
+                      className={`w-full text-left px-3 py-2 text-xs transition-colors flex items-center gap-2 ${
+                        !filterBatchId 
+                          ? 'bg-accent-coral/10 text-accent-coral' 
+                          : 'text-sand-200 hover:bg-ink-800'
+                      }`}
+                    >
+                      <MessageCircle className="w-3.5 h-3.5" />
+                      All Threads
+                    </button>
+
+                    {/* Organic option */}
+                    <button
+                      onClick={() => handleBatchSelect("__organic__", "Organic (no batch)")}
+                      className={`w-full text-left px-3 py-2 text-xs transition-colors flex items-center gap-2 ${
+                        filterBatchId === "__organic__" 
+                          ? 'bg-accent-coral/10 text-accent-coral' 
+                          : 'text-sand-200 hover:bg-ink-800'
+                      }`}
+                    >
+                      <Target className="w-3.5 h-3.5" />
+                      Organic (no batch)
+                    </button>
+
+                    {/* Divider */}
+                    {batchOptions.length > 0 && (
+                      <div className="border-t border-ink-700 my-1" />
+                    )}
+
+                    {/* Batch options */}
+                    {loadingBatches ? (
+                      <div className="px-3 py-2 text-xs text-ink-500">Loading batches...</div>
+                    ) : batchOptions.length === 0 ? (
+                      <div className="px-3 py-2 text-xs text-ink-500">No batches found</div>
+                    ) : (
+                      batchOptions.map((batch) => (
+                        <button
+                          key={batch.id}
+                          onClick={() => handleBatchSelect(batch.id, batch.name)}
+                          className={`w-full text-left px-3 py-2 text-xs transition-colors flex items-center gap-2 ${
+                            filterBatchId === batch.id 
+                              ? 'bg-accent-coral/10 text-accent-coral' 
+                              : 'text-sand-200 hover:bg-ink-800'
+                          }`}
+                        >
+                          <Zap className="w-3.5 h-3.5" />
+                          <span className="truncate">{batch.name}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* Sort Controls */}
               <div className="flex items-center gap-2">
                 <SortDesc className="w-4 h-4 text-ink-500" />
@@ -731,15 +846,15 @@ export function SessionsTab() {
               )}
             </div>
 
-            {/* Session List */}
+            {/* Thread List */}
             <div className="space-y-2 max-h-[calc(100vh-520px)] overflow-y-auto">
               {loadingSessions ? (
                 <LoadingCards count={5} />
               ) : filteredSessions.length === 0 ? (
-                <NoSessionsFound />
+                <NoThreadsFound />
               ) : (
                 filteredSessions.map((session) => (
-                  <SessionCard
+                  <ThreadCard
                     key={session.id}
                     session={session}
                     selected={selectedSession?.id === session.id}
@@ -767,7 +882,7 @@ export function SessionsTab() {
               </div>
             ) : selectedSession ? (
               <div className="space-y-4 animate-fade-in">
-                {/* Session Info Header */}
+                {/* Thread Info Header */}
                 <div className="flex items-center justify-between bg-ink-950 rounded-lg p-3 border border-ink-800">
                   <div>
                     <div className="flex items-center gap-2">
@@ -927,8 +1042,8 @@ export function SessionsTab() {
             ) : (
               <SelectPrompt
                 icon={<MessageSquare className="w-12 h-12" />}
-                title="Select a session to view conversation"
-                description="Click on a session from the list"
+                title="Select a thread to view conversation"
+                description="Click on a thread from the list"
               />
             )}
           </Panel>

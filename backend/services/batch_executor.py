@@ -326,24 +326,55 @@ class BatchExecutor:
         )
         
         # =================================================================
-        # AUTO-SYNC: Trigger background sync for this batch's sessions
+        # AUTO-SYNC: Trigger delayed background sync for this batch's sessions
         # =================================================================
         # This ensures sessions are immediately available in local DB
-        # for fast filtering. Sync runs in background, doesn't block.
+        # for fast filtering. We add a delay to give OTEL traces time to
+        # be flushed to Weave (especially important with concurrent execution).
         if final_status == "completed" and success_count > 0:
-            try:
-                from services.session_sync import trigger_session_sync
-                sync_started = trigger_session_sync(batch_id=self.batch_id)
-                if sync_started:
-                    log_event(logger, "batch.session_sync_triggered",
-                        correlation_id=self.correlation_id,
-                        batch_id=self.batch_id
-                    )
-                else:
-                    logger.info(f"Session sync already in progress, batch {self.batch_id} will be synced on next run")
-            except Exception as e:
-                # Don't fail batch completion if sync fails
-                logger.warning(f"Failed to trigger session sync for batch {self.batch_id}: {e}")
+            async def delayed_sync():
+                """Sync with retry to handle OTEL trace propagation delays."""
+                try:
+                    # Wait for OTEL traces to propagate to Weave
+                    # With concurrent execution, some traces may take longer to flush
+                    await asyncio.sleep(3)  # Initial delay
+                    
+                    from services.session_sync import session_sync_service
+                    from database import get_db
+                    
+                    # Get expected session count from batch
+                    with get_db() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute(
+                            "SELECT COUNT(*) as cnt FROM synthetic_queries WHERE batch_id = ? AND thread_id IS NOT NULL",
+                            (self.batch_id,)
+                        )
+                        expected_count = cursor.fetchone()["cnt"]
+                    
+                    # Try syncing up to 3 times with increasing delays
+                    for attempt in range(3):
+                        result = await session_sync_service.sync_batch_sessions(self.batch_id)
+                        synced_count = result.sessions_added + result.sessions_updated
+                        
+                        log_event(logger, "batch.session_sync_attempt",
+                            correlation_id=self.correlation_id,
+                            batch_id=self.batch_id,
+                            attempt=attempt + 1,
+                            expected=expected_count,
+                            synced=synced_count
+                        )
+                        
+                        if synced_count >= expected_count:
+                            break  # All sessions synced
+                        
+                        if attempt < 2:
+                            await asyncio.sleep(2 * (attempt + 1))  # Progressive delay: 2s, 4s
+                    
+                except Exception as e:
+                    logger.warning(f"Failed session sync for batch {self.batch_id}: {e}")
+            
+            # Start sync in background without blocking
+            asyncio.create_task(delayed_sync())
         
         yield BatchExecutionProgress(
             batch_id=self.batch_id,

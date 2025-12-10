@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk import trace as trace_sdk
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 from google.adk.agents import LlmAgent
 from google.adk.models.lite_llm import LiteLlm
@@ -60,14 +60,45 @@ def setup_weave_otel() -> None:
     )
     
     # Create tracer provider and add exporter
-    tracer_provider = trace_sdk.TracerProvider()
-    tracer_provider.add_span_processor(SimpleSpanProcessor(exporter))
+    # Using BatchSpanProcessor for better async/concurrent support
+    # It batches spans and exports them in the background, avoiding
+    # context issues with concurrent requests
+    global _tracer_provider
+    _tracer_provider = trace_sdk.TracerProvider()
+    _tracer_provider.add_span_processor(BatchSpanProcessor(
+        exporter,
+        max_queue_size=2048,
+        max_export_batch_size=512,
+        schedule_delay_millis=500,  # Export every 0.5 seconds for faster trace visibility
+    ))
     
     # Set the global tracer provider
-    trace.set_tracer_provider(tracer_provider)
+    trace.set_tracer_provider(_tracer_provider)
     
     print(f"OTEL tracing configured for project: {project_id}")
     print(f"View traces at: https://wandb.ai/{project_id}/weave")
+
+
+# Global reference to tracer provider for flushing
+_tracer_provider: trace_sdk.TracerProvider = None
+
+
+def flush_traces(timeout_millis: int = 5000) -> bool:
+    """
+    Force flush all pending traces to Weave.
+    
+    Call this after completing agent runs to ensure traces are exported
+    before the response is sent, especially important for batch execution.
+    
+    Returns:
+        True if flush succeeded, False otherwise
+    """
+    if _tracer_provider is None:
+        return False
+    try:
+        return _tracer_provider.force_flush(timeout_millis)
+    except Exception:
+        return False
 
 
 # Initialize OTEL tracing

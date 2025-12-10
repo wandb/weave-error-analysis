@@ -208,6 +208,11 @@ async def run_agent_stream(message: str, thread_id: Optional[str] = None) -> Asy
         # Emit TEXT_MESSAGE_END
         yield create_event("TEXT_MESSAGE_END", messageId=message_id)
         
+        # Flush traces to ensure they're exported to Weave before responding
+        # This is critical for batch execution where session sync happens immediately after
+        from customer_support import flush_traces
+        flush_traces(timeout_millis=2000)
+        
         # Emit RUN_FINISHED
         # Return session_id as threadId since that's what Weave uses for grouping
         yield create_event(

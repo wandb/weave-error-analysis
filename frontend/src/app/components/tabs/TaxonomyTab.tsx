@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   RefreshCw,
   Sparkles,
@@ -24,12 +24,35 @@ import {
   Tag,
   Play,
   Eye,
+  Wrench,
+  MoreVertical,
+  GitMerge,
+  Edit3,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
-import { formatRelativeTime, getSeverityColor, getSeverityBorder, formatTaxonomyForCopy, formatSingleModeForCopy } from "../../utils/formatters";
+import {
+  formatRelativeTime,
+  getSeverityColor,
+  getSeverityBorder,
+  formatTaxonomyForCopy,
+  formatSingleModeForCopy,
+  getStatusColor,
+  getStatusLabel,
+  getStatusIcon,
+  calculateDistributionPercent,
+} from "../../utils/formatters";
 import { Panel, PanelHeader, Badge, ProgressBar, Modal, StatusBadge } from "../ui";
-import type { TaxonomyNote, AISuggestion, AutoReview, SyntheticBatch } from "../../types";
+import type { TaxonomyNote, AISuggestion, AutoReview, SyntheticBatch, FailureMode, FailureModeStatus } from "../../types";
 import * as api from "../../lib/api";
+
+// Status filter options
+const STATUS_OPTIONS: { value: FailureModeStatus | "all"; label: string; icon: string }[] = [
+  { value: "all", label: "All", icon: "●" },
+  { value: "active", label: "Active", icon: "🔴" },
+  { value: "investigating", label: "Investigating", icon: "🔧" },
+  { value: "resolved", label: "Resolved", icon: "✅" },
+  { value: "wont_fix", label: "Won't Fix", icon: "⊘" },
+];
 
 export function TaxonomyTab() {
   const {
@@ -58,6 +81,9 @@ export function TaxonomyTab() {
   const [copiedTaxonomy, setCopiedTaxonomy] = useState(false);
   const [copiedModeId, setCopiedModeId] = useState<string | null>(null);
 
+  // Status filter
+  const [statusFilter, setStatusFilter] = useState<FailureModeStatus | "all">("all");
+
   // Note selection state
   const [selectedNote, setSelectedNote] = useState<TaxonomyNote | null>(null);
   const [noteSuggestion, setNoteSuggestion] = useState<AISuggestion | null>(null);
@@ -78,8 +104,48 @@ export function TaxonomyTab() {
   const [batchAssignments, setBatchAssignments] = useState<Map<string, api.BatchApplyAssignment>>(new Map());
   const [applyingBatch, setApplyingBatch] = useState(false);
 
+  // Merge modal state
+  const [showMergeModal, setShowMergeModal] = useState(false);
+  const [mergeSourceId, setMergeSourceId] = useState<string | null>(null);
+  const [mergeTargetId, setMergeTargetId] = useState<string | null>(null);
+  const [mergeName, setMergeName] = useState("");
+  const [merging, setMerging] = useState(false);
+
+  // Inline edit state
+  const [editingModeId, setEditingModeId] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editSeverity, setEditSeverity] = useState("");
+  const [editStatus, setEditStatus] = useState<FailureModeStatus>("active");
+  const [editSuggestedFix, setEditSuggestedFix] = useState("");
+  const [saving, setSaving] = useState(false);
+
   // Get completed batches for AI review
   const completedBatches = syntheticBatches.filter((b) => b.status === "completed");
+
+  // Calculate total notes for distribution percentages
+  const totalCategorizedNotes = useMemo(() => {
+    return taxonomy?.failure_modes.reduce((sum, m) => sum + m.times_seen, 0) || 0;
+  }, [taxonomy]);
+
+  // Filter failure modes by status
+  const filteredFailureModes = useMemo(() => {
+    if (!taxonomy) return [];
+    if (statusFilter === "all") return taxonomy.failure_modes;
+    return taxonomy.failure_modes.filter((m) => m.status === statusFilter);
+  }, [taxonomy, statusFilter]);
+
+  // Count by status
+  const statusCounts = useMemo(() => {
+    if (!taxonomy) return { all: 0, active: 0, investigating: 0, resolved: 0, wont_fix: 0 };
+    const counts = { all: taxonomy.failure_modes.length, active: 0, investigating: 0, resolved: 0, wont_fix: 0 };
+    taxonomy.failure_modes.forEach((m) => {
+      if (m.status in counts) {
+        counts[m.status as keyof typeof counts]++;
+      }
+    });
+    return counts;
+  }, [taxonomy]);
 
   // Load batches if we have an agent selected
   useEffect(() => {
@@ -114,6 +180,81 @@ export function TaxonomyTab() {
   const handleViewSession = async (sessionId: string) => {
     await fetchSessionDetail(sessionId);
     setActiveTab("sessions");
+  };
+
+  // Status update handler
+  const handleStatusUpdate = async (modeId: string, newStatus: FailureModeStatus) => {
+    try {
+      await api.updateFailureModeStatus(modeId, newStatus);
+      await fetchTaxonomy();
+    } catch (error) {
+      console.error("Failed to update status:", error);
+    }
+  };
+
+  // Inline edit handlers
+  const startEditing = (mode: FailureMode) => {
+    setEditingModeId(mode.id);
+    setEditName(mode.name);
+    setEditDescription(mode.description);
+    setEditSeverity(mode.severity);
+    setEditStatus(mode.status);
+    setEditSuggestedFix(mode.suggested_fix || "");
+  };
+
+  const cancelEditing = () => {
+    setEditingModeId(null);
+    setEditName("");
+    setEditDescription("");
+    setEditSeverity("");
+    setEditStatus("active");
+    setEditSuggestedFix("");
+  };
+
+  const saveEditing = async () => {
+    if (!editingModeId || !editName.trim()) return;
+    setSaving(true);
+    try {
+      await api.updateFailureMode(editingModeId, {
+        name: editName,
+        description: editDescription,
+        severity: editSeverity,
+        status: editStatus,
+        suggested_fix: editSuggestedFix || undefined,
+      });
+      await fetchTaxonomy();
+      cancelEditing();
+    } catch (error) {
+      console.error("Failed to save:", error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Merge handlers
+  const openMergeModal = (sourceId: string) => {
+    setMergeSourceId(sourceId);
+    setMergeTargetId(null);
+    const sourceMode = taxonomy?.failure_modes.find((m) => m.id === sourceId);
+    setMergeName(sourceMode?.name || "");
+    setShowMergeModal(true);
+  };
+
+  const handleMerge = async () => {
+    if (!mergeSourceId || !mergeTargetId) return;
+    setMerging(true);
+    try {
+      await api.mergeFailureModes(mergeSourceId, mergeTargetId, mergeName || undefined);
+      await fetchTaxonomy();
+      setShowMergeModal(false);
+      setMergeSourceId(null);
+      setMergeTargetId(null);
+      setMergeName("");
+    } catch (error) {
+      console.error("Failed to merge:", error);
+    } finally {
+      setMerging(false);
+    }
   };
 
   // Batch categorization handlers
@@ -172,7 +313,7 @@ export function TaxonomyTab() {
       const assignments = Array.from(batchAssignments.values());
       await api.batchApplyCategories(assignments);
       setShowBatchModal(false);
-      fetchTaxonomy(); // Refresh taxonomy
+      fetchTaxonomy();
     } catch (error) {
       console.error("Failed to apply batch categorization:", error);
     } finally {
@@ -205,7 +346,7 @@ export function TaxonomyTab() {
     }
   };
 
-  const copySingleModeToClipboard = async (mode: typeof taxonomy.failure_modes[0]) => {
+  const copySingleModeToClipboard = async (mode: FailureMode) => {
     const text = formatSingleModeForCopy(mode, taxonomy);
     try {
       await navigator.clipboard.writeText(text);
@@ -309,17 +450,54 @@ export function TaxonomyTab() {
   }, [selectedBatchForReview]);
 
   return (
-    <div className="space-y-6">
-      {/* Header with Stats and Actions */}
-      <div className="grid grid-cols-12 gap-6">
-        {/* Saturation Card */}
-        <div className="col-span-4">
-          <Panel>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="font-display text-lg font-semibold text-moon-50 flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 text-teal" />
-                Saturation Tracking
-              </h2>
+    <div className="space-y-4">
+      {/* ========================================================================= */}
+      {/* Hero Stats Bar - Compact overview at the top */}
+      {/* ========================================================================= */}
+      <div className="bg-moon-900/60 border border-moon-800 rounded-lg px-6 py-4">
+        <div className="flex items-center justify-between">
+          {/* Left side: Key stats */}
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-coral" />
+              <span className="text-2xl font-bold text-moon-50">{taxonomy?.stats.total_failure_modes || 0}</span>
+              <span className="text-sm text-moon-500">failure modes</span>
+            </div>
+            <div className="w-px h-8 bg-moon-700" />
+            <div className="flex items-center gap-2">
+              <CheckCircle2 className="w-4 h-4 text-teal" />
+              <span className="font-medium text-moon-200">{taxonomy?.stats.total_categorized || 0}</span>
+              <span className="text-sm text-moon-500">categorized</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <ClipboardList className="w-4 h-4 text-amber-400" />
+              <span className="font-medium text-moon-200">{taxonomy?.stats.total_uncategorized || 0}</span>
+              <span className="text-sm text-moon-500">uncategorized</span>
+            </div>
+          </div>
+
+          {/* Right side: Saturation progress */}
+          <div className="flex items-center gap-4">
+            <div className="w-48">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-moon-500">Saturation</span>
+                <span className="text-xs font-medium text-moon-300">
+                  {Math.round((taxonomy?.saturation.saturation_score || 0) * 100)}%
+                </span>
+              </div>
+              <div className="h-2 bg-moon-800 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all ${
+                    taxonomy?.saturation.status === "saturated"
+                      ? "bg-emerald-500"
+                      : taxonomy?.saturation.status === "approaching_saturation"
+                      ? "bg-amber-500"
+                      : "bg-blue-500"
+                  }`}
+                  style={{ width: `${(taxonomy?.saturation.saturation_score || 0) * 100}%` }}
+                />
+              </div>
+            </div>
               {taxonomy?.saturation.status === "saturated" && (
                 <Badge className="bg-emerald-500/20 text-emerald-400">Saturated</Badge>
               )}
@@ -330,324 +508,49 @@ export function TaxonomyTab() {
                 <Badge className="bg-blue-500/20 text-blue-400">Discovering</Badge>
               )}
             </div>
-
-            {taxonomy?.saturation ? (
-              <div className="space-y-4">
-                <p className="text-sm text-moon-450">{taxonomy.saturation.message}</p>
-                <ProgressBar
-                  value={taxonomy.saturation.saturation_score * 100}
-                  label="Saturation Score"
-                  sublabel={`${Math.round(taxonomy.saturation.saturation_score * 100)}%`}
-                />
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="bg-moon-900/60 rounded-lg p-3 text-center">
-                    <div className="text-2xl font-bold text-gold">
-                      {taxonomy.stats.total_failure_modes}
-                    </div>
-                    <div className="text-xs text-moon-500">Failure Modes</div>
-                  </div>
-                  <div className="bg-moon-900/60 rounded-lg p-3 text-center">
-                    <div className="text-2xl font-bold text-amber-400">
-                      {taxonomy.stats.total_uncategorized}
-                    </div>
-                    <div className="text-xs text-moon-500">Uncategorized</div>
-                  </div>
-                  <div className="bg-moon-900/60 rounded-lg p-3 text-center">
-                    <div className="text-2xl font-bold text-teal">
-                      {taxonomy.stats.total_categorized}
-                    </div>
-                    <div className="text-xs text-moon-500">Categorized</div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="h-32 shimmer rounded" />
-            )}
-          </Panel>
-        </div>
-
-        {/* AI Review Card */}
-        <div className="col-span-4">
-          <Panel>
-            <PanelHeader 
-              icon={<Sparkles className="w-5 h-5 text-gold" />} 
-              title="AI Review" 
-            />
-            
-            {/* Batch Selector */}
-            <div className="mb-4">
-              <label className="block text-xs text-moon-500 mb-2">Select a completed batch to analyze</label>
-              <div className="relative">
-                <button
-                  onClick={() => setBatchDropdownOpen(!batchDropdownOpen)}
-                  className="w-full flex items-center justify-between gap-2 bg-moon-900/60 border border-moon-700 hover:border-moon-600 rounded-lg px-3 py-2.5 text-left transition-colors"
-                >
-                  {selectedBatchForReview ? (
-                    <span className="text-moon-100 truncate">{selectedBatchForReview.name}</span>
-                  ) : (
-                    <span className="text-moon-500">Choose a batch...</span>
-                  )}
-                  <ChevronDown className={`w-4 h-4 text-moon-450 transition-transform ${batchDropdownOpen ? 'rotate-180' : ''}`} />
-                </button>
-
-                {batchDropdownOpen && (
-                  <>
-                    <div 
-                      className="fixed inset-0 z-10" 
-                      onClick={() => setBatchDropdownOpen(false)} 
-                    />
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-moon-800 border border-moon-700 rounded-lg shadow-xl z-20 max-h-48 overflow-y-auto">
-                      {completedBatches.length > 0 ? (
-                        completedBatches.map((batch) => (
-                          <button
-                            key={batch.id}
-                            onClick={() => {
-                              setSelectedBatchForReview(batch);
-                              setBatchDropdownOpen(false);
-                            }}
-                            className={`w-full flex items-center justify-between px-3 py-2.5 text-left transition-colors ${
-                              selectedBatchForReview?.id === batch.id
-                                ? "bg-gold/10 border-l-2 border-l-gold"
-                                : "hover:bg-moon-700/50 border-l-2 border-l-transparent"
-                            }`}
-                          >
-                            <div className="min-w-0">
-                              <span className="text-moon-200 text-sm block truncate">{batch.name}</span>
-                              <span className="text-xs text-moon-500">{batch.query_count} queries</span>
-                            </div>
-                            {selectedBatchForReview?.id === batch.id && (
-                              <CheckCircle2 className="w-4 h-4 text-gold flex-shrink-0" />
-                            )}
-                          </button>
-                        ))
-                      ) : (
-                        <div className="px-3 py-4 text-center text-moon-500 text-sm">
-                          No completed batches available
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Review Status / Actions */}
-            {selectedBatchForReview ? (
-              <div className="space-y-3">
-                {runningAutoReview ? (
-                  <div className="text-center py-4">
-                    <div className="w-10 h-10 mx-auto mb-3 rounded-full bg-gold/20 flex items-center justify-center">
-                      <RefreshCw className="w-5 h-5 text-gold animate-spin" />
-                    </div>
-                    <p className="text-moon-200 text-sm font-medium">Analyzing traces...</p>
-                    <p className="text-xs text-moon-500 mt-1">This may take a few minutes</p>
-                  </div>
-                ) : autoReview ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between p-3 bg-moon-900/50 rounded-lg">
-                      <div className="flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full ${
-                          autoReview.status === "completed" ? "bg-emerald-400" : 
-                          autoReview.status === "failed" ? "bg-red-400" : "bg-amber-400"
-                        }`} />
-                        <span className="text-sm text-moon-200">
-                          {autoReview.failure_categories.filter(c => c.count > 0).length} categories found
-                        </span>
-                      </div>
-                      <span className="text-xs text-moon-500">
-                        {autoReview.total_traces} traces
-                      </span>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={() => runAutoReview(selectedBatchForReview.id)}
-                        className="flex-1 btn-ghost text-sm flex items-center justify-center gap-2"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                        Re-run
-                      </button>
-                      <button
-                        onClick={() => setShowReviewReport(!showReviewReport)}
-                        className="flex-1 btn-ghost text-sm flex items-center justify-center gap-2"
-                      >
-                        <FileText className="w-3.5 h-3.5" />
-                        {showReviewReport ? "Hide" : "Show"} Report
-                      </button>
                     </div>
                   </div>
-                ) : (
-                  <button
-                    onClick={() => runAutoReview(selectedBatchForReview.id)}
-                    className="w-full btn-primary py-2.5 flex items-center justify-center gap-2"
-                  >
-                    <Play className="w-4 h-4" />
-                    Run AI Review
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div className="text-center py-4 text-moon-500">
-                <Sparkles className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                <p className="text-sm">Select a batch to discover failure patterns with AI</p>
-              </div>
-            )}
-          </Panel>
-        </div>
 
-        {/* Actions Card */}
-        <div className="col-span-4">
-          <Panel>
-            <PanelHeader icon={<Zap className="w-5 h-5 text-teal" />} title="Quick Actions" />
-            <div className="grid grid-cols-2 gap-3">
-              <ActionCard
-                icon={<RefreshCw className={`w-4 h-4 text-teal ${syncing ? "animate-spin" : ""}`} />}
-                title="Sync from Weave"
-                onClick={syncNotesFromWeave}
-                disabled={syncing}
-                iconBg="bg-teal/20"
-              />
-              <ActionCard
-                icon={categorizing ? <RefreshCw className="w-4 h-4 text-gold animate-spin" /> : <Sparkles className="w-4 h-4 text-gold" />}
-                title="Auto-Categorize"
-                onClick={autoCategorize}
-                disabled={categorizing || !taxonomy?.uncategorized_notes.length}
-                iconBg="bg-gold/20"
-              />
-              <ActionCard
-                icon={<Plus className="w-4 h-4 text-emerald-400" />}
-                title="New Failure Mode"
-                onClick={() => setShowCreateModal(true)}
-                iconBg="bg-emerald-500/20"
-              />
-              <ActionCard
-                icon={<RefreshCw className={`w-4 h-4 text-moon-400 ${loadingTaxonomy ? "animate-spin" : ""}`} />}
-                title="Refresh"
-                onClick={fetchTaxonomy}
-                disabled={loadingTaxonomy}
-                iconBg="bg-moon-700"
-              />
-            </div>
-          </Panel>
-        </div>
-      </div>
-
-      {/* AI Review Results (when expanded) */}
-      {autoReview && showReviewReport && (
-        <Panel>
-          <div className="flex items-center justify-between mb-4">
-            <PanelHeader 
-              icon={<Sparkles className="w-5 h-5 text-gold" />} 
-              title="AI Review Results"
-              badge={<Badge variant="gold">{autoReview.failure_categories.filter(c => c.count > 0).length} categories</Badge>}
-            />
+      {/* ========================================================================= */}
+      {/* Status Filter Bar */}
+      {/* ========================================================================= */}
+      <div className="flex items-center gap-2 px-1">
+        <span className="text-xs text-moon-500 mr-2">Filter:</span>
+        {STATUS_OPTIONS.map((opt) => {
+          const count = statusCounts[opt.value as keyof typeof statusCounts] || 0;
+          const isActive = statusFilter === opt.value;
+          return (
             <button
-              onClick={() => setShowReviewReport(false)}
-              className="btn-ghost p-1.5"
+              key={opt.value}
+              onClick={() => setStatusFilter(opt.value)}
+              className={`px-3 py-1.5 text-xs rounded-lg transition-colors flex items-center gap-1.5 ${
+                isActive
+                  ? "bg-gold/20 text-gold border border-gold/40"
+                  : "bg-moon-900/60 text-moon-400 border border-moon-800 hover:border-moon-700 hover:text-moon-200"
+              }`}
             >
-              <X className="w-4 h-4" />
+              <span>{opt.icon}</span>
+              <span>{opt.label}</span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-moon-800/50">{count}</span>
             </button>
-          </div>
-          
-          <AutoReviewResults
-            review={autoReview}
-            expandedCategories={expandedCategories}
-            toggleCategory={toggleReviewCategory}
-          />
-        </Panel>
-      )}
-
-      {/* Main Content */}
-      <div className="grid grid-cols-12 gap-6">
-        {/* Uncategorized Notes */}
-        <div className="col-span-4">
-          <Panel>
-            <PanelHeader
-              icon={<ClipboardList className="w-5 h-5 text-amber-400" />}
-              title="Uncategorized"
-              badge={<Badge variant="gold">{taxonomy?.uncategorized_notes.length || 0}</Badge>}
-              actions={
-                taxonomy?.uncategorized_notes.length ? (
-                  <button
-                    onClick={startBatchCategorization}
-                    disabled={loadingBatchSuggestions}
-                    className="btn-ghost text-xs flex items-center gap-1 px-2 py-1"
-                  >
-                    <Zap className="w-3.5 h-3.5" />
-                    Batch Categorize
-                  </button>
-                ) : null
-              }
-            />
-
-            <div className="space-y-2 max-h-[calc(100vh-480px)] overflow-y-auto">
-              {taxonomy?.uncategorized_notes.length ? (
-                taxonomy.uncategorized_notes.map((note) => (
-                  <div
-                    key={note.id}
-                    onClick={() => {
-                      setSelectedNote(note);
-                      setNoteSuggestion(null);
-                    }}
-                    className={`bg-moon-900/60 rounded-lg p-3 cursor-pointer hover:bg-moon-900 transition-colors border ${
-                      selectedNote?.id === note.id ? "border-gold" : "border-transparent"
-                    }`}
-                  >
-                    <p className="text-sm text-moon-300 line-clamp-3">{note.content}</p>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-xs text-moon-600">{formatRelativeTime(note.created_at)}</span>
-                      {note.weave_url && (
-                        <a
-                          href={note.weave_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="text-xs text-gold hover:text-gold/80 flex items-center gap-1"
-                        >
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="text-center py-8 text-moon-500 text-sm">
-                  <CheckCircle2 className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p>All notes categorized!</p>
-                  <p className="text-xs mt-1">Sync to pull new notes from Weave</p>
-                </div>
-              )}
-            </div>
-
-            {/* Note Assignment Panel */}
-            {selectedNote && (
-              <NoteAssignmentPanel
-                note={selectedNote}
-                suggestion={noteSuggestion}
-                loadingSuggestion={loadingSuggestion}
-                failureModes={taxonomy?.failure_modes || []}
-                onClose={() => {
-                  setSelectedNote(null);
-                  setNoteSuggestion(null);
-                }}
-                onSuggest={() => suggestCategoryForNote(selectedNote.id)}
-                onAssign={(modeId) => assignNoteToMode(selectedNote.id, modeId)}
-                onApplySuggestion={applySuggestion}
-                onViewSession={handleViewSession}
-              />
-            )}
-          </Panel>
+          );
+        })}
         </div>
 
-        {/* Failure Modes */}
-        <div className="col-span-8">
-          <Panel>
-            <PanelHeader
-              icon={<AlertTriangle className="w-5 h-5 text-red-400" />}
+      {/* ========================================================================= */}
+      {/* Main Content: 9-col Failure Modes + 3-col Sidebar */}
+      {/* ========================================================================= */}
+      <div className="grid grid-cols-12 gap-6">
+        {/* Failure Modes (Main Area) */}
+        <div className="col-span-9">
+          <Panel className="h-full">
+            <PanelHeader 
+              icon={<AlertTriangle className="w-5 h-5 text-coral" />}
               title="Failure Modes"
-              badge={<Badge variant="coral">{taxonomy?.failure_modes.length || 0}</Badge>}
+              badge={<Badge variant="coral">{filteredFailureModes.length}</Badge>}
               actions={
                 taxonomy?.failure_modes.length ? (
-                  <button
+                <button
                     onClick={copyTaxonomyToClipboard}
                     className="btn-ghost text-xs flex items-center gap-1.5 px-2 py-1"
                     title="Copy all failure modes to clipboard"
@@ -663,20 +566,28 @@ export function TaxonomyTab() {
                         <span>Copy All</span>
                       </>
                     )}
-                  </button>
+                </button>
                 ) : null
               }
             />
 
-            <div className="space-y-3 max-h-[calc(100vh-400px)] overflow-y-auto">
-              {taxonomy?.failure_modes.length ? (
-                taxonomy.failure_modes.map((mode) => (
-                  <FailureModeCard
+            <div className="space-y-3 max-h-[calc(100vh-320px)] overflow-y-auto pr-1">
+              {filteredFailureModes.length ? (
+                filteredFailureModes.map((mode) => (
+                  <EnhancedFailureModeCard
                     key={mode.id}
                     mode={mode}
-                    notes={taxonomy.notes}
+                    notes={taxonomy?.notes}
                     expanded={expandedModes.has(mode.id)}
                     copiedId={copiedModeId}
+                    totalNotes={totalCategorizedNotes}
+                    isEditing={editingModeId === mode.id}
+                    editName={editName}
+                    editDescription={editDescription}
+                    editSeverity={editSeverity}
+                    editStatus={editStatus}
+                    editSuggestedFix={editSuggestedFix}
+                    saving={saving}
                     onToggle={() => toggleModeExpanded(mode.id)}
                     onCopy={() => copySingleModeToClipboard(mode)}
                     onDelete={() => {
@@ -684,21 +595,224 @@ export function TaxonomyTab() {
                         deleteFailureMode(mode.id);
                       }
                     }}
+                    onStatusChange={(status) => handleStatusUpdate(mode.id, status)}
+                    onStartEdit={() => startEditing(mode)}
+                    onCancelEdit={cancelEditing}
+                    onSaveEdit={saveEditing}
+                    onEditNameChange={setEditName}
+                    onEditDescriptionChange={setEditDescription}
+                    onEditSeverityChange={setEditSeverity}
+                    onEditStatusChange={setEditStatus}
+                    onEditSuggestedFixChange={setEditSuggestedFix}
+                    onMerge={() => openMergeModal(mode.id)}
+                  />
+                        ))
+                      ) : (
+                <div className="text-center py-16 text-moon-500">
+                  <AlertTriangle className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                  <p className="text-lg">
+                    {statusFilter === "all" ? "No failure modes yet" : `No ${getStatusLabel(statusFilter)} failure modes`}
+                  </p>
+                  <p className="mt-2 max-w-md mx-auto text-sm">
+                    {statusFilter === "all"
+                      ? "Sync notes from Weave, then use Auto-Categorize to discover failure patterns automatically."
+                      : "Try selecting a different status filter."}
+                  </p>
+                        </div>
+                      )}
+                    </div>
+          </Panel>
+            </div>
+
+        {/* Sidebar: Actions + Uncategorized Inbox */}
+        <div className="col-span-3 space-y-4">
+          {/* Quick Actions */}
+          <Panel>
+            <PanelHeader icon={<Zap className="w-4 h-4 text-teal" />} title="Actions" />
+            <div className="space-y-2">
+                      <button
+                onClick={syncNotesFromWeave}
+                disabled={syncing}
+                className="w-full btn-ghost text-sm flex items-center gap-2 justify-start px-3 py-2"
+                      >
+                <RefreshCw className={`w-4 h-4 text-teal ${syncing ? "animate-spin" : ""}`} />
+                Sync from Weave
+                      </button>
+                      <button
+                onClick={autoCategorize}
+                disabled={categorizing || !taxonomy?.uncategorized_notes.length}
+                className="w-full btn-ghost text-sm flex items-center gap-2 justify-start px-3 py-2"
+              >
+                {categorizing ? (
+                  <RefreshCw className="w-4 h-4 text-gold animate-spin" />
+                ) : (
+                  <Sparkles className="w-4 h-4 text-gold" />
+                )}
+                Auto-Categorize
+              </button>
+                  <button
+                onClick={() => setShowCreateModal(true)}
+                className="w-full btn-ghost text-sm flex items-center gap-2 justify-start px-3 py-2"
+                  >
+                <Plus className="w-4 h-4 text-emerald-400" />
+                New Failure Mode
+                  </button>
+              <button
+                onClick={fetchTaxonomy}
+                disabled={loadingTaxonomy}
+                className="w-full btn-ghost text-sm flex items-center gap-2 justify-start px-3 py-2"
+              >
+                <RefreshCw className={`w-4 h-4 text-moon-400 ${loadingTaxonomy ? "animate-spin" : ""}`} />
+                Refresh
+            </button>
+          </div>
+        </Panel>
+
+          {/* Uncategorized Inbox */}
+          <Panel>
+            <PanelHeader
+              icon={<ClipboardList className="w-4 h-4 text-amber-400" />}
+              title="Inbox"
+              badge={<Badge variant="gold">{taxonomy?.uncategorized_notes.length || 0}</Badge>}
+              actions={
+                taxonomy?.uncategorized_notes.length ? (
+                  <button
+                    onClick={startBatchCategorization}
+                    disabled={loadingBatchSuggestions}
+                    className="btn-ghost text-[10px] flex items-center gap-1 px-1.5 py-0.5"
+                  >
+                    <Zap className="w-3 h-3" />
+                    Batch
+                  </button>
+                ) : null
+              }
+            />
+
+            <div className="space-y-2 max-h-[300px] overflow-y-auto">
+              {taxonomy?.uncategorized_notes.length ? (
+                taxonomy.uncategorized_notes.map((note) => (
+                  <InboxNoteCard
+                    key={note.id}
+                    note={note}
+                    isSelected={selectedNote?.id === note.id}
+                    failureModes={taxonomy?.failure_modes || []}
+                    onSelect={() => {
+                      setSelectedNote(note);
+                      setNoteSuggestion(null);
+                    }}
+                    onAssign={(modeId) => assignNoteToMode(note.id, modeId)}
+                    onViewSession={note.session_id ? () => handleViewSession(note.session_id!) : undefined}
+                    onGetSuggestion={() => suggestCategoryForNote(note.id)}
+                    suggestion={selectedNote?.id === note.id ? noteSuggestion : null}
+                    loadingSuggestion={selectedNote?.id === note.id && loadingSuggestion}
+                    onApplySuggestion={applySuggestion}
+                    onCreateNew={() => setShowCreateModal(true)}
                   />
                 ))
               ) : (
-                <div className="text-center py-16 text-moon-500">
-                  <AlertTriangle className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                  <p className="text-lg">No failure modes yet</p>
-                  <p className="mt-2 max-w-md mx-auto text-sm">
-                    Sync notes from Weave, then use Auto-Categorize to discover failure patterns automatically.
-                  </p>
+                <div className="text-center py-6 text-moon-500 text-sm">
+                  <CheckCircle2 className="w-6 h-6 mx-auto mb-2 opacity-50" />
+                  <p>All notes categorized!</p>
                 </div>
+              )}
+            </div>
+          </Panel>
+
+          {/* AI Review Mini Panel */}
+          <Panel>
+            <PanelHeader icon={<Sparkles className="w-4 h-4 text-gold" />} title="AI Review" />
+            <div className="space-y-2">
+              <div className="relative">
+                <button
+                  onClick={() => setBatchDropdownOpen(!batchDropdownOpen)}
+                  className="w-full flex items-center justify-between gap-2 bg-moon-900/60 border border-moon-700 hover:border-moon-600 rounded-lg px-3 py-2 text-left transition-colors text-sm"
+                >
+                  {selectedBatchForReview ? (
+                    <span className="text-moon-100 truncate text-xs">{selectedBatchForReview.name}</span>
+                  ) : (
+                    <span className="text-moon-500 text-xs">Select batch...</span>
+                  )}
+                  <ChevronDown
+                    className={`w-3 h-3 text-moon-450 transition-transform ${batchDropdownOpen ? "rotate-180" : ""}`}
+                  />
+                </button>
+
+                {batchDropdownOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setBatchDropdownOpen(false)} />
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-moon-800 border border-moon-700 rounded-lg shadow-xl z-20 max-h-32 overflow-y-auto">
+                      {completedBatches.length > 0 ? (
+                        completedBatches.map((batch) => (
+                          <button
+                            key={batch.id}
+                            onClick={() => {
+                              setSelectedBatchForReview(batch);
+                              setBatchDropdownOpen(false);
+                            }}
+                            className="w-full px-3 py-2 text-left transition-colors hover:bg-moon-700/50 text-xs"
+                          >
+                            <span className="text-moon-200 truncate block">{batch.name}</span>
+                          </button>
+                        ))
+                      ) : (
+                        <div className="px-3 py-2 text-center text-moon-500 text-xs">No completed batches</div>
+                      )}
+                    </div>
+                  </>
+                )}
+        </div>
+
+              {selectedBatchForReview && (
+                  <button
+                  onClick={() => runAutoReview(selectedBatchForReview.id)}
+                  disabled={runningAutoReview}
+                  className="w-full btn-primary text-xs py-2 flex items-center justify-center gap-2"
+                >
+                  {runningAutoReview ? (
+                    <>
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                      Analyzing...
+                      </>
+                    ) : (
+                      <>
+                      <Play className="w-3 h-3" />
+                      Run Review
+                      </>
+                    )}
+                  </button>
+              )}
+
+              {autoReview && (
+                <button
+                  onClick={() => setShowReviewReport(!showReviewReport)}
+                  className="w-full btn-ghost text-xs flex items-center justify-center gap-1"
+                >
+                  <FileText className="w-3 h-3" />
+                  {showReviewReport ? "Hide" : "Show"} Results
+                </button>
               )}
             </div>
           </Panel>
         </div>
       </div>
+
+      {/* AI Review Results (when expanded) */}
+      {autoReview && showReviewReport && (
+        <Panel>
+          <div className="flex items-center justify-between mb-4">
+            <PanelHeader
+              icon={<Sparkles className="w-5 h-5 text-gold" />}
+              title="AI Review Results"
+              badge={<Badge variant="gold">{autoReview.failure_categories.filter((c) => c.count > 0).length} categories</Badge>}
+            />
+            <button onClick={() => setShowReviewReport(false)} className="btn-ghost p-1.5">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          <AutoReviewResults review={autoReview} expandedCategories={expandedCategories} toggleCategory={toggleReviewCategory} />
+        </Panel>
+      )}
 
       {/* Create Failure Mode Modal */}
       <Modal
@@ -748,18 +862,78 @@ export function TaxonomyTab() {
         </div>
       </Modal>
 
+      {/* Merge Failure Modes Modal */}
+      <Modal
+        open={showMergeModal}
+        onClose={() => setShowMergeModal(false)}
+        title="Merge Failure Modes"
+        footer={
+          <>
+            <button onClick={() => setShowMergeModal(false)} className="btn-ghost">
+              Cancel
+            </button>
+            <button onClick={handleMerge} disabled={!mergeTargetId || merging} className="btn-primary flex items-center gap-2">
+              {merging ? <RefreshCw className="w-4 h-4 animate-spin" /> : <GitMerge className="w-4 h-4" />}
+              Merge
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm text-moon-450 mb-2">
+              Merge{" "}
+              <span className="text-moon-200 font-medium">
+                {taxonomy?.failure_modes.find((m) => m.id === mergeSourceId)?.name || ""}
+              </span>
+            </label>
+            <p className="text-xs text-moon-500 mb-3">
+              {taxonomy?.failure_modes.find((m) => m.id === mergeSourceId)?.times_seen || 0} notes will be moved to the target.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm text-moon-450 mb-1">Into (target)</label>
+            <select
+              value={mergeTargetId || ""}
+              onChange={(e) => {
+                setMergeTargetId(e.target.value);
+                const target = taxonomy?.failure_modes.find((m) => m.id === e.target.value);
+                if (target) setMergeName(target.name);
+              }}
+              className="w-full"
+            >
+              <option value="">Select target...</option>
+              {taxonomy?.failure_modes
+                .filter((m) => m.id !== mergeSourceId)
+                .map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} ({m.times_seen} notes)
+                  </option>
+                ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm text-moon-450 mb-1">New Name (optional)</label>
+            <input
+              type="text"
+              value={mergeName}
+              onChange={(e) => setMergeName(e.target.value)}
+              placeholder="Leave blank to keep target name"
+              className="w-full"
+            />
+          </div>
+        </div>
+      </Modal>
+
       {/* Batch Categorization Modal */}
       {showBatchModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm">
           <div className="bg-moon-800 rounded-lg border border-moon-700 p-6 w-full max-w-4xl max-h-[80vh] shadow-xl flex flex-col">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="font-display text-lg text-moon-50">
-                Batch Categorization Review
-              </h3>
-              <button
-                onClick={() => setShowBatchModal(false)}
-                className="text-moon-500 hover:text-moon-300"
-              >
+              <h3 className="font-display text-lg text-moon-50">Batch Categorization Review</h3>
+              <button onClick={() => setShowBatchModal(false)} className="text-moon-500 hover:text-moon-300">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -811,9 +985,7 @@ export function TaxonomyTab() {
                       <div
                         key={item.note_id}
                         className={`p-3 rounded-lg border transition-colors ${
-                          assignment?.action === "skip"
-                            ? "bg-moon-900/30 border-moon-800"
-                            : "bg-moon-900/60 border-moon-700"
+                          assignment?.action === "skip" ? "bg-moon-900/30 border-moon-800" : "bg-moon-900/60 border-moon-700"
                         }`}
                       >
                         <div className="flex items-start gap-4">
@@ -897,14 +1069,9 @@ export function TaxonomyTab() {
 
                 {/* Footer Actions */}
                 <div className="flex items-center justify-between mt-4 pt-4 border-t border-moon-700">
-                  <div className="text-sm text-moon-500">
-                    Review suggestions and click Apply to categorize notes
-                  </div>
+                  <div className="text-sm text-moon-500">Review suggestions and click Apply to categorize notes</div>
                   <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => setShowBatchModal(false)}
-                      className="btn-ghost"
-                    >
+                    <button onClick={() => setShowBatchModal(false)} className="btn-ghost">
                       Cancel
                     </button>
                     <button
@@ -935,201 +1102,258 @@ export function TaxonomyTab() {
   );
 }
 
-// Sub-components
+// =============================================================================
+// Enhanced Failure Mode Card with distribution bar, status, and inline editing
+// =============================================================================
 
-function ActionCard({
-  icon,
-  title,
-  onClick,
-  disabled,
-  iconBg,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  onClick: () => void;
-  disabled?: boolean;
-  iconBg: string;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className="bg-moon-900/60 hover:bg-moon-900 rounded-lg p-3 border border-moon-800 hover:border-moon-700 transition-colors text-left group disabled:opacity-50"
-    >
-      <div className="flex items-center gap-2.5">
-        <div className={`w-8 h-8 rounded-lg ${iconBg} flex items-center justify-center group-hover:scale-110 transition-transform`}>
-          {icon}
-        </div>
-        <span className="text-sm font-medium text-moon-200">{title}</span>
-      </div>
-    </button>
-  );
-}
-
-function NoteAssignmentPanel({
-  note,
-  suggestion,
-  loadingSuggestion,
-  failureModes,
-  onClose,
-  onSuggest,
-  onAssign,
-  onApplySuggestion,
-  onViewSession,
-}: {
-  note: TaxonomyNote;
-  suggestion: AISuggestion | null;
-  loadingSuggestion: boolean;
-  failureModes: Array<{ id: string; name: string }>;
-  onClose: () => void;
-  onSuggest: () => void;
-  onAssign: (modeId: string) => void;
-  onApplySuggestion: () => void;
-  onViewSession?: (sessionId: string) => void;
-}) {
-  return (
-    <div className="mt-4 pt-4 border-t border-moon-800">
-      <div className="bg-moon-900/60 rounded-lg p-3 border border-gold/30">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-gold">Selected Note</span>
-            {note.source_type === "session_note" && (
-              <span className="text-[10px] px-1.5 py-0.5 bg-accent-teal/20 text-accent-teal rounded">
-                Session Note
-              </span>
-            )}
-          </div>
-          <button onClick={onClose} className="text-moon-500 hover:text-moon-300">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-        <p className="text-sm text-moon-300 mb-3 line-clamp-2">{note.content}</p>
-
-        {/* View Session button for session notes */}
-        {note.session_id && onViewSession && (
-          <button
-            onClick={() => onViewSession(note.session_id!)}
-            className="w-full btn-ghost text-sm flex items-center justify-center gap-2 mb-2 border border-accent-teal/30 hover:bg-accent-teal/10 text-accent-teal"
-          >
-            <Eye className="w-4 h-4" />
-            View Session
-          </button>
-        )}
-
-        <button
-          onClick={onSuggest}
-          disabled={loadingSuggestion}
-          className="w-full btn-primary text-sm flex items-center justify-center gap-2 mb-2"
-        >
-          {loadingSuggestion ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-          Get AI Suggestion
-        </button>
-
-        {suggestion && (
-          <div className="mt-3 p-3 bg-moon-900 rounded-lg border border-moon-700">
-            <div className="flex items-center gap-2 mb-2">
-              <Target className="w-4 h-4 text-gold" />
-              <span className="text-xs font-medium text-gold">AI Suggestion</span>
-            </div>
-
-            {suggestion.match_type === "existing" ? (
-              <div>
-                <p className="text-sm text-moon-300">
-                  Matches existing:{" "}
-                  <strong className="text-teal">
-                    {failureModes.find((m) => m.id === suggestion.existing_mode_id)?.name}
-                  </strong>
-                </p>
-                <p className="text-xs text-moon-500 mt-1">Confidence: {Math.round(suggestion.confidence * 100)}%</p>
-              </div>
-            ) : (
-              <div>
-                <p className="text-sm text-moon-300">
-                  New category: <strong className="text-emerald-400">{suggestion.new_category?.name}</strong>
-                </p>
-                <p className="text-xs text-moon-500 mt-1">{suggestion.new_category?.description}</p>
-              </div>
-            )}
-
-            <p className="text-xs text-moon-500 mt-2 italic">{suggestion.reasoning}</p>
-
-            <button
-              onClick={onApplySuggestion}
-              className="w-full mt-3 btn-ghost text-sm flex items-center justify-center gap-2 border border-gold/30 hover:bg-gold/10"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              Apply Suggestion
-            </button>
-          </div>
-        )}
-
-        <div className="mt-3">
-          <span className="text-xs text-moon-500 block mb-2">Or assign manually:</span>
-          <div className="space-y-1 max-h-32 overflow-y-auto">
-            {failureModes.map((mode) => (
-              <button
-                key={mode.id}
-                onClick={() => onAssign(mode.id)}
-                className="w-full text-left text-xs px-2 py-1.5 rounded bg-moon-900 hover:bg-moon-800 text-moon-300 flex items-center justify-between"
-              >
-                <span className="truncate">{mode.name}</span>
-                <ArrowRight className="w-3 h-3 text-moon-500" />
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function FailureModeCard({
+function EnhancedFailureModeCard({
   mode,
   notes,
   expanded,
   copiedId,
+  totalNotes,
+  isEditing,
+  editName,
+  editDescription,
+  editSeverity,
+  editStatus,
+  editSuggestedFix,
+  saving,
   onToggle,
   onCopy,
   onDelete,
+  onStatusChange,
+  onStartEdit,
+  onCancelEdit,
+  onSaveEdit,
+  onEditNameChange,
+  onEditDescriptionChange,
+  onEditSeverityChange,
+  onEditStatusChange,
+  onEditSuggestedFixChange,
+  onMerge,
 }: {
-  mode: {
-    id: string;
-    name: string;
-    description: string;
-    severity: string;
-    suggested_fix: string | null;
-    created_at: string;
-    last_seen_at: string;
-    times_seen: number;
-    note_ids: string[];
-  };
+  mode: FailureMode;
   notes?: Array<{ id: string; content: string; weave_url: string }>;
   expanded: boolean;
   copiedId: string | null;
+  totalNotes: number;
+  isEditing: boolean;
+  editName: string;
+  editDescription: string;
+  editSeverity: string;
+  editStatus: FailureModeStatus;
+  editSuggestedFix: string;
+  saving: boolean;
   onToggle: () => void;
   onCopy: () => void;
   onDelete: () => void;
+  onStatusChange: (status: FailureModeStatus) => void;
+  onStartEdit: () => void;
+  onCancelEdit: () => void;
+  onSaveEdit: () => void;
+  onEditNameChange: (v: string) => void;
+  onEditDescriptionChange: (v: string) => void;
+  onEditSeverityChange: (v: string) => void;
+  onEditStatusChange: (v: FailureModeStatus) => void;
+  onEditSuggestedFixChange: (v: string) => void;
+  onMerge: () => void;
 }) {
+  const [showMenu, setShowMenu] = useState(false);
   const modeNotes = notes?.filter((n) => mode.note_ids.includes(n.id)) || [];
+  const distributionPercent = calculateDistributionPercent(mode.times_seen, totalNotes);
+
+  if (isEditing) {
+  return (
+      <div className={`bg-moon-900/60 rounded-lg border-2 border-gold p-4`}>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-moon-500 mb-1 block">Name</label>
+              <input
+                type="text"
+                value={editName}
+                onChange={(e) => onEditNameChange(e.target.value)}
+                className="w-full text-sm"
+                autoFocus
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-xs text-moon-500 mb-1 block">Severity</label>
+                <select value={editSeverity} onChange={(e) => onEditSeverityChange(e.target.value)} className="w-full text-sm">
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-moon-500 mb-1 block">Status</label>
+                <select
+                  value={editStatus}
+                  onChange={(e) => onEditStatusChange(e.target.value as FailureModeStatus)}
+                  className="w-full text-sm"
+                >
+                  <option value="active">Active</option>
+                  <option value="investigating">Investigating</option>
+                  <option value="resolved">Resolved</option>
+                  <option value="wont_fix">Won't Fix</option>
+                </select>
+        </div>
+      </div>
+          </div>
+          <div>
+            <label className="text-xs text-moon-500 mb-1 block">Description</label>
+            <textarea
+              value={editDescription}
+              onChange={(e) => onEditDescriptionChange(e.target.value)}
+              rows={2}
+              className="w-full text-sm"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-moon-500 mb-1 block">Suggested Fix</label>
+            <textarea
+              value={editSuggestedFix}
+              onChange={(e) => onEditSuggestedFixChange(e.target.value)}
+              rows={2}
+              className="w-full text-sm"
+              placeholder="How to fix this issue..."
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button onClick={onCancelEdit} className="btn-ghost text-xs">
+              Cancel
+    </button>
+            <button onClick={onSaveEdit} disabled={saving || !editName.trim()} className="btn-primary text-xs flex items-center gap-1">
+              {saving ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+              Save
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`bg-moon-900/60 rounded-lg border-l-4 ${getSeverityBorder(mode.severity)} hover:bg-moon-900/80 transition-colors`}>
       <div className="p-4 cursor-pointer" onClick={onToggle}>
-        <div className="flex items-start justify-between">
+        {/* Header Row */}
+        <div className="flex items-start justify-between mb-2">
           <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <h3 className="font-semibold text-moon-100">{mode.name}</h3>
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Status + Severity badges */}
+              <span className={`text-xs px-1.5 py-0.5 rounded ${getStatusColor(mode.status)}`}>
+                {getStatusIcon(mode.status)} {getStatusLabel(mode.status)}
+              </span>
               <span className={`badge text-xs ${getSeverityColor(mode.severity)}`}>{mode.severity}</span>
-            </div>
-            <p className="text-sm text-moon-450 mt-1 line-clamp-2">{mode.description}</p>
+              <h3 className="font-semibold text-moon-100">{mode.name}</h3>
           </div>
+            <p className="text-sm text-moon-450 mt-1 line-clamp-1">{mode.description}</p>
+        </div>
+
           <div className="flex items-center gap-2 ml-4">
             <Badge variant="plum" className="text-xs">
               {mode.times_seen} note{mode.times_seen !== 1 ? "s" : ""}
             </Badge>
-            {expanded ? <ChevronUp className="w-4 h-4 text-moon-500" /> : <ChevronDown className="w-4 h-4 text-moon-500" />}
+
+            {/* Menu */}
+            <div className="relative">
+          <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowMenu(!showMenu);
+                }}
+                className="p-1 hover:bg-moon-700 rounded"
+              >
+                <MoreVertical className="w-4 h-4 text-moon-500" />
+          </button>
+
+              {showMenu && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
+                  <div className="absolute right-0 top-full mt-1 bg-moon-800 border border-moon-700 rounded-lg shadow-xl z-20 py-1 min-w-[140px]">
+        <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowMenu(false);
+                        onStartEdit();
+                      }}
+                      className="w-full px-3 py-2 text-left text-xs hover:bg-moon-700 flex items-center gap-2"
+                    >
+                      <Edit3 className="w-3 h-3" /> Edit
+        </button>
+            <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowMenu(false);
+                        onCopy();
+                      }}
+                      className="w-full px-3 py-2 text-left text-xs hover:bg-moon-700 flex items-center gap-2"
+                    >
+                      <Copy className="w-3 h-3" /> Copy
+            </button>
+              <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowMenu(false);
+                        onMerge();
+                      }}
+                      className="w-full px-3 py-2 text-left text-xs hover:bg-moon-700 flex items-center gap-2"
+                    >
+                      <GitMerge className="w-3 h-3" /> Merge
+                    </button>
+                    <hr className="my-1 border-moon-700" />
+                    <div className="px-3 py-1 text-[10px] text-moon-500">Status</div>
+                    {(["active", "investigating", "resolved", "wont_fix"] as FailureModeStatus[]).map((s) => (
+                      <button
+                        key={s}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowMenu(false);
+                          onStatusChange(s);
+                        }}
+                        className={`w-full px-3 py-1.5 text-left text-xs hover:bg-moon-700 flex items-center gap-2 ${
+                          mode.status === s ? "text-gold" : ""
+                        }`}
+                      >
+                        {getStatusIcon(s)} {getStatusLabel(s)}
+              </button>
+            ))}
+                    <hr className="my-1 border-moon-700" />
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowMenu(false);
+                        onDelete();
+                      }}
+                      className="w-full px-3 py-2 text-left text-xs hover:bg-red-900/30 text-red-400 flex items-center gap-2"
+                    >
+                      <Trash2 className="w-3 h-3" /> Delete
+                    </button>
           </div>
+                </>
+              )}
         </div>
+
+            {expanded ? <ChevronUp className="w-4 h-4 text-moon-500" /> : <ChevronDown className="w-4 h-4 text-moon-500" />}
+      </div>
+    </div>
+
+        {/* Distribution Bar */}
+        <div className="mt-3">
+          <div className="flex items-center gap-2 mb-1">
+            <div className="flex-1 h-1.5 bg-moon-800 rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full ${getSeverityBorder(mode.severity).replace("border-l-", "bg-")}`}
+                style={{ width: `${distributionPercent}%` }}
+              />
+            </div>
+            <span className="text-xs text-moon-500 w-12 text-right">{distributionPercent}%</span>
+          </div>
+          </div>
+
+        {/* Timestamps */}
         <div className="flex items-center gap-4 mt-2 text-xs text-moon-500">
           <span>Created {formatRelativeTime(mode.created_at)}</span>
           <span>Last seen {formatRelativeTime(mode.last_seen_at)}</span>
@@ -1166,26 +1390,158 @@ function FailureModeCard({
               </div>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
 
-          <div className="flex items-center gap-2 pt-2">
-            <button onClick={(e) => { e.stopPropagation(); onCopy(); }} className="btn-ghost text-xs flex items-center">
-              {copiedId === mode.id ? (
-                <>
-                  <Check className="w-3 h-3 mr-1 text-emerald-400" />
-                  <span className="text-emerald-400">Copied!</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3 h-3 mr-1" />
-                  Copy
-                </>
-              )}
+// =============================================================================
+// Inbox Note Card with inline quick assign
+// =============================================================================
+
+function InboxNoteCard({
+  note,
+  isSelected,
+  failureModes,
+  onSelect,
+  onAssign,
+  onViewSession,
+  onGetSuggestion,
+  suggestion,
+  loadingSuggestion,
+  onApplySuggestion,
+  onCreateNew,
+}: {
+  note: TaxonomyNote;
+  isSelected: boolean;
+  failureModes: FailureMode[];
+  onSelect: () => void;
+  onAssign: (modeId: string) => void;
+  onViewSession?: () => void;
+  onGetSuggestion: () => void;
+  suggestion: AISuggestion | null;
+  loadingSuggestion: boolean;
+  onApplySuggestion: () => void;
+  onCreateNew: () => void;
+}) {
+  const [showAssignDropdown, setShowAssignDropdown] = useState(false);
+
+  return (
+    <div
+      className={`bg-moon-900/60 rounded-lg p-3 border transition-colors ${
+        isSelected ? "border-gold bg-moon-900" : "border-transparent hover:bg-moon-900/80"
+      }`}
+    >
+      <p className="text-xs text-moon-300 line-clamp-2 mb-2">{note.content}</p>
+
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1">
+          {note.source_type === "session_note" && (
+            <span className="text-[9px] px-1 py-0.5 bg-accent-teal/20 text-accent-teal rounded">Session</span>
+          )}
+          <span className="text-[10px] text-moon-600">{formatRelativeTime(note.created_at)}</span>
+        </div>
+
+        <div className="flex items-center gap-1">
+          {onViewSession && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onViewSession();
+              }}
+              className="p-1 hover:bg-moon-700 rounded text-accent-teal"
+              title="View Session"
+            >
+              <Eye className="w-3 h-3" />
             </button>
-            <button onClick={onDelete} className="btn-ghost text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10">
-              <Trash2 className="w-3 h-3 mr-1" />
-              Delete
+          )}
+
+          {/* Quick Assign */}
+          <div className="relative">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowAssignDropdown(!showAssignDropdown);
+              }}
+              className="p-1 hover:bg-moon-700 rounded text-moon-400"
+              title="Assign to category"
+            >
+              <ArrowRight className="w-3 h-3" />
+            </button>
+
+            {showAssignDropdown && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowAssignDropdown(false)} />
+                <div className="absolute right-0 top-full mt-1 bg-moon-800 border border-moon-700 rounded-lg shadow-xl z-20 py-1 min-w-[160px] max-h-48 overflow-y-auto">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowAssignDropdown(false);
+                      onSelect();
+                      onGetSuggestion();
+                    }}
+                    className="w-full px-3 py-2 text-left text-xs hover:bg-moon-700 flex items-center gap-2 text-gold border-b border-moon-700"
+                  >
+                    <Sparkles className="w-3 h-3" /> AI Suggest
+                  </button>
+                  {failureModes.map((fm) => (
+                    <button
+                      key={fm.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowAssignDropdown(false);
+                        onAssign(fm.id);
+                      }}
+                      className="w-full px-3 py-1.5 text-left text-xs hover:bg-moon-700 truncate"
+                    >
+                      {fm.name}
+                    </button>
+                  ))}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowAssignDropdown(false);
+                      onCreateNew();
+                    }}
+                    className="w-full px-3 py-2 text-left text-xs hover:bg-moon-700 flex items-center gap-2 text-emerald-400 border-t border-moon-700"
+                  >
+                    <Plus className="w-3 h-3" /> Create New
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* AI Suggestion (inline) */}
+      {isSelected && (suggestion || loadingSuggestion) && (
+        <div className="mt-2 pt-2 border-t border-moon-700">
+          {loadingSuggestion ? (
+            <div className="flex items-center gap-2 text-xs text-moon-400">
+              <RefreshCw className="w-3 h-3 animate-spin" />
+              Getting suggestion...
+            </div>
+          ) : suggestion ? (
+            <div className="space-y-2">
+              <div className="text-xs">
+                {suggestion.match_type === "existing" ? (
+                  <span className="text-moon-300">
+                    AI: <span className="text-teal font-medium">{failureModes.find((m) => m.id === suggestion.existing_mode_id)?.name}</span>
+                    <span className="text-moon-500 ml-1">({Math.round(suggestion.confidence * 100)}%)</span>
+                  </span>
+                ) : (
+                  <span className="text-moon-300">
+                    AI: New category <span className="text-emerald-400 font-medium">{suggestion.new_category?.name}</span>
+                  </span>
+                )}
+              </div>
+              <button onClick={onApplySuggestion} className="w-full btn-ghost text-xs py-1.5 flex items-center justify-center gap-1 border border-gold/30">
+                <Check className="w-3 h-3" /> Apply
             </button>
           </div>
+          ) : null}
         </div>
       )}
     </div>
@@ -1208,9 +1564,7 @@ function AutoReviewResults({
   const [showReport, setShowReport] = useState(false);
   
   // Sort categories by count
-  const sortedCategories = [...review.failure_categories]
-    .filter(c => c.count > 0)
-    .sort((a, b) => b.count - a.count);
+  const sortedCategories = [...review.failure_categories].filter((c) => c.count > 0).sort((a, b) => b.count - a.count);
   
   // Calculate percentages
   const total = review.classifications.length;
@@ -1221,9 +1575,7 @@ function AutoReviewResults({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <StatusBadge status={review.status} />
-          <span className="text-sm text-moon-450">
-            {total} traces analyzed
-          </span>
+          <span className="text-sm text-moon-450">{total} traces analyzed</span>
         </div>
         <button
           onClick={() => setShowReport(!showReport)}
@@ -1238,11 +1590,9 @@ function AutoReviewResults({
       {sortedCategories.length > 0 ? (
         <div className="grid grid-cols-2 gap-4">
           {sortedCategories.map((category) => {
-            const percentage = total > 0 ? (category.count / total * 100).toFixed(1) : 0;
+            const percentage = total > 0 ? ((category.count / total) * 100).toFixed(1) : 0;
             const isExpanded = expandedCategories.has(category.name);
-            const categoryTraces = review.classifications.filter(
-              c => c.failure_category === category.name
-            );
+            const categoryTraces = review.classifications.filter((c) => c.failure_category === category.name);
 
             return (
               <div key={category.name} className="border border-moon-700 rounded-lg overflow-hidden">
@@ -1252,18 +1602,10 @@ function AutoReviewResults({
                   className="w-full p-3 bg-moon-800/50 hover:bg-moon-800 flex items-center justify-between"
                 >
                   <div className="flex items-center gap-3">
-                    {isExpanded ? (
-                      <ChevronDown className="w-4 h-4 text-moon-500" />
-                    ) : (
-                      <ChevronRight className="w-4 h-4 text-moon-500" />
-                    )}
+                    {isExpanded ? <ChevronDown className="w-4 h-4 text-moon-500" /> : <ChevronRight className="w-4 h-4 text-moon-500" />}
                     <div className="text-left">
-                      <span className="text-sm font-medium text-moon-100">
-                        {category.name.replace(/_/g, " ")}
-                      </span>
-                      <p className="text-xs text-moon-500 mt-0.5 line-clamp-1">
-                        {category.definition}
-                      </p>
+                      <span className="text-sm font-medium text-moon-100">{category.name.replace(/_/g, " ")}</span>
+                      <p className="text-xs text-moon-500 mt-0.5 line-clamp-1">{category.definition}</p>
                     </div>
                   </div>
                   <Badge variant="amber" className="text-xs">
@@ -1274,35 +1616,22 @@ function AutoReviewResults({
                 {/* Category Details */}
                 {isExpanded && (
                   <div className="p-3 border-t border-moon-700 bg-moon-900/30 space-y-3">
-                    {category.notes && (
-                      <p className="text-xs text-moon-450">{category.notes}</p>
-                    )}
+                    {category.notes && <p className="text-xs text-moon-450">{category.notes}</p>}
                     
                     {/* Traces in this category */}
                     <div className="space-y-2">
                       {categoryTraces.slice(0, 3).map((trace, idx) => (
-                        <div
-                          key={trace.trace_id}
-                          className="p-2 bg-moon-800/50 rounded border border-moon-700"
-                        >
+                        <div key={trace.trace_id} className="p-2 bg-moon-800/50 rounded border border-moon-700">
                           <div className="flex items-center gap-2 mb-1">
                             <Tag className="w-3 h-3 text-moon-500" />
                             <span className="text-xs text-moon-500">Trace {idx + 1}</span>
                           </div>
-                          {trace.query_text && (
-                            <p className="text-xs text-moon-300 mb-1 line-clamp-2">
-                              &quot;{trace.query_text}&quot;
-                            </p>
-                          )}
-                          <p className="text-xs text-moon-450">
-                            {trace.categorization_reason}
-                          </p>
+                          {trace.query_text && <p className="text-xs text-moon-300 mb-1 line-clamp-2">&quot;{trace.query_text}&quot;</p>}
+                          <p className="text-xs text-moon-450">{trace.categorization_reason}</p>
                         </div>
                       ))}
                       {categoryTraces.length > 3 && (
-                        <p className="text-xs text-moon-500 text-center">
-                          +{categoryTraces.length - 3} more traces
-                        </p>
+                        <p className="text-xs text-moon-500 text-center">+{categoryTraces.length - 3} more traces</p>
                       )}
                     </div>
                   </div>
@@ -1333,9 +1662,7 @@ function AutoReviewResults({
               Copy to clipboard
             </button>
           </div>
-          <pre className="text-xs text-moon-400 whitespace-pre-wrap font-mono">
-            {review.report_markdown}
-          </pre>
+          <pre className="text-xs text-moon-400 whitespace-pre-wrap font-mono">{review.report_markdown}</pre>
         </div>
       )}
 

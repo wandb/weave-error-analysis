@@ -145,9 +145,19 @@ def init_db():
                     suggested_fix TEXT,
                     created_at TEXT NOT NULL,
                     last_seen_at TEXT NOT NULL,
-                    times_seen INTEGER DEFAULT 1
+                    times_seen INTEGER DEFAULT 1,
+                    status TEXT DEFAULT 'active',
+                    status_changed_at TEXT
                 )
             """)
+            
+            # Migration: Add status columns to failure_modes if they don't exist
+            cursor.execute("PRAGMA table_info(failure_modes)")
+            fm_columns = [col[1] for col in cursor.fetchall()]
+            if "status" not in fm_columns:
+                cursor.execute("ALTER TABLE failure_modes ADD COLUMN status TEXT DEFAULT 'active'")
+            if "status_changed_at" not in fm_columns:
+                cursor.execute("ALTER TABLE failure_modes ADD COLUMN status_changed_at TEXT")
             
             # Notes table - tracks which Weave notes are assigned to which failure mode
             cursor.execute("""

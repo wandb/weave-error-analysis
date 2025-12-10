@@ -1,5 +1,5 @@
 import { format, parseISO, formatDistanceToNow } from "date-fns";
-import type { FailureMode, Taxonomy } from "../types";
+import type { FailureMode, FailureModeStatus, Taxonomy } from "../types";
 
 export function formatTime(isoString: string | null): string {
   if (!isoString) return "—";
@@ -108,5 +108,59 @@ export function calculateETA(startTime: number, completed: number, total: number
 export function truncateText(text: string, maxLength: number): string {
   if (text.length <= maxLength) return text;
   return text.slice(0, maxLength) + "...";
+}
+
+// =============================================================================
+// Status Utilities for Failure Modes
+// =============================================================================
+
+export function getStatusColor(status: FailureModeStatus): string {
+  switch (status) {
+    case "active":
+      return "bg-red-500/20 text-red-400 border-red-500/30";
+    case "investigating":
+      return "bg-amber-500/20 text-amber-400 border-amber-500/30";
+    case "resolved":
+      return "bg-emerald-500/20 text-emerald-400 border-emerald-500/30";
+    case "wont_fix":
+      return "bg-moon-600/20 text-moon-400 border-moon-500/30";
+    default:
+      return "bg-moon-700 text-moon-400";
+  }
+}
+
+export function getStatusLabel(status: FailureModeStatus): string {
+  switch (status) {
+    case "active":
+      return "Active";
+    case "investigating":
+      return "Investigating";
+    case "resolved":
+      return "Resolved";
+    case "wont_fix":
+      return "Won't Fix";
+    default:
+      return status;
+  }
+}
+
+export function getStatusIcon(status: FailureModeStatus): string {
+  switch (status) {
+    case "active":
+      return "🔴";
+    case "investigating":
+      return "🔧";
+    case "resolved":
+      return "✅";
+    case "wont_fix":
+      return "⊘";
+    default:
+      return "●";
+  }
+}
+
+export function calculateDistributionPercent(noteCount: number, totalNotes: number): number {
+  if (totalNotes === 0) return 0;
+  return Math.round((noteCount / totalNotes) * 100);
 }
 

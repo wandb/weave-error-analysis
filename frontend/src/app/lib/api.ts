@@ -23,6 +23,8 @@ import type {
   BatchReviewProgress,
   SessionFilters,
   FilterRanges,
+  FailureMode,
+  FailureModeStatus,
 } from "../types";
 import { createLogger } from "./logger";
 
@@ -263,6 +265,67 @@ export async function createFailureMode(
 
 export async function deleteFailureMode(modeId: string): Promise<void> {
   await fetch(`${API_BASE}/taxonomy/failure-modes/${modeId}`, { method: "DELETE" });
+}
+
+export async function updateFailureMode(
+  modeId: string,
+  updates: {
+    name?: string;
+    description?: string;
+    severity?: string;
+    suggested_fix?: string;
+    status?: FailureModeStatus;
+  }
+): Promise<FailureMode> {
+  const response = await fetch(`${API_BASE}/taxonomy/failure-modes/${modeId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(updates),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to update failure mode");
+  }
+  return response.json();
+}
+
+export async function updateFailureModeStatus(
+  modeId: string,
+  status: FailureModeStatus
+): Promise<FailureMode> {
+  const response = await fetch(`${API_BASE}/taxonomy/failure-modes/${modeId}/status`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to update status");
+  }
+  return response.json();
+}
+
+export async function mergeFailureModes(
+  sourceId: string,
+  targetId: string,
+  newName?: string,
+  newDescription?: string
+): Promise<FailureMode> {
+  const response = await fetch(`${API_BASE}/taxonomy/failure-modes/merge`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      source_id: sourceId,
+      target_id: targetId,
+      new_name: newName,
+      new_description: newDescription,
+    }),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to merge failure modes");
+  }
+  return response.json();
 }
 
 // Batch Categorization API

@@ -25,6 +25,9 @@ from config import CATEGORIZATION_MODEL
 class FailureMode:
     """A failure mode category in the taxonomy."""
     
+    # Valid status values
+    VALID_STATUSES = ["active", "investigating", "resolved", "wont_fix"]
+    
     def __init__(
         self,
         id: str,
@@ -35,7 +38,9 @@ class FailureMode:
         created_at: Optional[str] = None,
         last_seen_at: Optional[str] = None,
         times_seen: int = 1,
-        note_ids: Optional[list] = None
+        note_ids: Optional[list] = None,
+        status: str = "active",
+        status_changed_at: Optional[str] = None
     ):
         self.id = id
         self.name = name
@@ -46,6 +51,8 @@ class FailureMode:
         self.last_seen_at = last_seen_at or self.created_at
         self.times_seen = times_seen
         self.note_ids = note_ids or []
+        self.status = status if status in self.VALID_STATUSES else "active"
+        self.status_changed_at = status_changed_at
     
     def to_dict(self) -> dict:
         return {
@@ -57,7 +64,9 @@ class FailureMode:
             "created_at": self.created_at,
             "last_seen_at": self.last_seen_at,
             "times_seen": self.times_seen,
-            "note_ids": self.note_ids
+            "note_ids": self.note_ids,
+            "status": self.status,
+            "status_changed_at": self.status_changed_at
         }
 
 
@@ -150,7 +159,9 @@ class TaxonomyService:
                     created_at=row["created_at"],
                     last_seen_at=row["last_seen_at"],
                     times_seen=row["times_seen"],
-                    note_ids=note_ids
+                    note_ids=note_ids,
+                    status=row["status"] if "status" in row.keys() else "active",
+                    status_changed_at=row["status_changed_at"] if "status_changed_at" in row.keys() else None
                 ))
             
             return failure_modes
@@ -180,7 +191,9 @@ class TaxonomyService:
                 created_at=row["created_at"],
                 last_seen_at=row["last_seen_at"],
                 times_seen=row["times_seen"],
-                note_ids=note_ids
+                note_ids=note_ids,
+                status=row["status"] if "status" in row.keys() else "active",
+                status_changed_at=row["status_changed_at"] if "status_changed_at" in row.keys() else None
             )
     
     def create_failure_mode(
@@ -219,26 +232,59 @@ class TaxonomyService:
         name: Optional[str] = None,
         description: Optional[str] = None,
         severity: Optional[str] = None,
-        suggested_fix: Optional[str] = None
+        suggested_fix: Optional[str] = None,
+        status: Optional[str] = None
     ) -> Optional[FailureMode]:
         """Update a failure mode."""
         mode = self.get_failure_mode(mode_id)
         if not mode:
             return None
         
+        # Check if status is changing
+        status_changed = status is not None and status != mode.status
+        status_changed_at = now_iso() if status_changed else mode.status_changed_at
+        
         with get_db() as conn:
             cursor = conn.cursor()
             cursor.execute("""
                 UPDATE failure_modes 
-                SET name = ?, description = ?, severity = ?, suggested_fix = ?
+                SET name = ?, description = ?, severity = ?, suggested_fix = ?,
+                    status = ?, status_changed_at = ?
                 WHERE id = ?
             """, (
                 name or mode.name,
                 description or mode.description,
                 severity or mode.severity,
                 suggested_fix if suggested_fix is not None else mode.suggested_fix,
+                status if status in FailureMode.VALID_STATUSES else mode.status,
+                status_changed_at,
                 mode_id
             ))
+        
+        return self.get_failure_mode(mode_id)
+    
+    def update_failure_mode_status(
+        self,
+        mode_id: str,
+        status: str
+    ) -> Optional[FailureMode]:
+        """Update only the status of a failure mode."""
+        if status not in FailureMode.VALID_STATUSES:
+            raise ValueError(f"Invalid status: {status}. Must be one of {FailureMode.VALID_STATUSES}")
+        
+        mode = self.get_failure_mode(mode_id)
+        if not mode:
+            return None
+        
+        now = now_iso()
+        
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE failure_modes 
+                SET status = ?, status_changed_at = ?
+                WHERE id = ?
+            """, (status, now, mode_id))
         
         return self.get_failure_mode(mode_id)
     

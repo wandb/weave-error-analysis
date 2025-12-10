@@ -37,6 +37,11 @@ class UpdateFailureModeRequest(BaseModel):
     description: Optional[str] = None
     severity: Optional[str] = None
     suggested_fix: Optional[str] = None
+    status: Optional[str] = None
+
+
+class UpdateFailureModeStatusRequest(BaseModel):
+    status: str  # 'active', 'investigating', 'resolved', 'wont_fix'
 
 
 class MergeFailureModesRequest(BaseModel):
@@ -131,11 +136,32 @@ async def update_failure_mode(mode_id: str, request: UpdateFailureModeRequest):
         name=request.name,
         description=request.description,
         severity=request.severity,
-        suggested_fix=request.suggested_fix
+        suggested_fix=request.suggested_fix,
+        status=request.status
     )
     if not mode:
         raise HTTPException(status_code=404, detail="Failure mode not found")
     return mode.to_dict()
+
+
+@router.put("/failure-modes/{mode_id}/status")
+async def update_failure_mode_status(mode_id: str, request: UpdateFailureModeStatusRequest):
+    """
+    Update only the status of a failure mode.
+    
+    Valid statuses:
+    - active: Currently occurring, needs attention
+    - investigating: Being worked on
+    - resolved: Fixed in latest version
+    - wont_fix: Accepted limitation
+    """
+    try:
+        mode = taxonomy_service.update_failure_mode_status(mode_id, request.status)
+        if not mode:
+            raise HTTPException(status_code=404, detail="Failure mode not found")
+        return mode.to_dict()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.delete("/failure-modes/{mode_id}")

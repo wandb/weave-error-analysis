@@ -697,6 +697,257 @@ After implementing these improvements, we should see:
 
 ---
 
+---
+
+## Part 7: UI/UX Improvements
+
+### 7.1 Current State Analysis
+
+**Current Layout:**
+- Top row: 3 panels (Saturation metrics, AI Review selector, Quick Actions)
+- Main content: 4-col Uncategorized Notes | 8-col Failure Modes list
+- Modals: Create Failure Mode, Batch Categorization
+
+**Pain Points:**
+1. **Cluttered top section** - Too many panels competing for attention
+2. **No visual hierarchy** - Hard to see what's most important at a glance
+3. **Failure modes are just a list** - No visual representation of severity/impact distribution
+4. **No progress indication** - Can't see categorization progress at a glance
+5. **No workflow status** - Can't track which failure modes are being worked on
+
+### 7.2 Proposed Improvements
+
+#### 7.2.1 Hero Stats Bar (Priority: P1)
+
+Replace the current 3-panel top row with a clean, compact stats bar:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 📊 12 failure modes  •  47 notes categorized  •  8 uncategorized           │
+│ ████████████████████████████████░░░░░░ 85% saturated                       │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Benefits:**
+- Single glance shows overall progress
+- Saturation bar gives immediate visual feedback
+- Less vertical space consumed, more room for main content
+
+#### 7.2.2 Improved Layout (Priority: P1)
+
+Two-column layout with collapsible sidebar:
+
+```
+┌──────────────────────────────────────────────────────────────────┬──────────┐
+│                                                                   │ Actions  │
+│  FAILURE MODES (Main Focus)                                      │          │
+│                                                                   │ [Sync]   │
+│  ┌─────────────────────────────────────────────────────────────┐ │ [Auto]   │
+│  │ 🔴 Policy Hallucination          ████████ 35%    12 notes  │ │ [+New]   │
+│  │    Agent gives wrong policy info                            │ │          │
+│  └─────────────────────────────────────────────────────────────┘ │──────────│
+│  ┌─────────────────────────────────────────────────────────────┐ │ Inbox    │
+│  │ 🟠 Tool Call Failures            ████░░░░ 18%     6 notes  │ │ (8)      │
+│  │    Tools fail silently                                      │ │          │
+│  └─────────────────────────────────────────────────────────────┘ │ [Batch]  │
+│  ┌─────────────────────────────────────────────────────────────┐ │          │
+│  │ 🟡 Verbosity Issues              ██░░░░░░  8%     3 notes  │ │ note 1   │
+│  │    Responses too long                                       │ │ note 2   │
+│  └─────────────────────────────────────────────────────────────┘ │ note 3   │
+│                                                                   │          │
+└──────────────────────────────────────────────────────────────────┴──────────┘
+```
+
+**Changes:**
+- Failure modes get 9 columns (main focus area)
+- Right sidebar (3 cols): Actions + Uncategorized inbox (collapsible)
+- Each failure mode card shows **distribution bar** (% of total issues)
+
+#### 7.2.3 Enhanced Failure Mode Cards (Priority: P1)
+
+Make failure mode cards more visual and informative:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 🔴 HIGH  •  🔧 Investigating                                     [⋮ menu] │
+│ Policy Hallucination                                                        │
+│ Agent provides incorrect policy or pricing information                      │
+│                                                                             │
+│ ████████████████████████░░░░░░░░ 35% of failures (12 notes)                │
+│                                                                             │
+│ 📅 First seen 3d ago  •  Last seen 2h ago  •  Trend: ↑ increasing          │
+│                                                                             │
+│ 💡 Fix: Update knowledge base with correct refund policies                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**New Elements:**
+- **Status badge** (Active/Investigating/Resolved/Won't Fix)
+- **Distribution bar** showing proportion of total failures
+- **Trend indicator** (↑ increasing, ↓ decreasing, → stable)
+- **Kebab menu** for Edit/Merge/Delete/Change Status actions
+
+#### 7.2.4 Quick Assign from Inbox (Priority: P2)
+
+Replace modal-heavy note assignment with inline quick assign:
+
+```
+┌─────────────────────────────────────────┐
+│ "Agent gave wrong refund policy..."     │
+│ [Session Note]                          │
+│                                         │
+│ AI: Policy Hallucination (89%) [✓]     │ ← One click to assign
+│ [View Session] [Skip] [Other ▼]         │
+└─────────────────────────────────────────┘
+```
+
+**Benefits:**
+- No modal interruption
+- AI suggestion shown inline with confidence
+- One-click assignment for high-confidence matches
+
+#### 7.2.5 Inline Editing (Priority: P2)
+
+Click-to-edit on failure mode cards without opening a modal:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 🔴 Policy Hallucination                                      [Save] [Cancel]│
+│ ──────────────────────────────────────────────────────────────────────────  │
+│ Name: [Policy Hallucination____________]                                    │
+│ Description: [Agent provides incorrect policy or pricing info_____]        │
+│ Severity: [🔴 High ▼]                                                       │
+│ Status: [🔧 Investigating ▼]                                                │
+│ Suggested Fix: [Update knowledge base with correct refund policies____]    │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 7.2.6 Status Filter Bar (Priority: P2)
+
+Add status filter to focus on active issues:
+
+```
+┌─ Filter ────────────────────────────────────────────────────────────────────┐
+│  [All (12)] [🔴 Active (7)] [🔧 Investigating (3)] [✅ Resolved (2)] [⊘ 0] │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 7.2.7 Merge Failure Modes UI (Priority: P2)
+
+When two modes seem similar, show a merge suggestion:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ 💡 Similar failure modes detected:                                 [Dismiss]│
+│                                                                             │
+│ "Policy Hallucination" (12 notes)  ←→  "Pricing Errors" (4 notes)          │
+│                                                                             │
+│ [Merge into "Policy Hallucination"] [Keep Separate]                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+Or a manual merge flow:
+
+```
+┌─────────────────────────────────────────┐
+│ Merge Failure Modes                     │
+├─────────────────────────────────────────┤
+│                                         │
+│ Merge: [Pricing Errors         ▼]      │
+│ Into:  [Policy Hallucination   ▼]      │
+│                                         │
+│ New Name: [Policy & Pricing Errors  ]   │
+│                                         │
+│ 4 notes will be moved.                  │
+│                                         │
+│ [Cancel] [Merge]                        │
+└─────────────────────────────────────────┘
+```
+
+#### 7.2.8 Keyboard Navigation (Priority: P3)
+
+Add keyboard shortcuts for power users:
+
+| Key | Action |
+|-----|--------|
+| `↑/↓` | Navigate failure modes |
+| `Enter` | Expand/collapse selected mode |
+| `E` | Edit selected mode |
+| `D` | Delete (with confirmation) |
+| `M` | Merge with another mode |
+| `S` | Change status |
+| `Tab` | Switch between panels |
+| `N` | Focus on new note input |
+| `B` | Open batch categorization |
+| `?` | Show keyboard shortcuts |
+
+### 7.3 Visual Design Specifications
+
+#### Colors
+
+- **Severity Colors:**
+  - High: `text-red-400` / `bg-red-500/20` / `border-red-500`
+  - Medium: `text-amber-400` / `bg-amber-500/20` / `border-amber-500`
+  - Low: `text-yellow-300` / `bg-yellow-500/20` / `border-yellow-500`
+
+- **Status Colors:**
+  - Active: `text-red-400` (same as high severity)
+  - Investigating: `text-amber-400` with wrench icon
+  - Resolved: `text-emerald-400` with check icon
+  - Won't Fix: `text-moon-500` with slash icon
+
+- **Trend Colors:**
+  - Increasing (bad): `text-red-400` with ↑
+  - Decreasing (good): `text-emerald-400` with ↓
+  - Stable: `text-moon-500` with →
+
+#### Distribution Bars
+
+```css
+/* Gradient from severity color to transparent */
+.distribution-bar {
+  background: linear-gradient(to right, var(--severity-color), transparent);
+  height: 4px;
+  border-radius: 2px;
+}
+```
+
+### 7.4 Implementation Priority
+
+| Priority | Feature | Effort | Impact |
+|----------|---------|--------|--------|
+| **P1** | Hero Stats Bar | Low | High |
+| **P1** | Enhanced Failure Mode Cards (distribution bars, trends) | Medium | High |
+| **P1** | Improved Layout (sidebar) | Medium | High |
+| **P2** | Status Tracking (Active/Investigating/Resolved) | Medium | High |
+| **P2** | Quick Assign from Inbox | Medium | Medium |
+| **P2** | Inline Editing | Medium | Medium |
+| **P2** | Merge UI | Medium | Medium |
+| **P3** | Keyboard Navigation | Medium | Low |
+| **P3** | Merge Suggestions (AI-detected) | High | Low |
+
+### 7.5 Database Changes for UI/UX
+
+```sql
+-- Status tracking for failure modes
+ALTER TABLE failure_modes ADD COLUMN status TEXT DEFAULT 'active';
+-- status: 'active', 'investigating', 'resolved', 'wont_fix'
+
+-- Track when status changed
+ALTER TABLE failure_modes ADD COLUMN status_changed_at TEXT;
+
+-- For trend tracking (optional, P3)
+CREATE TABLE failure_mode_snapshots (
+    id TEXT PRIMARY KEY,
+    failure_mode_id TEXT NOT NULL,
+    snapshot_date TEXT NOT NULL,
+    note_count INTEGER NOT NULL,
+    FOREIGN KEY (failure_mode_id) REFERENCES failure_modes(id)
+);
+```
+
+---
+
 ## Summary: What to Build Next
 
 **Phase 1 and Phase 2 (core) are complete!**
@@ -707,9 +958,11 @@ After implementing these improvements, we should see:
 3. ~~Batch Categorization (P1)~~ ✅ Done (batch-suggest + batch-apply + review modal)
 
 **Remaining Priority Order**:
-1. **AI Review Import (P1)** - Leverage FAILS insights (⚠️ FAILS integration currently broken, fix that first)
-2. **Taxonomy Management (P2)** - Merge UI, inline editing, status tracking
-3. **Iteration Support (P3)** - Version tracking, targeted query generation
+1. **UI/UX Improvements (P1)** - Hero stats bar, enhanced failure mode cards, improved layout
+2. **Status Tracking (P2)** - Active/Investigating/Resolved workflow
+3. **AI Review Import (P1)** - Leverage FAILS insights (⚠️ FAILS integration currently broken, fix that first)
+4. **Taxonomy Management (P2)** - Merge UI, inline editing
+5. **Iteration Support (P3)** - Version tracking, targeted query generation
 
 The goal is to transform Taxonomy from "a place where notes go to die" into "the command center for understanding your agent's failures."
 

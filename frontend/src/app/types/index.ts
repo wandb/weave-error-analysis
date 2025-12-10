@@ -227,6 +227,8 @@ export interface ConnectionTestResult {
 // Taxonomy Types
 // ============================================================================
 
+export type FailureModeStatus = "active" | "investigating" | "resolved" | "wont_fix";
+
 export interface FailureMode {
   id: string;
   name: string;
@@ -237,6 +239,8 @@ export interface FailureMode {
   last_seen_at: string;
   times_seen: number;
   note_ids: string[];
+  status: FailureModeStatus;
+  status_changed_at: string | null;
 }
 
 export interface TaxonomyNote {

@@ -6,15 +6,13 @@ Provides CRUD operations for registered agents and their AGENT_INFO.
 
 import json
 import httpx
-import asyncio
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Query
-from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from database import get_db, get_db_readonly, generate_id, now_iso
 from services.agent_info import parse_agent_info, validate_agent_info, generate_template
-from services.agui_client import AGUIClient, AGUIEvent
+from services.agent_client import AgentClient
 from models import AgentStats
 
 router = APIRouter(prefix="/api", tags=["agents"])
@@ -606,7 +604,7 @@ async def test_agent_connection(agent_id: str):
 @router.get("/agents/{agent_id}/agent-info")
 async def get_agent_remote_info(agent_id: str):
     """
-    Fetch AGENT_INFO.md from the agent's AG-UI endpoint.
+    Fetch AGENT_INFO.md from the agent's endpoint.
     
     This retrieves the agent's self-description including purpose,
     capabilities, testing dimensions, and system prompts.
@@ -621,9 +619,8 @@ async def get_agent_remote_info(agent_id: str):
         
         endpoint_url = row["endpoint_url"]
     
-    # Use AGUIClient to fetch agent info
-    from services.agui_client import AGUIClient
-    client = AGUIClient(endpoint_url)
+    # Use AgentClient to fetch agent info
+    client = AgentClient(endpoint_url)
     
     try:
         agent_info = await client.get_agent_info()
@@ -633,24 +630,18 @@ async def get_agent_remote_info(agent_id: str):
 
 
 # =============================================================================
-# Agent Execution Endpoints (AG-UI Protocol)
+# Agent Execution Endpoints (Simple HTTP)
 # =============================================================================
 # Note: Dimension management endpoints are in routers/synthetic.py
 
 @router.post("/agents/{agent_id}/run")
 async def run_agent(agent_id: str, request: RunAgentRequest):
     """
-    Run a query against an agent using the AG-UI protocol.
+    Run a query against an agent using simple HTTP.
     
-    Returns a Server-Sent Events (SSE) stream of AG-UI events.
-    Events include:
-    - started: Connection initiated
-    - text_chunk: Streaming text response
-    - tool_start: Agent is calling a tool
-    - tool_args: Tool arguments
-    - tool_end: Tool call completed
-    - complete: Run finished successfully
-    - error: An error occurred
+    Returns a JSON response with the agent's reply.
+    This replaces the previous SSE streaming endpoint with a simpler
+    request/response model.
     """
     # Get agent from database
     with get_db() as conn:
@@ -662,98 +653,34 @@ async def run_agent(agent_id: str, request: RunAgentRequest):
         raise HTTPException(status_code=404, detail="Agent not found")
     
     endpoint_url = row["endpoint_url"]
+    client = AgentClient(endpoint_url)
     
-    async def event_generator():
-        """Generate SSE events from AG-UI client."""
-        client = AGUIClient(endpoint_url)
+    try:
+        result = await client.query(
+            query=request.message,
+            thread_id=request.thread_id
+        )
         
-        try:
-            async for event in client.run(
-                message=request.message,
-                thread_id=request.thread_id,
-                context=request.context
-            ):
-                # Convert event to JSON for SSE
-                event_data = {
-                    "type": event.type,
-                    "content": event.content,
-                    "message_id": event.message_id,
-                    "tool_name": event.tool_name,
-                    "tool_args": event.tool_args,
-                    "tool_result": event.tool_result,
-                    "call_id": event.call_id,
-                    "trace_id": event.trace_id,
-                    "error": event.error,
-                    "timestamp": event.timestamp
-                }
-                
-                # Remove None values for cleaner output
-                event_data = {k: v for k, v in event_data.items() if v is not None}
-                
-                yield f"data: {json.dumps(event_data)}\n\n"
-                
-                # Small delay to prevent overwhelming the client
-                await asyncio.sleep(0.01)
-                
-        except Exception as e:
-            # Send error event
-            error_event = {
-                "type": "error",
-                "error": str(e)
-            }
-            yield f"data: {json.dumps(error_event)}\n\n"
-        
-        # Send done marker
-        yield "data: [DONE]\n\n"
-    
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"  # Disable buffering in nginx
+        return {
+            "success": result.error is None,
+            "response": result.response,
+            "thread_id": result.thread_id,
+            "error": result.error
         }
-    )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/agents/{agent_id}/run-sync")
 async def run_agent_sync(agent_id: str, request: RunAgentRequest):
     """
-    Run a query against an agent and return the complete response (non-streaming).
+    Run a query against an agent and return the complete response.
     
-    Useful for simple queries where streaming isn't needed.
-    Returns the full response text, tool calls, and any errors.
+    This is now identical to /run since we no longer use SSE.
+    Kept for backwards compatibility.
     """
-    # Get agent from database
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
-        row = cursor.fetchone()
-    
-    if not row:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    
-    endpoint_url = row["endpoint_url"]
-    client = AGUIClient(endpoint_url)
-    
-    try:
-        result = await client.run_sync(
-            message=request.message,
-            thread_id=request.thread_id,
-            context=request.context
-        )
-        
-        return {
-            "success": result["error"] is None,
-            "response": result["response"],
-            "tool_calls": result["tool_calls"],
-            "trace_id": result["trace_id"],
-            "error": result["error"]
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return await run_agent(agent_id, request)
 
 
 @router.get("/agents/{agent_id}/status")
@@ -773,7 +700,7 @@ async def get_agent_status(agent_id: str):
         raise HTTPException(status_code=404, detail="Agent not found")
     
     # Perform health check
-    client = AGUIClient(row["endpoint_url"])
+    client = AgentClient(row["endpoint_url"])
     health = await client.health_check()
     
     # Update status in database

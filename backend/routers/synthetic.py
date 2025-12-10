@@ -284,7 +284,7 @@ async def import_dimensions_from_agent(agent_id: str):
     This fetches the AGENT_INFO from the remote agent and extracts
     the testing dimensions, saving them to the database.
     """
-    from services.agui_client import AGUIClient
+    from services.agent_client import AgentClient
     from services.agent_info import parse_agent_info
     
     with get_db() as conn:
@@ -299,7 +299,7 @@ async def import_dimensions_from_agent(agent_id: str):
     dimensions = []
     if row["endpoint_url"]:
         try:
-            client = AGUIClient(row["endpoint_url"])
+            client = AgentClient(row["endpoint_url"])
             agent_info_data = await client.get_agent_info()
             
             if "testing_dimensions" in agent_info_data:

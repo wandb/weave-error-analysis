@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from enum import Enum
 
 from database import get_db, now_iso
-from services.agui_client import AGUIClient, AGUIEvent
+from services.agent_client import AgentClient
 from logger import get_logger, log_event, generate_correlation_id
 
 logger = get_logger("batch")
@@ -87,7 +87,7 @@ class BatchExecutor:
         self.batch_id = batch_id
         self.max_concurrent = max_concurrent
         self.timeout_per_query = timeout_per_query
-        self.client = AGUIClient(agent_endpoint, timeout=timeout_per_query)
+        self.client = AgentClient(agent_endpoint, timeout=timeout_per_query)
         self._cancelled = False
         self._start_times: Dict[str, datetime] = {}
         self._batch_info = batch_info  # Use pre-fetched data if available
@@ -395,24 +395,24 @@ class BatchExecutor:
         self._update_query_status(query_id, ExecutionStatus.RUNNING, started_at=started_at)
         
         try:
-            # Run the query through the agent
-            result = await self.client.run_sync(query_text)
+            # Run the query through the agent using simple HTTP
+            result = await self.client.query(query_text)
             
             completed_at = now_iso()
             duration_ms = int((datetime.utcnow() - start_time).total_seconds() * 1000)
             
-            if result.get("error"):
+            if result.error:
                 # Query failed
                 self._update_query_status(
                     query_id,
                     ExecutionStatus.ERROR,
                     completed_at=completed_at,
-                    error_message=result["error"]
+                    error_message=result.error
                 )
                 return QueryExecutionResult(
                     query_id=query_id,
                     status=ExecutionStatus.ERROR,
-                    error_message=result["error"],
+                    error_message=result.error,
                     started_at=started_at,
                     completed_at=completed_at,
                     duration_ms=duration_ms
@@ -423,17 +423,17 @@ class BatchExecutor:
                     query_id,
                     ExecutionStatus.SUCCESS,
                     completed_at=completed_at,
-                    response_text=result.get("response", ""),
-                    trace_id=result.get("trace_id"),
-                    thread_id=result.get("thread_id")
+                    response_text=result.response,
+                    trace_id=None,  # Simple HTTP doesn't return trace_id
+                    thread_id=result.thread_id
                 )
                 return QueryExecutionResult(
                     query_id=query_id,
                     status=ExecutionStatus.SUCCESS,
-                    response_text=result.get("response", ""),
-                    tool_calls=result.get("tool_calls", []),
-                    trace_id=result.get("trace_id"),
-                    thread_id=result.get("thread_id"),
+                    response_text=result.response,
+                    tool_calls=[],  # Simple HTTP doesn't return tool calls
+                    trace_id=None,
+                    thread_id=result.thread_id,
                     started_at=started_at,
                     completed_at=completed_at,
                     duration_ms=duration_ms

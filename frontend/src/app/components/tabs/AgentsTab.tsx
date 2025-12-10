@@ -16,7 +16,6 @@ import {
   Play,
   Send,
   Bot,
-  Wrench,
   Link,
   CheckCircle2,
   AlertTriangle,
@@ -29,10 +28,11 @@ import {
   TrendingUp,
   Clock,
   ArrowRight,
+  Wrench,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { Panel, Badge, NoAgentsRegistered, SelectPrompt } from "../ui";
-import type { ToolCall, PlaygroundEvent, AgentStats } from "../../types";
+import type { AgentStats } from "../../types";
 import * as api from "../../lib/api";
 
 export function AgentsTab() {
@@ -72,9 +72,7 @@ export function AgentsTab() {
   const playgroundInputRef = useRef<HTMLInputElement>(null);
   const [playgroundRunning, setPlaygroundRunning] = useState(false);
   const [playgroundResponse, setPlaygroundResponse] = useState("");
-  const [playgroundToolCalls, setPlaygroundToolCalls] = useState<ToolCall[]>([]);
   const [playgroundError, setPlaygroundError] = useState<string | null>(null);
-  const [playgroundEvents, setPlaygroundEvents] = useState<PlaygroundEvent[]>([]);
 
   const resetAgentForm = () => {
     setShowAgentForm(false);
@@ -139,9 +137,7 @@ export function AgentsTab() {
 
   const resetPlayground = () => {
     setPlaygroundResponse("");
-    setPlaygroundToolCalls([]);
     setPlaygroundError(null);
-    setPlaygroundEvents([]);
   };
 
   const runAgentQuery = async (message: string) => {
@@ -161,63 +157,12 @@ export function AgentsTab() {
         throw new Error(`HTTP error: ${response.status}`);
       }
 
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("No response body");
-
-      const decoder = new TextDecoder();
-      let currentToolCall: { call_id: string; tool_name: string; tool_args: Record<string, unknown> } | null = null;
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n");
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          const data = line.slice(6);
-          if (data === "[DONE]") continue;
-
-          try {
-            const event = JSON.parse(data);
-            setPlaygroundEvents((prev) => [
-              ...prev,
-              { type: event.type, content: event.content || event.error, timestamp: event.timestamp || new Date().toISOString() },
-            ]);
-
-            switch (event.type) {
-              case "text_chunk":
-                if (event.content) setPlaygroundResponse((prev) => prev + event.content);
-                break;
-              case "tool_start":
-                currentToolCall = { call_id: event.call_id || "", tool_name: event.tool_name || "unknown", tool_args: {} };
-                setPlaygroundToolCalls((prev) => [...prev, { ...currentToolCall!, tool_result: null, status: "running" }]);
-                break;
-              case "tool_args":
-                if (event.tool_args && currentToolCall) {
-                  currentToolCall.tool_args = event.tool_args;
-                  setPlaygroundToolCalls((prev) =>
-                    prev.map((tc) => (tc.call_id === currentToolCall?.call_id ? { ...tc, tool_args: event.tool_args } : tc))
-                  );
-                }
-                break;
-              case "tool_end":
-                if (currentToolCall) {
-                  setPlaygroundToolCalls((prev) =>
-                    prev.map((tc) => (tc.call_id === currentToolCall?.call_id ? { ...tc, tool_result: event.tool_result, status: "complete" } : tc))
-                  );
-                  currentToolCall = null;
-                }
-                break;
-              case "error":
-                setPlaygroundError(event.error || "Unknown error");
-                break;
-            }
-          } catch {
-            // Skip malformed events
-          }
-        }
+      const data = await response.json();
+      
+      if (data.error) {
+        setPlaygroundError(data.error);
+      } else {
+        setPlaygroundResponse(data.response || "");
       }
     } catch (error) {
       setPlaygroundError(error instanceof Error ? error.message : "Unknown error");
@@ -359,9 +304,7 @@ export function AgentsTab() {
             playgroundInputRef={playgroundInputRef}
             playgroundRunning={playgroundRunning}
             playgroundResponse={playgroundResponse}
-            playgroundToolCalls={playgroundToolCalls}
             playgroundError={playgroundError}
-            playgroundEvents={playgroundEvents}
             onTogglePlayground={() => {
               setShowPlayground(!showPlayground);
               if (!showPlayground) resetPlayground();
@@ -695,15 +638,15 @@ function AgentForm({
         </div>
 
         <div>
-          <label className="block text-sm text-ink-400 mb-1">AG-UI Endpoint URL *</label>
+          <label className="block text-sm text-ink-400 mb-1">Agent Endpoint URL *</label>
           <input
             type="text"
             value={endpoint}
             onChange={(e) => onEndpointChange(e.target.value)}
-            placeholder="e.g., http://localhost:8000"
+            placeholder="e.g., http://localhost:9000"
             className="w-full"
           />
-          <p className="text-xs text-ink-500 mt-1">The AG-UI compatible endpoint where your agent is hosted</p>
+          <p className="text-xs text-ink-500 mt-1">The HTTP endpoint where your agent is hosted (must expose POST /query)</p>
         </div>
 
         <div>
@@ -761,9 +704,7 @@ function AgentDetailView({
   playgroundInputRef,
   playgroundRunning,
   playgroundResponse,
-  playgroundToolCalls,
   playgroundError,
-  playgroundEvents,
   onTogglePlayground,
   onTestConnection,
   onEdit,
@@ -781,9 +722,7 @@ function AgentDetailView({
   playgroundInputRef: React.RefObject<HTMLInputElement>;
   playgroundRunning: boolean;
   playgroundResponse: string;
-  playgroundToolCalls: ToolCall[];
   playgroundError: string | null;
-  playgroundEvents: PlaygroundEvent[];
   onTogglePlayground: () => void;
   onTestConnection: () => void;
   onEdit: () => void;
@@ -861,9 +800,7 @@ function AgentDetailView({
           inputRef={playgroundInputRef}
           running={playgroundRunning}
           response={playgroundResponse}
-          toolCalls={playgroundToolCalls}
           error={playgroundError}
-          events={playgroundEvents}
           onMessageChange={onPlaygroundMessageChange}
           onRun={onRunQuery}
         />
@@ -982,9 +919,7 @@ function PlaygroundPanel({
   inputRef,
   running,
   response,
-  toolCalls,
   error,
-  events,
   onMessageChange,
   onRun,
 }: {
@@ -992,9 +927,7 @@ function PlaygroundPanel({
   inputRef: React.RefObject<HTMLInputElement>;
   running: boolean;
   response: string;
-  toolCalls: ToolCall[];
   error: string | null;
-  events: PlaygroundEvent[];
   onMessageChange: (v: string) => void;
   onRun: (message: string) => void;
 }) {
@@ -1005,7 +938,7 @@ function PlaygroundPanel({
           <Play className="w-4 h-4 text-accent-teal" />
           Agent Playground
         </h3>
-        <p className="text-xs text-ink-400 mt-1">Test your agent with real queries using the AG-UI protocol</p>
+        <p className="text-xs text-ink-400 mt-1">Test your agent with real queries</p>
       </div>
 
       {/* Input */}
@@ -1042,42 +975,6 @@ function PlaygroundPanel({
         </div>
       </div>
 
-      {/* Tool Calls */}
-      {toolCalls.length > 0 && (
-        <div className="p-4 border-b border-ink-700">
-          <h4 className="text-xs font-medium text-ink-400 mb-2 flex items-center gap-2">
-            <Wrench className="w-3 h-3" />
-            Tool Calls ({toolCalls.length})
-          </h4>
-          <div className="space-y-2">
-            {toolCalls.map((tc, i) => (
-              <div key={i} className="bg-ink-900/50 rounded-lg p-3 text-sm">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="font-mono text-accent-plum">{tc.tool_name}</span>
-                  <span className={`text-xs ${tc.status === "running" ? "text-amber-400" : "text-emerald-400"}`}>
-                    {tc.status === "running" ? "⏳ Running..." : "✓ Complete"}
-                  </span>
-                </div>
-                {Object.keys(tc.tool_args).length > 0 && (
-                  <div className="mb-2">
-                    <span className="text-xs text-ink-500">Arguments:</span>
-                    <pre className="text-xs text-ink-300 mt-1 overflow-x-auto">{JSON.stringify(tc.tool_args, null, 2)}</pre>
-                  </div>
-                )}
-                {tc.tool_result !== null && tc.tool_result !== undefined && (
-                  <div>
-                    <span className="text-xs text-ink-500">Result:</span>
-                    <pre className="text-xs text-ink-300 mt-1 overflow-x-auto max-h-32">
-                      {typeof tc.tool_result === "string" ? tc.tool_result : JSON.stringify(tc.tool_result, null, 2)}
-                    </pre>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Response */}
       <div className="p-4">
         <h4 className="text-xs font-medium text-ink-400 mb-2 flex items-center gap-2">
@@ -1101,44 +998,6 @@ function PlaygroundPanel({
           <p className="text-sm text-ink-500 italic">Send a message to see the agent&apos;s response</p>
         )}
       </div>
-
-      {/* Events Log */}
-      {events.length > 0 && (
-        <div className="p-4 border-t border-ink-700 bg-ink-900/30">
-          <details>
-            <summary className="text-xs text-ink-400 cursor-pointer hover:text-ink-300">
-              Show event log ({events.length} events)
-            </summary>
-            <div className="mt-2 max-h-40 overflow-y-auto space-y-1">
-              {events.map((evt, i) => (
-                <div key={i} className="text-xs font-mono">
-                  <span className="text-ink-500">{new Date(evt.timestamp).toLocaleTimeString()}</span>{" "}
-                  <span
-                    className={
-                      evt.type === "error"
-                        ? "text-red-400"
-                        : evt.type === "text_chunk"
-                        ? "text-emerald-400"
-                        : evt.type.includes("tool")
-                        ? "text-accent-plum"
-                        : "text-ink-400"
-                    }
-                  >
-                    {evt.type}
-                  </span>
-                  {evt.content && (
-                    <span className="text-ink-300">
-                      {" "}
-                      - {evt.content.slice(0, 50)}
-                      {evt.content.length > 50 ? "..." : ""}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </details>
-        </div>
-      )}
     </div>
   );
 }

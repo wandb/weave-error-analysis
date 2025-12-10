@@ -6,8 +6,6 @@ humans review faster. It uses:
 1. Agent context (AGENT_INFO.md) - What the agent should do
 2. Existing taxonomy - Established failure mode categories
 3. Recent notes - Examples of human-written observations
-
-See: fails.md for full design.
 """
 
 import json

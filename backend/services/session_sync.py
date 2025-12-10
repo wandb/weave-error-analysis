@@ -15,8 +15,6 @@ Sync Triggers:
 1. After batch execution completes (auto)
 2. On app startup (incremental)
 3. Manual trigger via API
-
-See: sessions_improvements.md Section 3.1 for full design.
 """
 
 import asyncio

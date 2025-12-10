@@ -36,8 +36,6 @@ Usage:
     
     # Search by note content
     sessions = session_repository.search_by_notes("user frustrated")
-
-See: sessions_improvements.md Section 3.2 for full design.
 """
 
 import random

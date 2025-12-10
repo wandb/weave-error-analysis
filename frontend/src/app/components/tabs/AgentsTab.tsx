@@ -638,15 +638,15 @@ function AgentForm({
         </div>
 
         <div>
-          <label className="block text-sm text-ink-400 mb-1">Agent Endpoint URL *</label>
+          <label className="block text-sm text-ink-400 mb-1">Agent Query Endpoint *</label>
           <input
             type="text"
             value={endpoint}
             onChange={(e) => onEndpointChange(e.target.value)}
-            placeholder="e.g., http://localhost:9000"
+            placeholder="e.g., http://localhost:9000/query"
             className="w-full"
           />
-          <p className="text-xs text-ink-500 mt-1">The HTTP endpoint where your agent is hosted (must expose POST /query)</p>
+          <p className="text-xs text-ink-500 mt-1">Full URL where queries are sent via POST. Must accept {`{query, thread_id}`} and return {`{response, thread_id, error}`}</p>
         </div>
 
         <div>

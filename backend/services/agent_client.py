@@ -2,11 +2,10 @@
 Simple HTTP client for connecting to user's agent endpoints.
 
 This replaces the AG-UI client with a much simpler request/response model.
-Agents only need to expose a POST /query endpoint that accepts a query
-and returns a response string.
+Users define the full endpoint URL where queries should be sent.
 
 Endpoint Specification:
-    POST /query
+    POST <user-defined-endpoint>
     Request:  {"query": "...", "thread_id": "optional"}
     Response: {"response": "...", "thread_id": "...", "error": null}
 """
@@ -47,11 +46,18 @@ class AgentClient:
         Initialize the agent client.
         
         Args:
-            endpoint_url: Base URL of the agent endpoint (e.g., http://localhost:9000)
+            endpoint_url: Full URL of the agent query endpoint (e.g., http://localhost:9000/query)
             timeout: Request timeout in seconds (default 120s for long agent runs)
         """
-        self.endpoint_url = endpoint_url.rstrip('/')
+        self.endpoint_url = endpoint_url
         self.timeout = timeout
+    
+    def _get_base_url(self) -> str:
+        """Derive base URL from the endpoint URL."""
+        from urllib.parse import urlparse, urlunparse
+        parsed = urlparse(self.endpoint_url)
+        # Return just scheme + netloc (e.g., http://localhost:9000)
+        return urlunparse((parsed.scheme, parsed.netloc, '', '', '', ''))
     
     async def health_check(self) -> Dict[str, Any]:
         """
@@ -61,13 +67,14 @@ class AgentClient:
             Dict with 'healthy', 'status_code', 'response_time_ms', and 'error' keys
         """
         start_time = datetime.utcnow()
+        base_url = self._get_base_url()
         
         async with httpx.AsyncClient() as client:
             # Try common health endpoints
             endpoints_to_try = [
-                f"{self.endpoint_url}/health",
-                f"{self.endpoint_url}/api/health",
-                f"{self.endpoint_url}/",
+                f"{base_url}/health",
+                f"{base_url}/api/health",
+                f"{base_url}/",
             ]
             
             for endpoint in endpoints_to_try:
@@ -128,7 +135,7 @@ class AgentClient:
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.post(
-                    f"{self.endpoint_url}/query",
+                    self.endpoint_url,
                     json={"query": query, "thread_id": thread_id},
                     timeout=httpx.Timeout(self.timeout, connect=10.0)
                 )
@@ -216,12 +223,14 @@ class AgentClient:
         Returns:
             Dict with agent info including 'raw_content' or 'error'
         """
+        base_url = self._get_base_url()
+        
         async with httpx.AsyncClient() as client:
             endpoints_to_try = [
-                (f"{self.endpoint_url}/agent-info/json", "json"),
-                (f"{self.endpoint_url}/agent-info", "markdown"),
-                (f"{self.endpoint_url}/api/agent-info/json", "json"),
-                (f"{self.endpoint_url}/api/agent-info", "markdown"),
+                (f"{base_url}/agent-info/json", "json"),
+                (f"{base_url}/agent-info", "markdown"),
+                (f"{base_url}/api/agent-info/json", "json"),
+                (f"{base_url}/api/agent-info", "markdown"),
             ]
             
             for endpoint, format_type in endpoints_to_try:
@@ -256,7 +265,7 @@ async def query_agent(
     Convenience function to run a query against an agent.
     
     Args:
-        endpoint_url: The agent endpoint URL
+        endpoint_url: The full agent query endpoint URL (e.g., http://localhost:9000/query)
         query: The query to send
         thread_id: Optional thread ID for conversation continuity
         timeout: Request timeout in seconds

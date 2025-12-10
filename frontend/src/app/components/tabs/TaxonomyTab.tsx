@@ -20,7 +20,6 @@ import {
   Check,
   Trash2,
   CheckCircle2,
-  FileText,
   Tag,
   Eye,
   MoreVertical,
@@ -570,10 +569,10 @@ export function TaxonomyTab() {
           </Panel>
             </div>
 
-        {/* Sidebar: Actions + Uncategorized Inbox */}
-        <div className="col-span-3 space-y-4">
+        {/* Sidebar: Actions + Uncategorized */}
+        <div className="col-span-3 flex flex-col gap-4 h-[calc(100vh-320px)]">
           {/* Quick Actions */}
-          <Panel>
+          <Panel className="flex-shrink-0">
             <PanelHeader icon={<Zap className="w-4 h-4 text-teal" />} title="Actions" />
             <div className="space-y-2">
                       <button
@@ -614,11 +613,11 @@ export function TaxonomyTab() {
           </div>
         </Panel>
 
-          {/* Uncategorized Inbox */}
-          <Panel>
+          {/* Uncategorized Notes */}
+          <Panel className="flex-1 flex flex-col min-h-0">
             <PanelHeader
               icon={<ClipboardList className="w-4 h-4 text-amber-400" />}
-              title="Inbox"
+              title="Uncategorized"
               badge={<Badge variant="gold">{taxonomy?.uncategorized_notes.length || 0}</Badge>}
               actions={
                 taxonomy?.uncategorized_notes.length ? (
@@ -634,7 +633,7 @@ export function TaxonomyTab() {
               }
             />
 
-            <div className="space-y-2 max-h-[300px] overflow-y-auto">
+            <div className="space-y-2 flex-1 overflow-y-auto">
               {taxonomy?.uncategorized_notes.length ? (
                 taxonomy.uncategorized_notes.map((note) => (
                   <InboxNoteCard
@@ -664,14 +663,6 @@ export function TaxonomyTab() {
             </div>
           </Panel>
 
-          {/* Notes Panel */}
-          <Panel>
-            <PanelHeader icon={<FileText className="w-4 h-4 text-moon-400" />} title="Quick Notes" />
-            <div className="text-xs text-moon-500 space-y-2 p-1">
-              <p>Manually create failure modes or use batch categorization to organize notes.</p>
-              <p className="text-moon-600">Track patterns across your agent's responses.</p>
-            </div>
-          </Panel>
         </div>
       </div>
 
@@ -1290,31 +1281,31 @@ function InboxNoteCard({
 
   return (
     <div
-      className={`bg-moon-900/60 rounded-lg p-3 border transition-colors ${
-        isSelected ? "border-gold bg-moon-900" : "border-transparent hover:bg-moon-900/80"
+      className={`bg-moon-900/60 rounded-xl p-4 border transition-colors ${
+        isSelected ? "border-gold bg-moon-900" : "border-moon-700/50 hover:bg-moon-900/80 hover:border-moon-600"
       }`}
     >
-      <p className="text-xs text-moon-300 line-clamp-2 mb-2">{note.content}</p>
+      <p className="text-sm text-moon-200 leading-relaxed mb-3">{note.content}</p>
 
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
           {note.source_type === "session_note" && (
-            <span className="text-[9px] px-1 py-0.5 bg-accent-teal/20 text-accent-teal rounded">Session</span>
+            <span className="text-xs px-2 py-1 bg-accent-teal/20 text-accent-teal rounded-md font-medium">Session</span>
           )}
-          <span className="text-[10px] text-moon-600">{formatRelativeTime(note.created_at)}</span>
+          <span className="text-xs text-moon-500">{formatRelativeTime(note.created_at)}</span>
         </div>
 
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           {onViewSession && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 onViewSession();
               }}
-              className="p-1 hover:bg-moon-700 rounded text-accent-teal"
+              className="p-2 hover:bg-moon-700 rounded-lg text-accent-teal transition-colors"
               title="View Session"
             >
-              <Eye className="w-3 h-3" />
+              <Eye className="w-4 h-4" />
             </button>
           )}
 
@@ -1325,50 +1316,65 @@ function InboxNoteCard({
                 e.stopPropagation();
                 setShowAssignDropdown(!showAssignDropdown);
               }}
-              className="p-1 hover:bg-moon-700 rounded text-moon-400"
+              className="p-2 bg-gold/20 hover:bg-gold/40 border border-gold/50 rounded-lg text-gold transition-colors"
               title="Assign to category"
             >
-              <ArrowRight className="w-3 h-3" />
+              <ArrowRight className="w-4 h-4" />
             </button>
 
             {showAssignDropdown && (
               <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowAssignDropdown(false)} />
-                <div className="absolute right-0 top-full mt-1 bg-moon-800 border border-moon-700 rounded-lg shadow-xl z-20 py-1 min-w-[160px] max-h-48 overflow-y-auto">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowAssignDropdown(false);
-                      onSelect();
-                      onGetSuggestion();
-                    }}
-                    className="w-full px-3 py-2 text-left text-xs hover:bg-moon-700 flex items-center gap-2 text-gold border-b border-moon-700"
-                  >
-                    <Sparkles className="w-3 h-3" /> AI Suggest
-                  </button>
-                  {failureModes.map((fm) => (
+                <div className="fixed inset-0 z-40 bg-black/20" onClick={() => setShowAssignDropdown(false)} />
+                <div className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-moon-900 border border-moon-600 rounded-xl shadow-2xl z-50 w-72 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-moon-700 bg-moon-800">
+                    <h4 className="text-sm font-medium text-moon-100">Assign Note</h4>
+                    <p className="text-xs text-moon-500 mt-0.5 line-clamp-1">{note.content}</p>
+                  </div>
+                  <div className="max-h-64 overflow-y-auto">
                     <button
-                      key={fm.id}
                       onClick={(e) => {
                         e.stopPropagation();
                         setShowAssignDropdown(false);
-                        onAssign(fm.id);
+                        onSelect();
+                        onGetSuggestion();
                       }}
-                      className="w-full px-3 py-1.5 text-left text-xs hover:bg-moon-700 truncate"
+                      className="w-full px-4 py-3 text-left text-sm hover:bg-gold/10 flex items-center gap-3 text-gold font-medium border-b border-moon-800"
                     >
-                      {fm.name}
+                      <Sparkles className="w-4 h-4" /> 
+                      <span>Get AI Suggestion</span>
                     </button>
-                  ))}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowAssignDropdown(false);
-                      onCreateNew();
-                    }}
-                    className="w-full px-3 py-2 text-left text-xs hover:bg-moon-700 flex items-center gap-2 text-emerald-400 border-t border-moon-700"
-                  >
-                    <Plus className="w-3 h-3" /> Create New
-                  </button>
+                    {failureModes.length > 0 && (
+                      <div className="px-4 py-2 text-[10px] text-moon-500 uppercase tracking-wide bg-moon-850">
+                        Existing Categories
+                      </div>
+                    )}
+                    {failureModes.map((fm) => (
+                      <button
+                        key={fm.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowAssignDropdown(false);
+                          onAssign(fm.id);
+                        }}
+                        className="w-full px-4 py-2.5 text-left text-sm text-moon-300 hover:bg-moon-800 hover:text-moon-50 truncate flex items-center gap-2"
+                      >
+                        <Tag className="w-3 h-3 text-moon-500" />
+                        {fm.name}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="border-t border-moon-700 bg-moon-800">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowAssignDropdown(false);
+                        onCreateNew();
+                      }}
+                      className="w-full px-4 py-3 text-left text-sm hover:bg-emerald-500/10 flex items-center gap-3 text-emerald-400 font-medium"
+                    >
+                      <Plus className="w-4 h-4" /> Create New Category
+                    </button>
+                  </div>
                 </div>
               </>
             )}

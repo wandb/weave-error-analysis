@@ -543,7 +543,10 @@ def _update_agent_connection_status(agent_id: str, status: str) -> None:
 @router.post("/agents/{agent_id}/test-connection", response_model=ConnectionTestResult)
 async def test_agent_connection(agent_id: str):
     """
-    Test connectivity to the agent's AG-UI endpoint.
+    Test connectivity to the agent's endpoint.
+    
+    Uses AgentClient which derives the base URL from the full endpoint
+    to find health check endpoints.
     """
     with get_db() as conn:
         cursor = conn.cursor()
@@ -553,52 +556,22 @@ async def test_agent_connection(agent_id: str):
         if not row:
             raise HTTPException(status_code=404, detail="Agent not found")
         
-        endpoint_url = row["endpoint_url"].rstrip('/')
+        endpoint_url = row["endpoint_url"]
     
-    # Try to connect to the agent
-    import time
-    start_time = time.time()
+    # Use AgentClient to perform health check
+    client = AgentClient(endpoint_url)
+    health = await client.health_check()
     
-    try:
-        async with httpx.AsyncClient() as client:
-            # Try health endpoint first
-            try:
-                response = await client.get(f"{endpoint_url}/health", timeout=10.0)
-                response_time = (time.time() - start_time) * 1000
-                
-                success = response.status_code == 200
-                status = "connected" if success else "error"
-                
-            except httpx.RequestError:
-                # Try root endpoint as fallback
-                response = await client.get(endpoint_url, timeout=10.0)
-                response_time = (time.time() - start_time) * 1000
-                
-                success = response.status_code in [200, 404]  # 404 is ok for root
-                status = "connected" if success else "error"
-        
-        _update_agent_connection_status(agent_id, status)
-        
-        return ConnectionTestResult(
-            success=success,
-            status_code=response.status_code,
-            response_time_ms=round(response_time, 2),
-            error=None if success else f"Unexpected status code: {response.status_code}"
-        )
-        
-    except httpx.TimeoutException:
-        _update_agent_connection_status(agent_id, "error")
-        return ConnectionTestResult(
-            success=False,
-            error="Connection timed out"
-        )
-        
-    except Exception as e:
-        _update_agent_connection_status(agent_id, "error")
-        return ConnectionTestResult(
-            success=False,
-            error=str(e)
-        )
+    # Update connection status in database
+    status = "connected" if health["healthy"] else "error"
+    _update_agent_connection_status(agent_id, status)
+    
+    return ConnectionTestResult(
+        success=health["healthy"],
+        status_code=health.get("status_code"),
+        response_time_ms=health.get("response_time_ms"),
+        error=health.get("error")
+    )
 
 
 @router.get("/agents/{agent_id}/agent-info")

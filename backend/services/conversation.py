@@ -1,5 +1,8 @@
 """
 Conversation processing logic for extracting messages from thread calls.
+
+Limitations:
+- the parsing logic is tied to the framework, in this case the ADK framework, thus not generic.
 """
 
 from utils import truncate_value

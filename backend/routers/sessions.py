@@ -304,7 +304,8 @@ async def _fetch_conversation(session_id: str) -> List[ConversationMessage]:
     """
     Fetch conversation from Weave API for a session.
     
-    Uses the same logic as threads.py to find and process calls.
+    Queries all calls from Weave, filters by session ID, and processes
+    them using the conversation parsing logic in services/conversation.py.
     """
     try:
         # Fetch recent calls (descending to get newest first)

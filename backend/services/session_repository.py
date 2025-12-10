@@ -491,8 +491,6 @@ class SessionRepository:
         """
         Mark a session as reviewed.
         
-        Also updates reviewed_threads table for backwards compatibility.
-        
         Returns:
             True if session was found and updated
         """
@@ -510,12 +508,6 @@ class SessionRepository:
             
             if cursor.rowcount == 0:
                 return False
-            
-            # Backwards compatibility: also update reviewed_threads
-            cursor.execute("""
-                INSERT OR REPLACE INTO reviewed_threads (thread_id, reviewed_at, reviewer_notes)
-                VALUES (?, ?, ?)
-            """, (session_id, now, reviewer_notes))
             
             return True
     
@@ -537,12 +529,6 @@ class SessionRepository:
                 SET is_reviewed = FALSE, reviewed_at = NULL, updated_at = ?
                 WHERE id = ?
             """, (now, session_id))
-            
-            # Backwards compatibility
-            cursor.execute(
-                "DELETE FROM reviewed_threads WHERE thread_id = ?",
-                (session_id,)
-            )
             
             return cursor.rowcount > 0
     

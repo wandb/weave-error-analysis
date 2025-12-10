@@ -21,42 +21,8 @@ class FeedbackRequest(BaseModel):
 # =============================================================================
 # Session Models (Phase 2 - Session Sync)
 # =============================================================================
-
-class SessionFilters(BaseModel):
-    """Comprehensive session filtering options."""
-    
-    # Batch Association
-    batch_id: Optional[str] = Field(None, description="Filter by batch ID")
-    exclude_batches: bool = Field(False, description="Show only organic (non-batch) sessions")
-    
-    # Turn Count
-    min_turns: Optional[int] = Field(None, ge=1, description="Minimum turn count")
-    max_turns: Optional[int] = Field(None, ge=1, description="Maximum turn count")
-    
-    # Review Status
-    is_reviewed: Optional[bool] = Field(None, description="Filter by review status")
-    
-    # Error Status
-    has_error: Optional[bool] = Field(None, description="Filter by error status")
-    
-    # Token Usage
-    min_tokens: Optional[int] = Field(None, ge=0, description="Minimum total tokens")
-    max_tokens: Optional[int] = Field(None, ge=0, description="Maximum total tokens")
-    
-    # Cost
-    min_cost: Optional[float] = Field(None, ge=0, description="Minimum cost in USD")
-    max_cost: Optional[float] = Field(None, ge=0, description="Maximum cost in USD")
-    
-    # Date Range
-    started_after: Optional[str] = Field(None, description="Sessions started after (ISO timestamp)")
-    started_before: Optional[str] = Field(None, description="Sessions started before (ISO timestamp)")
-    
-    # Search
-    note_search: Optional[str] = Field(None, description="Search notes content")
-    
-    # Sampling
-    random_sample: Optional[int] = Field(None, ge=1, le=100, description="Return random N sessions")
-
+# Note: SessionFilters is defined as a dataclass in services/session_repository.py
+# That is the canonical definition used by all session filtering logic.
 
 class SessionSummary(BaseModel):
     """Session summary for list display."""

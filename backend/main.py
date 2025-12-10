@@ -35,7 +35,6 @@ setup_logging()
 logger = get_logger("main")
 
 from routers import (
-    threads_router,
     traces_router,
     feedback_router,
     categorize_router,
@@ -100,7 +99,6 @@ app.add_middleware(
 )
 
 # Register routers
-app.include_router(threads_router)
 app.include_router(traces_router)
 app.include_router(feedback_router)
 app.include_router(categorize_router)
@@ -108,7 +106,7 @@ app.include_router(taxonomy_router)
 app.include_router(agents_router)
 app.include_router(synthetic_router)
 app.include_router(settings_router)
-app.include_router(sessions_router)  # New: local-first session management
+app.include_router(sessions_router)  # Local-first session management (replaces threads)
 app.include_router(suggestions_router)  # AI suggestion service for trace quality
 
 

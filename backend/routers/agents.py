@@ -645,17 +645,6 @@ async def run_agent(agent_id: str, request: RunAgentRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/agents/{agent_id}/run-sync")
-async def run_agent_sync(agent_id: str, request: RunAgentRequest):
-    """
-    Run a query against an agent and return the complete response.
-    
-    This is now identical to /run since we no longer use SSE.
-    Kept for backwards compatibility.
-    """
-    return await run_agent(agent_id, request)
-
-
 @router.get("/agents/{agent_id}/status")
 async def get_agent_status(agent_id: str):
     """

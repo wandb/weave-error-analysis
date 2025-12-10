@@ -27,45 +27,6 @@ class WeaveClient:
             "Content-Type": "application/json"
         }
 
-    async def query_threads(
-        self, 
-        limit: int = 50, 
-        offset: int = 0,
-        sort_by: str = "last_updated",
-        sort_direction: str = "desc"
-    ) -> list[dict]:
-        """Query threads from Weave API."""
-        request_body = {
-            "project_id": self.project_id,
-            "limit": limit,
-            "offset": offset,
-            "sort_by": [{"field": sort_by, "direction": sort_direction}]
-        }
-
-        async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{self.base_url}/threads/stream_query",
-                headers=self._get_auth_header(),
-                json=request_body,
-                timeout=30.0
-            )
-
-            if response.status_code != 200:
-                raise Exception(f"API error: {response.status_code} - {response.text}")
-
-            threads = []
-            for line in response.text.strip().split("\n"):
-                if line:
-                    thread = json.loads(line)
-                    threads.append({
-                        "thread_id": thread.get("thread_id"),
-                        "turn_count": thread.get("turn_count", 0),
-                        "start_time": thread.get("start_time"),
-                        "last_updated": thread.get("last_updated"),
-                    })
-
-            return threads
-
     async def query_calls(
         self,
         limit: int = 50,

@@ -1,8 +1,5 @@
 import type {
-  Thread,
-  ThreadDetail,
   FeedbackSummary,
-  AnnotationProgress,
   Agent,
   AgentDetail,
   AgentStats,
@@ -15,11 +12,9 @@ import type {
   SettingsGroup,
   ConfigStatus,
   TestConnectionResult,
-  Session,
   SessionDetail,
   SessionListResponse,
   SyncStatus,
-  SessionStats,
   BatchReviewProgress,
   SessionFilters,
   FilterRanges,
@@ -55,84 +50,15 @@ export function getBackendUrl(): string {
 }
 
 // ============================================================================
-// Thread API
+// Feedback API (used by header stats)
 // ============================================================================
-
-export interface FetchThreadsParams {
-  limit?: number;
-  sortBy?: string;
-  sortDirection?: string;
-  filterMinTurns?: number | null;
-  filterReviewed?: boolean | null;
-  filterBatchId?: string | null;
-  sample?: string;
-  sampleSize?: number;
-}
-
-export async function fetchThreads(params: FetchThreadsParams = {}): Promise<Thread[]> {
-  const urlParams = new URLSearchParams({
-    limit: String(params.limit ?? 100),
-    sort_by: params.sortBy ?? "last_updated",
-    direction: params.sortDirection ?? "desc",
-  });
-
-  if (params.filterMinTurns != null) {
-    urlParams.append("min_turns", params.filterMinTurns.toString());
-  }
-  if (params.filterReviewed != null) {
-    urlParams.append("reviewed", params.filterReviewed.toString());
-  }
-  if (params.filterBatchId != null) {
-    urlParams.append("batch_id", params.filterBatchId);
-  }
-  if (params.sample) {
-    urlParams.append("sample", params.sample);
-    if (params.sampleSize) {
-      urlParams.append("sample_size", params.sampleSize.toString());
-    }
-  }
-
-  const response = await fetch(`${API_BASE}/threads?${urlParams}`);
-  const data = await response.json();
-  return data.threads || [];
-}
-
-export async function fetchThreadDetail(threadId: string): Promise<ThreadDetail> {
-  const response = await fetch(`${API_BASE}/threads/${threadId}`);
-  return response.json();
-}
-
-export async function markThreadReviewed(threadId: string): Promise<void> {
-  await fetch(`${API_BASE}/threads/${threadId}/mark-reviewed`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({}),
-  });
-}
-
-export async function unmarkThreadReviewed(threadId: string): Promise<void> {
-  await fetch(`${API_BASE}/threads/${threadId}/mark-reviewed`, {
-    method: "DELETE",
-  });
-}
-
-export async function addNoteToThread(threadId: string, note: string): Promise<void> {
-  await fetch(`${API_BASE}/threads/${threadId}/note`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ note }),
-  });
-}
 
 export async function fetchFeedbackSummary(): Promise<FeedbackSummary> {
   const response = await fetch(`${API_BASE}/feedback-summary`);
   return response.json();
 }
 
-export async function fetchAnnotationProgress(): Promise<AnnotationProgress> {
-  const response = await fetch(`${API_BASE}/annotation-progress`);
-  return response.json();
-}
+// Note: fetchAnnotationProgress was removed - use session stats or batch review progress instead
 
 // ============================================================================
 // Agent API

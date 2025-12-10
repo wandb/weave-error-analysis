@@ -799,11 +799,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Initial data load
   useEffect(() => {
-    fetchThreads();
     fetchFeedbackSummaryData();
-    fetchAnnotationProgressData();
     fetchAgentsData(); // Load agents on startup for auto-selection
-  }, [fetchThreads, fetchFeedbackSummaryData, fetchAnnotationProgressData, fetchAgentsData]);
+  }, [fetchFeedbackSummaryData, fetchAgentsData]);
 
   // Threads tab - load from local DB
   useEffect(() => {

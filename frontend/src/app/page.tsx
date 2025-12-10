@@ -30,7 +30,7 @@ function AppLayout() {
     syntheticBatches,
     selectedAgent,
     executingBatch,
-    fetchThreads,
+    fetchSessions,
     fetchTaxonomy,
     fetchAgents,
     fetchDimensions,
@@ -49,7 +49,7 @@ function AppLayout() {
   const handleRefresh = () => {
     switch (activeTab) {
       case "threads":
-        fetchThreads();
+        fetchSessions();
         break;
       case "taxonomy":
         fetchTaxonomy();

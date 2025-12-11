@@ -72,7 +72,7 @@ export function SyntheticTab() {
 
   // Generation settings
   const [batchSize, setBatchSize] = useState(20);
-  const [batchStrategy, setBatchStrategy] = useState<"cross_product" | "llm_guided">("llm_guided");
+  // LLM-guided is the only strategy now (cross product removed)
   const [model, setModel] = useState("gpt-5.1");
   const [temperature, setTemperature] = useState(0.7);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
@@ -135,6 +135,19 @@ Return ONLY the user message, nothing else. No quotes around it.`);
   const [selectedQueryIds, setSelectedQueryIds] = useState<Set<string>>(new Set());
   const [editingQueryId, setEditingQueryId] = useState<string | null>(null);
   const [expandedQueryIds, setExpandedQueryIds] = useState<Set<string>>(new Set());
+
+  // ========== TWO-STEP GENERATION: Tuples Preview ==========
+  // Step 1: Generate tuples for user review
+  // Step 2: Generate queries from approved tuples
+  interface PreviewTuple {
+    id: string;
+    values: Record<string, string>;
+  }
+  const [previewTuples, setPreviewTuples] = useState<PreviewTuple[]>([]);
+  const [generatingTuples, setGeneratingTuples] = useState(false);
+  const [generatingQueries, setGeneratingQueries] = useState(false);
+  const [selectedTupleIds, setSelectedTupleIds] = useState<Set<string>>(new Set());
+  const [editingTupleId, setEditingTupleId] = useState<string | null>(null);
 
   // Dimension editing
   const [editingDimension, setEditingDimension] = useState<string | null>(null);
@@ -363,6 +376,164 @@ Return ONLY the user message, nothing else. No quotes around it.`);
     setActiveTab("threads");
   };
 
+  // ========== TWO-STEP GENERATION FUNCTIONS ==========
+  
+  // Step 1: Generate tuples only (for user preview/review)
+  const generateTuplesPreview = async () => {
+    if (!selectedAgent) return;
+    
+    setGeneratingTuples(true);
+    setPreviewTuples([]);
+    setSelectedTupleIds(new Set());
+    
+    try {
+      const backendUrl = getBackendUrl();
+      
+      // Get selected dimensions (only if useDimensions is true)
+      const customDimensions = (useDimensions && dimensions.length > 0)
+        ? dimensions
+            .filter(d => selectedDimensionIds.has(d.id))
+            .reduce((acc, d) => ({ ...acc, [d.name]: d.values }), {} as Record<string, string[]>)
+        : undefined;
+      
+      const response = await fetch(`${backendUrl}/api/synthetic/tuples`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent_id: selectedAgent.id,
+          count: batchSize,
+          custom_dimensions: customDimensions,
+        }),
+      });
+      
+      if (!response.ok) throw new Error("Failed to generate tuples");
+      
+      const tuples = await response.json();
+      setPreviewTuples(tuples);
+      // Select all tuples by default
+      setSelectedTupleIds(new Set(tuples.map((t: PreviewTuple) => t.id)));
+      
+    } catch (error) {
+      console.error("Error generating tuples:", error);
+    } finally {
+      setGeneratingTuples(false);
+    }
+  };
+  
+  // Step 2: Generate queries from approved tuples
+  const generateQueriesFromTuples = async () => {
+    if (!selectedAgent || previewTuples.length === 0) return;
+    
+    // Get only selected tuples
+    const approvedTuples = previewTuples.filter(t => selectedTupleIds.has(t.id));
+    if (approvedTuples.length === 0) return;
+    
+    setGeneratingQueries(true);
+    setGenProgress({ total: approvedTuples.length, completed: 0, percent: 0 });
+    streamingQueriesRef.current = [];
+    
+    let currentBatchId = "";
+    let currentBatchName = "";
+    
+    try {
+      const backendUrl = getBackendUrl();
+      
+      // Create batch and generate queries from approved tuples
+      const response = await fetch(`${backendUrl}/api/synthetic/batches/generate-from-tuples`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent_id: selectedAgent.id,
+          tuples: approvedTuples.map(t => t.values),
+          custom_query_prompt: customQueryPrompt,
+        }),
+      });
+      
+      if (!response.ok) throw new Error("Failed to generate queries");
+      
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error("No response body");
+      
+      const decoder = new TextDecoder();
+      let buffer = "";
+      
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const event = JSON.parse(line.slice(6));
+              
+              if (event.type === "batch_started") {
+                currentBatchId = event.batch_id;
+                currentBatchName = event.name;
+              } else if (event.type === "query_generated") {
+                streamingQueriesRef.current = [...streamingQueriesRef.current, event.query];
+                setGenProgress({
+                  total: event.total,
+                  completed: event.completed,
+                  percent: event.progress_percent,
+                });
+              } else if (event.type === "batch_complete") {
+                // Clear tuples preview after successful generation
+                setPreviewTuples([]);
+                setSelectedTupleIds(new Set());
+              }
+            } catch (e) {
+              console.warn("Failed to parse SSE event:", line);
+            }
+          }
+        }
+      }
+      
+      // Refresh batches and select the new one
+      await fetchBatches(selectedAgent.id);
+      if (currentBatchId) {
+        await fetchBatchDetail(currentBatchId);
+      }
+      
+    } catch (error) {
+      console.error("Error generating queries:", error);
+    } finally {
+      setGeneratingQueries(false);
+      setTimeout(() => setGenProgress(null), 2000);
+    }
+  };
+  
+  // Delete a tuple from preview
+  const deleteTupleFromPreview = (tupleId: string) => {
+    setPreviewTuples(prev => prev.filter(t => t.id !== tupleId));
+    setSelectedTupleIds(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(tupleId);
+      return newSet;
+    });
+    if (editingTupleId === tupleId) setEditingTupleId(null);
+  };
+  
+  // Clear tuples preview
+  const clearTuplesPreview = () => {
+    setPreviewTuples([]);
+    setSelectedTupleIds(new Set());
+    setEditingTupleId(null);
+  };
+  
+  // Update a tuple's dimension value
+  const updateTupleValue = (tupleId: string, dimensionKey: string, newValue: string) => {
+    setPreviewTuples(prev => prev.map(t => {
+      if (t.id === tupleId) {
+        return { ...t, values: { ...t.values, [dimensionKey]: newValue } };
+      }
+      return t;
+    }));
+  };
+
   const generateBatch = async () => {
     if (!selectedAgent) return;
     
@@ -383,8 +554,8 @@ Return ONLY the user message, nothing else. No quotes around it.`);
       // Use direct backend URL for SSE streaming to bypass Next.js proxy buffering
       const backendUrl = getBackendUrl();
       
-      // Get selected dimensions for LLM guided mode (only if useDimensions is true)
-      const selectedDimensions = (batchStrategy === "llm_guided" && useDimensions && dimensions.length > 0)
+      // Get selected dimensions (only if useDimensions is true)
+      const selectedDimensions = (useDimensions && dimensions.length > 0)
         ? dimensions
             .filter(d => selectedDimensionIds.has(d.id))
             .reduce((acc, d) => ({ ...acc, [d.name]: d.values }), {} as Record<string, string[]>)
@@ -397,17 +568,12 @@ Return ONLY the user message, nothing else. No quotes around it.`);
           agent_id: selectedAgent.id,
           // Don't send name - let backend generate consistent name using its batch_id
           count: batchSize,
-          strategy: batchStrategy,
           model,
           temperature,
-          // Only send custom prompts for LLM guided mode
-          // selected_dimensions is only sent when useDimensions=true, otherwise LLM generates freely
-          ...(batchStrategy === "llm_guided" && {
-            custom_tuple_prompt: customTuplePrompt,
-            custom_query_prompt: customQueryPrompt,
-            selected_dimensions: selectedDimensions,  // undefined = LLM decides freely
-            use_dimensions: useDimensions,  // explicit flag for backend
-          }),
+          custom_tuple_prompt: customTuplePrompt,
+          custom_query_prompt: customQueryPrompt,
+          selected_dimensions: selectedDimensions,  // undefined = LLM decides freely
+          use_dimensions: useDimensions,  // explicit flag for backend
         }),
         signal: abortControllerRef.current.signal,
       });
@@ -666,18 +832,8 @@ Return ONLY the user message, nothing else. No quotes around it.`);
             <span className="text-xs" style={{ color: '#8F949E' }}>queries</span>
           </div>
 
-          <select
-            value={batchStrategy}
-            onChange={(e) => setBatchStrategy(e.target.value as "cross_product" | "llm_guided")}
-            className="px-3 py-1.5 rounded text-sm"
-            style={{ backgroundColor: '#171A1F', border: '1px solid #333333', color: '#FDFDFD' }}
-          >
-            <option value="cross_product">Cross Product</option>
-            <option value="llm_guided">LLM Guided</option>
-          </select>
-          
-          {/* Dimension mode selector for LLM guided mode */}
-          {batchStrategy === "llm_guided" && (
+          {/* Dimension mode selector */}
+          {(
             <div className="relative">
               <button
                 onClick={() => setShowDimensionSelector(!showDimensionSelector)}
@@ -828,42 +984,100 @@ Return ONLY the user message, nothing else. No quotes around it.`);
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Generate Button */}
-        <button
-          onClick={generateBatch}
-          disabled={
-            generating || 
-            // Cross product requires dimensions
-            (batchStrategy === "cross_product" && dimensions.length === 0) ||
-            // LLM guided with useDimensions requires at least one dimension selected
-            (batchStrategy === "llm_guided" && useDimensions && selectedDimensionIds.size === 0)
-            // LLM guided with !useDimensions has no requirements - LLM generates freely
-          }
-          className="flex items-center gap-2 px-6 py-2.5 rounded-md font-medium transition-all disabled:opacity-50"
-          style={{ 
-            backgroundColor: generating ? '#333333' : '#FCBC32', 
-            color: generating ? '#8F949E' : '#171A1F' 
-          }}
-          title={
-            (batchStrategy === "cross_product" && dimensions.length === 0) 
-              ? "Add dimensions first" 
-              : (batchStrategy === "llm_guided" && useDimensions && selectedDimensionIds.size === 0) 
-                ? "Select at least one dimension" 
-                : undefined
-          }
-        >
-          {generating ? (
+        {/* Generation Buttons - Different flow based on useDimensions */}
+        <div className="flex items-center gap-2">
+          {/* When useDimensions=true: Direct query generation (yellow) */}
+          {useDimensions && previewTuples.length === 0 && (
+            <button
+              onClick={generateBatch}
+              disabled={generating || selectedDimensionIds.size === 0}
+              className="flex items-center gap-2 px-6 py-2.5 rounded-md font-medium transition-all disabled:opacity-50"
+              style={{ 
+                backgroundColor: generating ? '#333333' : '#FCBC32', 
+                color: generating ? '#8F949E' : '#171A1F' 
+              }}
+              title={selectedDimensionIds.size === 0 ? "Select at least one dimension" : undefined}
+            >
+              {generating ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>GENERATING...</span>
+                </>
+              ) : (
+                <>
+                  <Zap className="w-4 h-4" />
+                  <span>GENERATE {batchSize} QUERIES</span>
+                </>
+              )}
+            </button>
+          )}
+          
+          {/* When useDimensions=false (LLM Decides): Two-step flow with tuple preview (cyan) */}
+          {!useDimensions && previewTuples.length === 0 && (
+            <button
+              onClick={generateTuplesPreview}
+              disabled={generatingTuples || generatingQueries}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-md font-medium transition-all disabled:opacity-50"
+              style={{ 
+                backgroundColor: generatingTuples ? '#333333' : '#10BFCC', 
+                color: generatingTuples ? '#8F949E' : '#171A1F' 
+              }}
+              title="LLM will generate test case combinations for your review"
+            >
+              {generatingTuples ? (
+                <>
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span>GENERATING TUPLES...</span>
+                </>
+              ) : (
+                <>
+                  <Target className="w-4 h-4" />
+                  <span>GENERATE {batchSize} TUPLES</span>
+                </>
+              )}
+            </button>
+          )}
+          
+          {/* After tuples generated: Show approve/generate buttons */}
+          {previewTuples.length > 0 && (
             <>
-              <RefreshCw className="w-4 h-4 animate-spin" />
-              <span>GENERATING...</span>
-            </>
-          ) : (
-            <>
-              <Zap className="w-4 h-4" />
-              <span>GENERATE {batchSize} QUERIES</span>
+              <button
+                onClick={clearTuplesPreview}
+                disabled={generatingQueries}
+                className="flex items-center gap-2 px-3 py-2.5 rounded-md font-medium transition-all disabled:opacity-50"
+                style={{ 
+                  backgroundColor: '#333333', 
+                  color: '#8F949E' 
+                }}
+                title="Clear tuples and start over"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+              <button
+                onClick={generateQueriesFromTuples}
+                disabled={generatingQueries || selectedTupleIds.size === 0}
+                className="flex items-center gap-2 px-6 py-2.5 rounded-md font-medium transition-all disabled:opacity-50"
+                style={{ 
+                  backgroundColor: generatingQueries ? '#333333' : '#FCBC32', 
+                  color: generatingQueries ? '#8F949E' : '#171A1F' 
+                }}
+                title={selectedTupleIds.size === 0 ? "Select at least one tuple" : `Generate queries from ${selectedTupleIds.size} selected tuples`}
+              >
+                {generatingQueries ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>GENERATING QUERIES...</span>
+                  </>
+                ) : (
+                  <>
+                    <Zap className="w-4 h-4" />
+                    <span>GENERATE {selectedTupleIds.size} QUERIES</span>
+                  </>
+                )}
+              </button>
             </>
           )}
-        </button>
+        </div>
       </div>
       
       {/* Click-away listener for dimension selector */}
@@ -925,8 +1139,8 @@ Return ONLY the user message, nothing else. No quotes around it.`);
             </div>
           </div>
           
-          {/* Prompt Editor Toggle - Only show for LLM guided */}
-          {batchStrategy === "llm_guided" && (
+          {/* Prompt Editor Toggle */}
+          {(
             <div className="border-t pt-4" style={{ borderColor: '#333333' }}>
               <button
                 onClick={() => setShowPromptEditor(!showPromptEditor)}
@@ -1595,6 +1809,163 @@ Return ONLY the user message, nothing else. No quotes around it.`);
                 </p>
               )}
             </div>
+          </div>
+        )}
+
+        {/* TUPLES PREVIEW (shown when tuples are generated for review) */}
+        {previewTuples.length > 0 && (
+          <div 
+            className="rounded-lg p-4 mb-4"
+            style={{ 
+              backgroundColor: '#1C1E24', 
+              border: '2px solid #10BFCC',
+            }}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-display text-lg flex items-center gap-2" style={{ color: '#FDFDFD' }}>
+                <Target className="w-5 h-5" style={{ color: '#10BFCC' }} />
+                Tuples Preview
+                <span className="text-xs px-2 py-0.5 rounded ml-1" style={{ backgroundColor: '#10BFCC', color: '#171A1F' }}>
+                  Step 1: Review
+                </span>
+                <span className="text-xs px-2 py-0.5 rounded ml-1" style={{ backgroundColor: '#333333', color: '#8F949E' }}>
+                  {selectedTupleIds.size}/{previewTuples.length} selected
+                </span>
+              </h2>
+              <div className="flex items-center gap-2">
+                <label className="flex items-center gap-1.5 cursor-pointer text-xs" style={{ color: '#8F949E' }}>
+                  <input
+                    type="checkbox"
+                    checked={selectedTupleIds.size === previewTuples.length}
+                    onChange={(e) => {
+                      if (e.target.checked) setSelectedTupleIds(new Set(previewTuples.map(t => t.id)));
+                      else setSelectedTupleIds(new Set());
+                    }}
+                    className="w-3.5 h-3.5 rounded"
+                    style={{ accentColor: '#10BFCC' }}
+                  />
+                  Select all
+                </label>
+              </div>
+            </div>
+            
+            <p className="text-xs mb-3" style={{ color: '#8F949E' }}>
+              Review the generated test case combinations below. Uncheck any you want to exclude, then click &quot;GENERATE QUERIES&quot; to create the batch.
+            </p>
+            
+            <div className="grid gap-2 max-h-64 overflow-y-auto">
+              {previewTuples.map((tuple, idx) => {
+                const isSelected = selectedTupleIds.has(tuple.id);
+                const isEditing = editingTupleId === tuple.id;
+                const tags = Object.entries(tuple.values);
+                
+                return (
+                  <div
+                    key={tuple.id}
+                    className="flex items-center gap-3 p-2 rounded transition-colors"
+                    style={{ 
+                      backgroundColor: isEditing ? 'rgba(252, 188, 50, 0.1)' : isSelected ? 'rgba(16, 191, 204, 0.1)' : '#171A1F',
+                      border: `1px solid ${isEditing ? '#FCBC32' : isSelected ? '#10BFCC' : '#333333'}`,
+                      opacity: isSelected || isEditing ? 1 : 0.6
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={(e) => {
+                        const newSet = new Set(selectedTupleIds);
+                        if (e.target.checked) newSet.add(tuple.id);
+                        else newSet.delete(tuple.id);
+                        setSelectedTupleIds(newSet);
+                      }}
+                      className="w-4 h-4 rounded flex-shrink-0"
+                      style={{ accentColor: '#10BFCC' }}
+                    />
+                    <span className="text-xs flex-shrink-0" style={{ color: '#8F949E', minWidth: '40px' }}>
+                      #{idx + 1}
+                    </span>
+                    
+                    {/* Editing mode: show inputs */}
+                    {isEditing ? (
+                      <div className="flex flex-wrap gap-2 flex-1">
+                        {tags.map(([key, value]) => (
+                          <div key={key} className="flex items-center gap-1">
+                            <span className="text-xs" style={{ color: '#8F949E' }}>{key}:</span>
+                            <input
+                              type="text"
+                              value={value}
+                              onChange={(e) => updateTupleValue(tuple.id, key, e.target.value)}
+                              className="text-xs px-2 py-0.5 rounded w-32"
+                              style={{ 
+                                backgroundColor: '#171A1F', 
+                                border: '1px solid #FCBC32', 
+                                color: '#FDFDFD' 
+                              }}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      /* Display mode: show tags */
+                      <div className="flex flex-wrap gap-1.5 flex-1">
+                        {tags.map(([key, value]) => (
+                          <span
+                            key={key}
+                            className="text-xs px-2 py-0.5 rounded"
+                            style={{ backgroundColor: '#333333', color: '#10BFCC' }}
+                            title={`${key}: ${value}`}
+                          >
+                            {value}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {/* Edit/Done button */}
+                    <button
+                      onClick={() => setEditingTupleId(isEditing ? null : tuple.id)}
+                      className="p-1 rounded transition-colors flex-shrink-0"
+                      style={{ 
+                        backgroundColor: isEditing ? 'rgba(16, 191, 204, 0.2)' : 'transparent',
+                      }}
+                      title={isEditing ? "Done editing" : "Edit tuple"}
+                    >
+                      {isEditing ? (
+                        <Check className="w-3.5 h-3.5" style={{ color: '#10BFCC' }} />
+                      ) : (
+                        <Edit3 className="w-3.5 h-3.5" style={{ color: '#8F949E' }} />
+                      )}
+                    </button>
+                    
+                    <button
+                      onClick={() => deleteTupleFromPreview(tuple.id)}
+                      className="p-1 rounded hover:bg-red-500/20 transition-colors flex-shrink-0"
+                      title="Remove this tuple"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" style={{ color: '#EF4444' }} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            
+            {genProgress && generatingQueries && (
+              <div className="mt-3 pt-3 border-t" style={{ borderColor: '#333333' }}>
+                <div className="flex items-center justify-between text-xs mb-1">
+                  <span style={{ color: '#8F949E' }}>Generating queries...</span>
+                  <span style={{ color: '#10BFCC' }}>{genProgress.completed}/{genProgress.total}</span>
+                </div>
+                <div className="h-1.5 rounded-full" style={{ backgroundColor: '#333333' }}>
+                  <div 
+                    className="h-full rounded-full transition-all"
+                    style={{ 
+                      width: `${genProgress.percent}%`, 
+                      backgroundColor: '#10BFCC' 
+                    }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         )}
 

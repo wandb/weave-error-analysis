@@ -45,7 +45,6 @@ class TupleGenerateRequest(BaseModel):
     """Request to generate dimension tuples."""
     agent_id: str
     count: int = 20
-    strategy: str = "llm_guided"  # "cross_product" or "llm_guided"
     focus_areas: Optional[List[str]] = None
     custom_dimensions: Optional[Dict[str, List[str]]] = None
 
@@ -83,12 +82,11 @@ class BatchCreateRequest(BaseModel):
     agent_id: str
     name: Optional[str] = None
     count: int = 20
-    strategy: str = "llm_guided"
     focus_areas: Optional[List[str]] = None
     # Custom prompts (optional - uses defaults if not provided)
     custom_tuple_prompt: Optional[str] = None  # Prompt for generating tuples
     custom_query_prompt: Optional[str] = None  # Prompt for generating queries
-    # Selected dimensions for LLM guided mode (dimension_name -> values)
+    # Selected dimensions (dimension_name -> values)
     selected_dimensions: Optional[Dict[str, List[str]]] = None
     # Whether to use dimensions (True) or let LLM generate freely (False)
     use_dimensions: bool = True
@@ -381,11 +379,9 @@ async def import_dimensions_from_agent(agent_id: str):
 @router.post("/synthetic/tuples")
 async def generate_tuples(request: TupleGenerateRequest) -> List[TupleResponse]:
     """
-    Generate dimension tuples for synthetic data.
+    Generate dimension tuples for synthetic data using LLM.
     
-    Strategies:
-    - "cross_product": Generate all combinations (up to count)
-    - "llm_guided": Use LLM to generate realistic combinations
+    Uses LLM-guided generation to create realistic test case combinations.
     """
     from services.synthetic import SyntheticGenerator, merge_dimensions
     
@@ -406,13 +402,10 @@ async def generate_tuples(request: TupleGenerateRequest) -> List[TupleResponse]:
     
     generator = SyntheticGenerator(agent_info)
     
-    if request.strategy == "llm_guided":
-        tuples = await generator.generate_tuples_llm_guided(
-            n=request.count,
-            focus_areas=request.focus_areas
-        )
-    else:
-        tuples = generator.generate_tuples_cross_product(max_tuples=request.count)
+    tuples = await generator.generate_tuples_llm_guided(
+        n=request.count,
+        focus_areas=request.focus_areas
+    )
     
     return [
         TupleResponse(id=t.id, values=t.values)
@@ -491,7 +484,7 @@ async def create_batch(request: BatchCreateRequest) -> BatchResponse:
     """
     Create a new synthetic query batch.
     
-    This generates tuples and queries in one operation, saving them to the database.
+    This generates tuples and queries in one operation using LLM, saving them to the database.
     """
     from services.synthetic import SyntheticGenerator
     
@@ -509,7 +502,6 @@ async def create_batch(request: BatchCreateRequest) -> BatchResponse:
     batch = await generator.generate_batch(
         n=request.count,
         name=request.name,
-        strategy=request.strategy,
         focus_areas=request.focus_areas
     )
     batch.agent_id = request.agent_id
@@ -528,7 +520,7 @@ async def create_batch(request: BatchCreateRequest) -> BatchResponse:
             batch.name,
             batch.status,
             batch.query_count,
-            request.strategy,
+            "llm_guided",
             batch.created_at
         ))
         
@@ -570,6 +562,7 @@ async def create_batch_streaming(request: BatchCreateRequest):
     
     Returns an SSE stream of generation events, allowing the frontend to show
     real-time progress and populate queries as they're generated.
+    Uses LLM-guided generation for realistic test cases.
     
     Events:
     - batch_started: Generation has begun
@@ -598,7 +591,6 @@ async def create_batch_streaming(request: BatchCreateRequest):
             async for event in generator.generate_batch_streaming(
                 n=request.count,
                 name=request.name,
-                strategy=request.strategy,
                 focus_areas=request.focus_areas,
                 custom_tuple_prompt=request.custom_tuple_prompt,
                 custom_query_prompt=request.custom_query_prompt,
@@ -627,7 +619,7 @@ async def create_batch_streaming(request: BatchCreateRequest):
                             event["name"],
                             "ready",
                             event["query_count"],
-                            request.strategy,
+                            "llm_guided",
                             now_iso()
                         ))
                         
@@ -647,6 +639,126 @@ async def create_batch_streaming(request: BatchCreateRequest):
                 # Yield event as SSE
                 yield f"data: {json.dumps(event)}\n\n"
         
+        except Exception as e:
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+    
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
+class GenerateFromTuplesRequest(BaseModel):
+    """Request to generate queries from pre-approved tuples."""
+    agent_id: str
+    tuples: List[Dict[str, str]]  # List of dimension value dicts (pre-approved by user)
+    name: Optional[str] = None
+    custom_query_prompt: Optional[str] = None
+
+
+@router.post("/synthetic/batches/generate-from-tuples")
+async def create_batch_from_tuples(request: GenerateFromTuplesRequest):
+    """
+    Create a batch by generating queries from user-approved tuples.
+    
+    This is Step 2 of the two-step generation flow:
+    1. User generates tuples via /synthetic/tuples and reviews them
+    2. User approves/edits tuples and submits them here for query generation
+    
+    Returns an SSE stream of generation events.
+    
+    Events:
+    - batch_started: Generation has begun
+    - query_generated: A single query has been generated  
+    - query_error: A query failed to generate
+    - batch_complete: All queries are done
+    """
+    from services.synthetic import SyntheticGenerator, DimensionTuple
+    
+    if not request.tuples:
+        raise HTTPException(status_code=400, detail="No tuples provided")
+    
+    agent_info = await get_agent_info_for_generation(request.agent_id)
+    generator = SyntheticGenerator(agent_info)
+    
+    # Store custom query prompt
+    generator._custom_query_prompt = request.custom_query_prompt
+    
+    # Convert request tuples to DimensionTuple objects
+    now = now_iso()
+    tuples = [
+        DimensionTuple(
+            id=f"tuple_{uuid.uuid4().hex[:12]}",
+            values=t,
+            created_at=now
+        )
+        for t in request.tuples
+    ]
+    
+    async def event_stream():
+        batch_id = f"batch_{uuid.uuid4().hex[:6]}"
+        batch_name = request.name or f"Batch {datetime.now().strftime('%Y-%m-%d')} #{batch_id[-6:].upper()}"
+        queries = []
+        
+        try:
+            # Emit batch started
+            yield f"data: {json.dumps({'type': 'batch_started', 'batch_id': batch_id, 'name': batch_name, 'total': len(tuples)})}\n\n"
+            
+            # Generate queries one by one
+            for i, t in enumerate(tuples):
+                try:
+                    query_text = await generator.tuple_to_query(t)
+                    query_id = f"query_{uuid.uuid4().hex[:12]}"
+                    
+                    query = {
+                        "id": query_id,
+                        "tuple_values": t.values,
+                        "query_text": query_text
+                    }
+                    queries.append(query)
+                    
+                    yield f"data: {json.dumps({'type': 'query_generated', 'index': i, 'completed': i + 1, 'total': len(tuples), 'progress_percent': round(((i + 1) / len(tuples)) * 100, 1), 'query': query})}\n\n"
+                    
+                except Exception as e:
+                    yield f"data: {json.dumps({'type': 'query_error', 'index': i, 'error': str(e), 'tuple': t.values})}\n\n"
+            
+            # Save to database
+            with get_db() as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    INSERT INTO synthetic_batches (id, agent_id, name, status, query_count, generation_strategy, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    batch_id,
+                    request.agent_id,
+                    batch_name,
+                    "ready",
+                    len(queries),
+                    "llm_guided",
+                    now_iso()
+                ))
+                
+                for query in queries:
+                    cursor.execute("""
+                        INSERT INTO synthetic_queries (id, batch_id, dimension_tuple, query_text, execution_status)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (
+                        query["id"],
+                        batch_id,
+                        json.dumps(query["tuple_values"]),
+                        query["query_text"],
+                        "pending"
+                    ))
+            
+            # Emit completion
+            yield f"data: {json.dumps({'type': 'batch_complete', 'batch_id': batch_id, 'name': batch_name, 'query_count': len(queries), 'queries': queries})}\n\n"
+            
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
     

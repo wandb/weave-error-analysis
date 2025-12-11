@@ -3,17 +3,18 @@ Synthetic Data Generation Service
 
 Generates realistic test queries based on AGENT_INFO testing dimensions.
 Uses a two-step process:
-1. Generate dimension tuples (combinations of persona, scenario, complexity, etc.)
+1. Generate dimension tuples (combinations of persona, scenario, complexity, etc.) using LLM
 2. Convert tuples to natural language queries using LLM
 """
 
 import json
 import uuid
-import itertools
-import random
+import asyncio
 from typing import List, Dict, Any, Optional, AsyncGenerator
 from datetime import datetime
 from pydantic import BaseModel
+
+import litellm
 
 from services.agent_info import AgentInfo, TestingDimension
 from logger import get_logger, log_event, LOG_LLM_CONTENT
@@ -51,12 +52,12 @@ class SyntheticBatch(BaseModel):
 
 class SyntheticGenerator:
     """
-    Generates synthetic test queries based on AGENT_INFO dimensions.
+    Generates synthetic test queries based on AGENT_INFO dimensions using LLM.
     
     The generation process:
     1. Extract testing dimensions from AGENT_INFO
-    2. Generate dimension tuples (cross-product or LLM-guided)
-    3. Convert tuples to natural language queries
+    2. Generate dimension tuples using LLM (creates realistic combinations)
+    3. Convert tuples to natural language queries using LLM
     """
     
     def __init__(self, agent_info: AgentInfo, llm_client=None):
@@ -78,86 +79,6 @@ class SyntheticGenerator:
             result[dim.name] = dim.values
         return result
     
-    def generate_tuples_cross_product(
-        self, 
-        max_tuples: int = 100,
-        sample_strategy: str = "random"
-    ) -> List[DimensionTuple]:
-        """
-        Generate tuples using cross-product of all dimensions.
-        
-        Args:
-            max_tuples: Maximum number of tuples to generate
-            sample_strategy: How to sample if cross-product exceeds max_tuples
-                           ("random", "stratified", "first")
-        
-        Returns:
-            List of DimensionTuple objects
-        """
-        if not self.dimensions:
-            return []
-        
-        # Build dimension values dict
-        dim_values = self.get_dimension_values()
-        dim_names = list(dim_values.keys())
-        
-        # Generate all combinations
-        all_combinations = list(itertools.product(*[dim_values[name] for name in dim_names]))
-        
-        # Sample if needed
-        if len(all_combinations) > max_tuples:
-            if sample_strategy == "random":
-                all_combinations = random.sample(all_combinations, max_tuples)
-            elif sample_strategy == "stratified":
-                # Ensure at least one from each dimension value
-                all_combinations = self._stratified_sample(all_combinations, dim_names, dim_values, max_tuples)
-            else:  # first
-                all_combinations = all_combinations[:max_tuples]
-        
-        # Convert to DimensionTuple objects
-        tuples = []
-        now = datetime.utcnow().isoformat() + "Z"
-        
-        for combo in all_combinations:
-            values_dict = {dim_names[i]: combo[i] for i in range(len(dim_names))}
-            tuples.append(DimensionTuple(
-                id=f"tuple_{uuid.uuid4().hex[:12]}",
-                values=values_dict,
-                created_at=now
-            ))
-        
-        return tuples
-    
-    def _stratified_sample(
-        self, 
-        combinations: List[tuple], 
-        dim_names: List[str],
-        dim_values: Dict[str, List[str]],
-        max_tuples: int
-    ) -> List[tuple]:
-        """Stratified sampling ensuring coverage of each dimension value."""
-        selected = set()
-        
-        # First pass: ensure each value is represented at least once
-        for dim_idx, dim_name in enumerate(dim_names):
-            for value in dim_values[dim_name]:
-                for combo in combinations:
-                    if combo[dim_idx] == value and combo not in selected:
-                        selected.add(combo)
-                        break
-                if len(selected) >= max_tuples:
-                    break
-            if len(selected) >= max_tuples:
-                break
-        
-        # Second pass: fill remaining slots randomly
-        remaining = [c for c in combinations if c not in selected]
-        slots_left = max_tuples - len(selected)
-        if slots_left > 0 and remaining:
-            selected.update(random.sample(remaining, min(slots_left, len(remaining))))
-        
-        return list(selected)
-    
     async def generate_tuples_llm_guided(
         self, 
         n: int = 20,
@@ -166,8 +87,8 @@ class SyntheticGenerator:
         """
         Generate tuples using LLM to create realistic combinations.
         
-        This produces more realistic combinations than pure cross-product,
-        as the LLM considers which combinations make sense together.
+        The LLM considers which combinations make sense together and generates
+        diverse, realistic test case scenarios.
         
         When use_dimensions is False, the LLM generates tuples freely without
         being constrained to predefined dimension values.
@@ -208,14 +129,11 @@ a plausible user interaction scenario. You decide what dimensions to use (e.g., 
 complexity, mood, intent, etc.) based on what's relevant for testing this agent.
 
 Include a mix of:
-- Common/typical cases (60%)
-- Edge cases (25%)
-- Challenging/adversarial scenarios (15%)
+- Common/typical cases
+- Edge cases
+- Challenging/adversarial scenarios
 
-Return as JSON array of objects. You choose the dimension names and values.
-Example: [{{"persona": "frustrated_customer", "scenario": "refund_request", "complexity": "multi_step", "mood": "angry"}}]
-
-Return ONLY the JSON array, no other text."""
+Return a JSON object with a "tuples" key containing an array of test case objects."""
         elif custom_prompt:
             # Replace placeholders in custom prompt
             prompt = custom_prompt.replace("{agent_name}", self.agent_info.name)
@@ -229,20 +147,19 @@ Return ONLY the JSON array, no other text."""
 Agent: {self.agent_info.name}
 Purpose: {self.agent_info.purpose or "AI assistant"}
 
-Available testing dimensions:
-{json.dumps(dim_values, indent=2)}
-{focus_instruction}
-
 Generate {n} diverse and realistic combinations. Each combination should represent 
 a plausible user interaction. Include a mix of:
 - Common/typical cases
 - Edge cases
 - Challenging scenarios
 
-Return as JSON array of objects, each with keys matching the dimension names.
-Example: [{{"persona": "frustrated_customer", "scenario": "refund_request", "complexity": "multi_step"}}]
+These are the available testing dimensions that you can use as inspiration:
+{json.dumps(dim_values, indent=2)}
+{focus_instruction}
 
-Return ONLY the JSON array, no other text."""
+However, feel free to generate tuples that makes sense for the agent and the purpose.
+
+Return a JSON object with a "tuples" key containing an array of test case objects."""
 
         # Log the tuple generation request
         log_event(logger, "llm.tuple_generation_start",
@@ -269,7 +186,7 @@ Return ONLY the JSON array, no other text."""
 
         response = await acompletion(
             messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},
+            response_format={"type": "json_object"},  # Use JSON mode for dynamic schemas
             **llm_kwargs
         )
         
@@ -282,99 +199,43 @@ Return ONLY the JSON array, no other text."""
             response_length=len(content) if content else 0
         )
         
-        # Parse the response
-        try:
-            # Handle both direct array and wrapped object
-            data = json.loads(content)
-            if isinstance(data, dict):
-                # Find the array in the dict
-                for key, value in data.items():
-                    if isinstance(value, list):
-                        data = value
-                        break
-            
-            tuples = []
-            now = datetime.utcnow().isoformat() + "Z"
-            
-            for combo in data:
-                if isinstance(combo, dict):
-                    tuples.append(DimensionTuple(
-                        id=f"tuple_{uuid.uuid4().hex[:12]}",
-                        values=combo,
-                        created_at=now
-                    ))
-            
-            # Log successful tuple generation
-            log_event(logger, "llm.tuple_generation_complete",
-                operation="generate_tuples_llm_guided",
-                mode=prompt_mode,
-                tuples_generated=len(tuples),
-                requested_count=n,
-                sample_tuple=tuples[0].values if tuples else None
-            )
-            
-            return tuples
-            
-        except json.JSONDecodeError as e:
-            # Log parsing failure
-            log_event(logger, "llm.tuple_generation_failed", level="warning",
-                operation="generate_tuples_llm_guided",
-                mode=prompt_mode,
-                error=str(e),
-                fallback="cross_product"
-            )
-            # Fallback to cross-product if LLM fails
-            return self.generate_tuples_cross_product(max_tuples=n)
+        # Parse the response - handle both direct array and wrapped object
+        data = json.loads(content)
+        
+        # Extract tuples from response
+        tuples_data = []
+        if isinstance(data, list):
+            tuples_data = data
+        elif isinstance(data, dict):
+            # Find the array in the dict (could be "tuples", "test_cases", etc.)
+            for key, value in data.items():
+                if isinstance(value, list):
+                    tuples_data = value
+                    break
+        
+        tuples = []
+        now = datetime.utcnow().isoformat() + "Z"
+        
+        for combo in tuples_data:
+            if isinstance(combo, dict):
+                tuples.append(DimensionTuple(
+                    id=f"tuple_{uuid.uuid4().hex[:12]}",
+                    values=combo,
+                    created_at=now
+                ))
+        
+        # Log successful tuple generation
+        log_event(logger, "llm.tuple_generation_complete",
+            operation="generate_tuples_llm_guided",
+            mode=prompt_mode,
+            tuples_generated=len(tuples),
+            requested_count=n,
+            sample_tuple=tuples[0].values if tuples else None
+        )
+        
+        return tuples
     
-    def tuple_to_query_template(self, dimension_tuple: DimensionTuple) -> str:
-        """
-        Convert a dimension tuple to a query using simple templates.
-        
-        Fallback when LLM is not available.
-        """
-        values = dimension_tuple.values
-        
-        # Simple template-based generation
-        persona = values.get("personas", values.get("persona", "user"))
-        scenario = values.get("scenarios", values.get("scenario", "general"))
-        complexity = values.get("complexity", "simple")
-        
-        # Map scenarios to template queries
-        scenario_templates = {
-            "pricing_inquiry": "What are the pricing options for your service?",
-            "feature_question": "Can you tell me about the features available?",
-            "refund_request": "I'd like to request a refund for my purchase.",
-            "upgrade_inquiry": "I'm interested in upgrading my plan. What are my options?",
-            "downgrade_request": "I need to downgrade my subscription.",
-            "technical_issue": "I'm having a technical problem that I need help with.",
-            "account_recovery": "I can't access my account and need help.",
-            "billing_dispute": "I have a question about a charge on my account.",
-        }
-        
-        base_query = scenario_templates.get(scenario, f"I have a question about {scenario}.")
-        
-        # Modify based on persona
-        persona_prefixes = {
-            "first_time_user": "Hi, I'm new here. ",
-            "frustrated_customer": "This is really frustrating! ",
-            "power_user": "I've been using your service for a while. ",
-            "enterprise_prospect": "I'm evaluating this for my company. ",
-            "budget_conscious": "I'm on a tight budget. ",
-        }
-        
-        prefix = persona_prefixes.get(persona, "")
-        
-        # Add complexity modifier
-        if complexity == "multi_step":
-            base_query += " Also, can you check my account status?"
-        elif complexity == "edge_case":
-            base_query = base_query.replace("?", " in an unusual situation?")
-        elif complexity == "adversarial":
-            base_query = "I know this isn't normal, but " + base_query.lower()
-        
-        return prefix + base_query
-    
-    async def tuple_to_query(self, dimension_tuple: DimensionTuple, use_llm: bool = True) -> str:
+    async def tuple_to_query(self, dimension_tuple: DimensionTuple) -> str:
         """
         Convert a dimension tuple to a natural language query.
         
@@ -383,27 +244,12 @@ Return ONLY the JSON array, no other text."""
         
         Args:
             dimension_tuple: The tuple to convert
-            use_llm: Whether to use LLM (if False, uses template)
         
         Returns:
             Natural language query string
         """
-        if not use_llm:
-            log_event(logger, "llm.skipped", level="debug",
-                tuple_id=dimension_tuple.id,
-                reason="use_llm=False"
-            )
-            return self.tuple_to_query_template(dimension_tuple)
-        
-        try:
-            from litellm import acompletion
-            from services.settings import get_litellm_kwargs
-        except ImportError:
-            log_event(logger, "llm.skipped", level="warning",
-                tuple_id=dimension_tuple.id,
-                reason="litellm not available"
-            )
-            return self.tuple_to_query_template(dimension_tuple)
+        from litellm import acompletion
+        from services.settings import get_litellm_kwargs
         
         # Get dimension descriptions if available
         dim_descriptions = {}
@@ -451,51 +297,41 @@ Guidelines:
 
 Return ONLY the user message, nothing else. No quotes around it."""
 
-        try:
-            # Get LLM settings (this logs the resolved config)
-            llm_kwargs = get_litellm_kwargs()
-            
-            log_event(logger, "llm.request_start",
-                operation="query_generation",
-                model=llm_kwargs.get("model"),
-                tuple_id=dimension_tuple.id,
-                dimensions=list(dimension_tuple.values.keys())
-            )
-            
-            response = await acompletion(
-                messages=[{"role": "user", "content": prompt}],
-                **llm_kwargs
-            )
-            
-            query_text = response.choices[0].message.content.strip()
-            
-            # Remove quotes if LLM added them
-            if query_text.startswith('"') and query_text.endswith('"'):
-                query_text = query_text[1:-1]
-            
-            # Log success with actual model used
-            log_extra = {
-                "operation": "query_generation",
-                "requested_model": llm_kwargs.get("model"),
-                "actual_model": getattr(response, "model", "unknown"),
-                "tuple_id": dimension_tuple.id,
-                "response_chars": len(query_text)
-            }
-            if LOG_LLM_CONTENT:
-                log_extra["response_preview"] = query_text[:100]
-            
-            log_event(logger, "llm.request_complete", **log_extra)
-            
-            return query_text
-        except Exception as e:
-            # Log failure with fallback
-            log_event(logger, "llm.request_failed", level="warning",
-                operation="query_generation",
-                tuple_id=dimension_tuple.id,
-                error=str(e),
-                fallback="template"
-            )
-            return self.tuple_to_query_template(dimension_tuple)
+        # Get LLM settings (this logs the resolved config)
+        llm_kwargs = get_litellm_kwargs()
+        
+        log_event(logger, "llm.request_start",
+            operation="query_generation",
+            model=llm_kwargs.get("model"),
+            tuple_id=dimension_tuple.id,
+            dimensions=list(dimension_tuple.values.keys())
+        )
+        
+        response = await acompletion(
+            messages=[{"role": "user", "content": prompt}],
+            **llm_kwargs
+        )
+        
+        query_text = response.choices[0].message.content.strip()
+        
+        # Remove quotes if LLM added them
+        if query_text.startswith('"') and query_text.endswith('"'):
+            query_text = query_text[1:-1]
+        
+        # Log success with actual model used
+        log_extra = {
+            "operation": "query_generation",
+            "requested_model": llm_kwargs.get("model"),
+            "actual_model": getattr(response, "model", "unknown"),
+            "tuple_id": dimension_tuple.id,
+            "response_chars": len(query_text)
+        }
+        if LOG_LLM_CONTENT:
+            log_extra["response_preview"] = query_text[:100]
+        
+        log_event(logger, "llm.request_complete", **log_extra)
+        
+        return query_text
     
     async def generate_queries_from_tuples(
         self, 
@@ -541,19 +377,18 @@ Return ONLY the user message, nothing else. No quotes around it."""
         self, 
         n: int = 20,
         name: Optional[str] = None,
-        strategy: str = "llm_guided",
         focus_areas: Optional[List[str]] = None
     ) -> SyntheticBatch:
         """
         Generate a complete batch of synthetic queries.
         
         This is the main entry point for generating test data.
+        Uses LLM-guided tuple generation for realistic test cases.
         
         Args:
             n: Number of queries to generate
             name: Optional name for the batch
-            strategy: "cross_product" or "llm_guided"
-            focus_areas: Areas to focus on for LLM-guided generation
+            focus_areas: Areas to focus on (e.g., ["edge cases", "adversarial"])
         
         Returns:
             SyntheticBatch with generated queries
@@ -567,11 +402,8 @@ Return ONLY the user message, nothing else. No quotes around it."""
             # Use a consistent format: Batch YYYY-MM-DD #SHORTID
             name = f"Batch {now[:10]} #{short_id}"
         
-        # Generate tuples
-        if strategy == "llm_guided":
-            tuples = await self.generate_tuples_llm_guided(n, focus_areas)
-        else:
-            tuples = self.generate_tuples_cross_product(max_tuples=n)
+        # Generate tuples using LLM
+        tuples = await self.generate_tuples_llm_guided(n, focus_areas)
         
         # Generate queries from tuples
         queries = await self.generate_queries_from_tuples(tuples, batch_id)
@@ -590,7 +422,6 @@ Return ONLY the user message, nothing else. No quotes around it."""
         self,
         n: int = 20,
         name: Optional[str] = None,
-        strategy: str = "llm_guided",
         focus_areas: Optional[List[str]] = None,
         custom_tuple_prompt: Optional[str] = None,
         custom_query_prompt: Optional[str] = None,
@@ -601,13 +432,13 @@ Return ONLY the user message, nothing else. No quotes around it."""
         Generate a batch of synthetic queries with streaming progress.
         
         Yields progress events as queries are generated, allowing real-time UI updates.
+        Uses LLM-guided tuple generation for realistic test cases.
         
         Args:
             n: Number of queries to generate
             name: Batch name
-            strategy: "cross_product" or "llm_guided"
-            focus_areas: Optional areas to focus on
-            custom_tuple_prompt: Custom prompt for tuple generation (LLM guided only)
+            focus_areas: Optional areas to focus on (e.g., ["edge cases", "adversarial"])
+            custom_tuple_prompt: Custom prompt for tuple generation
             custom_query_prompt: Custom prompt for query generation
             selected_dimensions: Optional dict of dimension_name -> values to use (overrides agent dimensions)
             use_dimensions: If True, use dimensions for tuple generation. If False, let LLM generate freely.
@@ -615,7 +446,7 @@ Return ONLY the user message, nothing else. No quotes around it."""
         Yields:
             Dict events:
                 - {"type": "batch_started", "batch_id": str, "name": str, "total": int}
-                - {"type": "tuple_generated", "index": int, "total": int, "tuple": dict}
+                - {"type": "tuples_generated", "count": int, "tuples": List}
                 - {"type": "query_generated", "index": int, "total": int, "query": dict}
                 - {"type": "batch_complete", "batch_id": str, "query_count": int}
         """
@@ -629,11 +460,9 @@ Return ONLY the user message, nothing else. No quotes around it."""
         if selected_dimensions and use_dimensions:
             original_dimensions = self.dimensions
             self.dimensions = [
-                TestingDimension(name=name, values=values)
-                for name, values in selected_dimensions.items()
+                TestingDimension(name=dim_name, values=values)
+                for dim_name, values in selected_dimensions.items()
             ]
-        
-        import asyncio
         
         # Generate a short ID that will be used consistently
         short_id = uuid.uuid4().hex[:6].upper()
@@ -655,11 +484,8 @@ Return ONLY the user message, nothing else. No quotes around it."""
         # Allow event loop to flush
         await asyncio.sleep(0)
         
-        # Generate tuples first (relatively fast)
-        if strategy == "llm_guided":
-            tuples = await self.generate_tuples_llm_guided(n, focus_areas)
-        else:
-            tuples = self.generate_tuples_cross_product(max_tuples=n)
+        # Generate tuples using LLM
+        tuples = await self.generate_tuples_llm_guided(n, focus_areas)
         
         total = len(tuples)
         

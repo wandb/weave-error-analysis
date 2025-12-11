@@ -11,10 +11,10 @@ humans review faster. It uses:
 import json
 import asyncio
 from typing import List, Optional, Dict, Any, Union
-from dataclasses import dataclass
 from datetime import datetime
 
 import litellm
+from pydantic import BaseModel, Field
 
 from database import get_db, get_db_readonly, generate_id, now_iso
 from config import CATEGORIZATION_MODEL
@@ -22,54 +22,49 @@ from services.settings import get_setting
 
 
 # =============================================================================
-# Data Classes
+# Pydantic Models
 # =============================================================================
 
-@dataclass
-class AnalysisContext:
+class AnalysisContext(BaseModel):
     """All context needed for trace analysis."""
-    agent_info: str                    # AGENT_INFO.md contents
-    agent_name: str                    # Agent name for prompt
-    failure_modes: List[Dict]          # Existing taxonomy with example notes
-    recent_notes: List[Dict]           # Recent human-written notes for style
+    agent_info: Optional[str] = None   # AGENT_INFO.md contents (may not exist)
+    agent_name: Optional[str] = None   # Agent name for prompt (may be unknown)
+    failure_modes: List[Dict] = Field(default_factory=list)  # Existing taxonomy with example notes
+    recent_notes: List[Dict] = Field(default_factory=list)   # Recent human-written notes for style
 
 
-@dataclass
-class Suggestion:
+class AnalysisResult(BaseModel):
+    """LLM response schema for trace analysis."""
+    has_issue: bool
+    suggested_note: Optional[str] = None
+    failure_mode_id: Optional[str] = None
+    suggested_category: Optional[str] = None
+    confidence: float = Field(ge=0.0, le=1.0)
+    thinking: Optional[str] = None
+
+
+class Suggestion(BaseModel):
     """A suggestion for a trace quality issue."""
     id: str
     trace_id: str
-    batch_id: Optional[str]
-    session_id: Optional[str]
+    batch_id: Optional[str] = None
+    session_id: Optional[str] = None
     
     has_issue: bool
-    suggested_note: Optional[str]
-    confidence: float
-    thinking: Optional[str]
+    suggested_note: Optional[str] = None
+    confidence: float = 0.0
+    thinking: Optional[str] = None
     
-    failure_mode_id: Optional[str]
-    failure_mode_name: Optional[str]
-    suggested_category: Optional[str]
+    failure_mode_id: Optional[str] = None
+    failure_mode_name: Optional[str] = None
+    suggested_category: Optional[str] = None
     
-    status: str  # pending | accepted | edited | rejected | skipped
+    status: str = "pending"  # pending | accepted | edited | rejected | skipped
     created_at: str
     
     def to_dict(self) -> dict:
-        return {
-            "id": self.id,
-            "trace_id": self.trace_id,
-            "batch_id": self.batch_id,
-            "session_id": self.session_id,
-            "has_issue": self.has_issue,
-            "suggested_note": self.suggested_note,
-            "confidence": self.confidence,
-            "thinking": self.thinking,
-            "failure_mode_id": self.failure_mode_id,
-            "failure_mode_name": self.failure_mode_name,
-            "suggested_category": self.suggested_category,
-            "status": self.status,
-            "created_at": self.created_at,
-        }
+        """Convert to dict for API responses."""
+        return self.model_dump()
 
 
 # =============================================================================
@@ -167,8 +162,8 @@ class SuggestionService:
         recent_notes = self._get_recent_notes()
         
         return AnalysisContext(
-            agent_info=agent_info,
-            agent_name=agent_name,
+            agent_info=agent_info if agent_info else None,
+            agent_name=agent_name if agent_name != "Unknown Agent" else None,
             failure_modes=failure_modes,
             recent_notes=recent_notes
         )
@@ -215,10 +210,13 @@ class SuggestionService:
         # Format trace data
         trace_text = self._format_trace_for_prompt(trace_data)
         
-        system_prompt = f"""You are analyzing traces from a {context.agent_name} to identify quality issues.
+        agent_display_name = context.agent_name or "AI Agent"
+        agent_context = context.agent_info if context.agent_info else "(No agent documentation available)"
+        
+        system_prompt = f"""You are analyzing traces from {agent_display_name} to identify quality issues.
 
 === AGENT CONTEXT ===
-{context.agent_info if context.agent_info else "(No agent documentation available)"}
+{agent_context}
 
 === EXISTING FAILURE MODES ===
 These are the established failure categories. Use these when applicable:
@@ -236,26 +234,15 @@ Analyze this trace for quality issues. Consider:
 1. Did the agent use appropriate tools?
 2. Is the information accurate per the agent's knowledge base?
 3. Was the tone appropriate?
-4. Were any limitations violated?
+4. Were any agent's capabilities or limitations violated?
 5. Did the agent follow documented policies?
 
 If there's an issue:
-- Use an existing failure mode category if one fits
+- Use an existing failure mode category if one fits (set failure_mode_id to the category ID)
 - Write a note in similar style to the examples
-- If no existing category fits, suggest a new one
+- If no existing category fits, suggest a new category name
 
-If the response looks good, respond with no issue.
-
-=== OUTPUT FORMAT ===
-Respond in JSON:
-{{
-  "has_issue": true/false,
-  "suggested_note": "Description of issue..." or null,
-  "failure_mode_id": "existing_mode_id" or null,
-  "suggested_category": "New Category Name" or null,
-  "confidence": 0.0-1.0,
-  "thinking": "Brief reasoning for this judgment"
-}}"""
+If the response looks good, set has_issue to false."""
 
         return [
             {"role": "system", "content": system_prompt},
@@ -315,76 +302,81 @@ Respond in JSON:
         trace_data: Dict,
         context: AnalysisContext,
         batch_id: Optional[str] = None,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        save_to_db: bool = True
     ) -> Suggestion:
         """Analyze a single trace and return a suggestion."""
         
         trace_id = trace_data.get("trace_id") or trace_data.get("id") or generate_id()
         
-        try:
-            messages = self._build_analysis_prompt(context, trace_data)
-            
-            response = await asyncio.to_thread(
-                litellm.completion,
-                model=self.model,
-                messages=messages,
-                response_format={"type": "json_object"},
-                temperature=0.3
-            )
-            
-            result = json.loads(response.choices[0].message.content)
-            
-            # Look up failure mode name if we have an ID
-            failure_mode_name = None
-            if result.get("failure_mode_id"):
-                with get_db_readonly() as conn:
-                    cursor = conn.cursor()
-                    cursor.execute(
-                        "SELECT name FROM failure_modes WHERE id = ?",
-                        (result["failure_mode_id"],)
-                    )
-                    row = cursor.fetchone()
-                    if row:
-                        failure_mode_name = row["name"]
-            
-            suggestion = Suggestion(
-                id=generate_id(),
-                trace_id=trace_id,
-                batch_id=batch_id,
-                session_id=session_id,
-                has_issue=result.get("has_issue", False),
-                suggested_note=result.get("suggested_note"),
-                confidence=result.get("confidence", 0.5),
-                thinking=result.get("thinking"),
-                failure_mode_id=result.get("failure_mode_id"),
-                failure_mode_name=failure_mode_name,
-                suggested_category=result.get("suggested_category"),
-                status="pending",
-                created_at=now_iso()
-            )
-            
-            # Save to database
+        # NOTE: try-except commented out for debugging - uncomment for production
+        # try:
+        messages = self._build_analysis_prompt(context, trace_data)
+        
+        response = await asyncio.to_thread(
+            litellm.completion,
+            model=self.model,
+            messages=messages,
+            response_format=AnalysisResult,  # Use Pydantic model for structured output
+            temperature=0.3
+        )
+        
+        # Parse response using Pydantic model
+        content = response.choices[0].message.content
+        result = AnalysisResult.model_validate_json(content)
+        
+        # Look up failure mode name if we have an ID
+        failure_mode_name = None
+        if result.failure_mode_id:
+            with get_db_readonly() as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT name FROM failure_modes WHERE id = ?",
+                    (result.failure_mode_id,)
+                )
+                row = cursor.fetchone()
+                if row:
+                    failure_mode_name = row["name"]
+        
+        suggestion = Suggestion(
+            id=generate_id(),
+            trace_id=trace_id,
+            batch_id=batch_id,
+            session_id=session_id,
+            has_issue=result.has_issue,
+            suggested_note=result.suggested_note,
+            confidence=result.confidence,
+            thinking=result.thinking,
+            failure_mode_id=result.failure_mode_id,
+            failure_mode_name=failure_mode_name,
+            suggested_category=result.suggested_category,
+            status="pending",
+            created_at=now_iso()
+        )
+        
+        # Save to database (optional - skip for testing)
+        if save_to_db:
             self._save_suggestion(suggestion)
-            
-            return suggestion
-            
-        except Exception as e:
-            # Return a failed suggestion
-            return Suggestion(
-                id=generate_id(),
-                trace_id=trace_id,
-                batch_id=batch_id,
-                session_id=session_id,
-                has_issue=False,
-                suggested_note=None,
-                confidence=0.0,
-                thinking=f"Analysis failed: {str(e)}",
-                failure_mode_id=None,
-                failure_mode_name=None,
-                suggested_category=None,
-                status="error",
-                created_at=now_iso()
-            )
+        
+        return suggestion
+        
+        # except Exception as e:
+        #     # Return a failed suggestion
+        #     return Suggestion(
+        #         id=generate_id(),
+        #         trace_id=trace_id,
+        #         batch_id=batch_id,
+        #         session_id=session_id,
+        #         has_issue=False,
+        #         suggested_note=None,
+        #         confidence=0.0,
+        #         thinking=f"Analysis failed: {str(e)}",
+        #         failure_mode_id=None,
+        #         failure_mode_name=None,
+        #         suggested_category=None,
+        #         status="error",
+        #         created_at=now_iso()
+        #     )
     
     async def analyze_batch(
         self, 
@@ -897,4 +889,3 @@ Respond in JSON:
 
 # Singleton instance
 suggestion_service = SuggestionService()
-

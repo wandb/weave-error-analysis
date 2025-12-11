@@ -313,34 +313,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Session Actions
   // ============================================================================
 
+  // Legacy thread functions - these are deprecated and use session-based API now
+  // Kept for backwards compatibility with any code that might still reference them
   const fetchThreads = useCallback(async () => {
-    setLoadingThreads(true);
-    try {
-      const data = await api.fetchThreads({
-        sortBy,
-        sortDirection,
-        filterMinTurns,
-        filterReviewed,
-        filterBatchId,
-      });
-      setThreads(data);
-    } catch (error) {
-      console.error("Error fetching threads:", error);
-    } finally {
-      setLoadingThreads(false);
-    }
-  }, [sortBy, sortDirection, filterMinTurns, filterReviewed, filterBatchId]);
+    console.warn("fetchThreads is deprecated - use fetchSessions instead");
+    setLoadingThreads(false);
+  }, []);
 
-  const fetchRandomSample = async (size: number = 20) => {
-    setLoadingThreads(true);
-    try {
-      const data = await api.fetchThreads({ sample: "random", sampleSize: size });
-      setThreads(data);
-    } catch (error) {
-      console.error("Error fetching random sample:", error);
-    } finally {
-      setLoadingThreads(false);
-    }
+  const fetchRandomSample = async (_size: number = 20) => {
+    console.warn("fetchRandomSample is deprecated - use fetchSessions with random_sample filter instead");
+    setLoadingThreads(false);
   };
 
   const fetchFeedbackSummaryData = useCallback(async () => {
@@ -352,61 +334,27 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Legacy: fetchAnnotationProgress was removed - use session stats or batch review progress instead
   const fetchAnnotationProgressData = useCallback(async () => {
-    try {
-      const data = await api.fetchAnnotationProgress();
-      setAnnotationProgress(data);
-    } catch (error) {
-      console.error("Error fetching annotation progress:", error);
-    }
+    // No longer supported - annotation progress is tracked via sessions now
+    setAnnotationProgress(null);
   }, []);
 
-  const fetchThreadDetail = async (threadId: string) => {
-    setLoadingDetail(true);
-    try {
-      const data = await api.fetchThreadDetail(threadId);
-      setSelectedThread(data);
-    } catch (error) {
-      console.error("Error fetching thread detail:", error);
-    } finally {
-      setLoadingDetail(false);
-    }
+  const fetchThreadDetail = async (_threadId: string) => {
+    console.warn("fetchThreadDetail is deprecated - use fetchSessionDetail instead");
+    setLoadingDetail(false);
   };
 
-  const markThreadReviewed = async (threadId: string) => {
-    try {
-      await api.markThreadReviewed(threadId);
-      setSelectedThread((prev) => (prev ? { ...prev, is_reviewed: true } : null));
-      setThreads((prev) =>
-        prev.map((t) => (t.thread_id === threadId ? { ...t, is_reviewed: true } : t))
-      );
-      fetchAnnotationProgressData();
-    } catch (error) {
-      console.error("Error marking thread as reviewed:", error);
-    }
+  const markThreadReviewed = async (_threadId: string) => {
+    console.warn("markThreadReviewed is deprecated - use markSessionReviewed instead");
   };
 
-  const unmarkThreadReviewed = async (threadId: string) => {
-    try {
-      await api.unmarkThreadReviewed(threadId);
-      setSelectedThread((prev) => (prev ? { ...prev, is_reviewed: false } : null));
-      setThreads((prev) =>
-        prev.map((t) => (t.thread_id === threadId ? { ...t, is_reviewed: false } : t))
-      );
-      fetchAnnotationProgressData();
-    } catch (error) {
-      console.error("Error unmarking thread as reviewed:", error);
-    }
+  const unmarkThreadReviewed = async (_threadId: string) => {
+    console.warn("unmarkThreadReviewed is deprecated - use unmarkSessionReviewed instead");
   };
 
-  const addNoteToThread = async (threadId: string, note: string) => {
-    if (!note.trim()) return;
-    try {
-      await api.addNoteToThread(threadId, note);
-      fetchFeedbackSummaryData();
-    } catch (error) {
-      console.error("Error adding note:", error);
-    }
+  const addNoteToThread = async (_threadId: string, _note: string) => {
+    console.warn("addNoteToThread is deprecated - use addSessionNote instead");
   };
 
   // ============================================================================

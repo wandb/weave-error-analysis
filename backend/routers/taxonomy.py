@@ -425,55 +425,7 @@ async def suggest_taxonomy_improvements():
     - Naming improvements
     """
     try:
-        import json
-        import litellm
-        from config import CATEGORIZATION_MODEL
-        
-        modes = taxonomy_service.get_all_failure_modes()
-        
-        if len(modes) < 2:
-            return {
-                "suggestions": [],
-                "message": "Need at least 2 failure modes to analyze taxonomy"
-            }
-        
-        modes_text = "\n".join([
-            f"- Name: {m.name}\n  Description: {m.description}\n  Notes: {m.times_seen}"
-            for m in modes
-        ])
-        
-        prompt = f"""Analyze this failure mode taxonomy for an AI system:
-
-{modes_text}
-
-Suggest improvements. Look for:
-1. Categories that are too similar and should be merged
-2. Categories that seem too broad and might need splitting
-3. Naming that could be clearer or more specific
-
-Respond in JSON format:
-{{
-    "suggestions": [
-        {{
-            "type": "merge" | "split" | "rename",
-            "mode_ids": ["id1", "id2"],
-            "reason": "Why this change is recommended",
-            "suggested_name": "New name if applicable"
-        }}
-    ],
-    "overall_assessment": "Brief summary of taxonomy health"
-}}
-
-If the taxonomy looks good, return empty suggestions array."""
-
-        response = litellm.completion(
-            model=CATEGORIZATION_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"}
-        )
-        
-        return json.loads(response.choices[0].message.content)
-        
+        return await taxonomy_service.suggest_taxonomy_improvements()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

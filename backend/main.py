@@ -37,7 +37,6 @@ logger = get_logger("main")
 from routers import (
     traces_router,
     feedback_router,
-    categorize_router,
     taxonomy_router,
     agents_router,
     synthetic_router,
@@ -101,7 +100,6 @@ app.add_middleware(
 # Register routers
 app.include_router(traces_router)
 app.include_router(feedback_router)
-app.include_router(categorize_router)
 app.include_router(taxonomy_router)
 app.include_router(agents_router)
 app.include_router(synthetic_router)

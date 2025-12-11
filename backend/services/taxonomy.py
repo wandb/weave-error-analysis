@@ -8,14 +8,49 @@ Handles:
 - Saturation tracking
 """
 
-import json
-from typing import Optional
-from datetime import datetime
+import asyncio
+from typing import Optional, List
 
 import litellm
+from pydantic import BaseModel, Field
 
 from database import get_db, generate_id, now_iso
 from config import CATEGORIZATION_MODEL
+
+
+# =============================================================================
+# Pydantic Models for LLM Responses
+# =============================================================================
+
+class NewCategoryDetails(BaseModel):
+    """Details for a new failure mode category."""
+    name: str = Field(description="Short descriptive name")
+    description: str = Field(description="Clear description of this failure pattern")
+    severity: str = Field(description="Severity level: high, medium, or low")
+    suggested_fix: Optional[str] = Field(default=None, description="Suggestion for addressing this issue")
+
+
+class CategorySuggestion(BaseModel):
+    """LLM response for category suggestion."""
+    match_type: str = Field(description="'existing' if matches existing mode, 'new' if new category needed")
+    existing_mode_id: Optional[str] = Field(default=None, description="ID of matching mode if match_type is existing")
+    confidence: float = Field(ge=0.0, le=1.0, description="Confidence score 0.0-1.0")
+    reasoning: str = Field(description="Brief explanation of the decision")
+    new_category: Optional[NewCategoryDetails] = Field(default=None, description="New category details if match_type is new")
+
+
+class TaxonomyImprovementSuggestion(BaseModel):
+    """A single taxonomy improvement suggestion."""
+    type: str = Field(description="Type of improvement: merge, split, or rename")
+    mode_ids: List[str] = Field(default_factory=list, description="IDs of affected failure modes")
+    reason: str = Field(description="Why this change is recommended")
+    suggested_name: Optional[str] = Field(default=None, description="New name if applicable")
+
+
+class TaxonomyImprovementsResponse(BaseModel):
+    """LLM response for taxonomy improvements."""
+    suggestions: List[TaxonomyImprovementSuggestion] = Field(default_factory=list)
+    overall_assessment: str = Field(description="Brief summary of taxonomy health")
 
 
 # ============================================================================
@@ -557,7 +592,7 @@ class TaxonomyService:
         
         if not failure_modes:
             # No existing modes, suggest a new one
-            return await self._suggest_new_category(note_content)
+            return await self._suggest_new_category(note_content, note_id)
         
         # Build prompt for semantic matching
         modes_text = "\n".join([
@@ -565,78 +600,76 @@ class TaxonomyService:
             for m in failure_modes
         ])
         
-        prompt = f"""You are analyzing failure modes in an AI system.
-
-Given this observation/note about an AI failure:
+        messages = [
+            {
+                "role": "system", 
+                "content": """You are analyzing failure modes in an AI system.
+Be conservative about creating new categories. Only suggest a new category if the note describes a fundamentally different type of failure."""
+            },
+            {
+                "role": "user",
+                "content": f"""Given this observation/note about an AI failure:
 "{note_content}"
 
 And these existing failure mode categories:
 {modes_text}
 
-Does this note fit into one of the existing categories, or does it represent a NEW type of failure?
+Does this note fit into one of the existing categories, or does it represent a NEW type of failure?"""
+            }
+        ]
 
-Respond in JSON format:
-{{
-    "match_type": "existing" | "new",
-    "existing_mode_id": "id if match_type is existing, null otherwise",
-    "confidence": 0.0-1.0,
-    "reasoning": "Brief explanation",
-    "new_category": {{
-        "name": "Only if match_type is new",
-        "description": "Only if match_type is new",
-        "severity": "high|medium|low",
-        "suggested_fix": "Optional suggestion"
-    }}
-}}
+        # Use async to_thread for non-blocking LLM call
+        response = await asyncio.to_thread(
+            litellm.completion,
+            model=CATEGORIZATION_MODEL,
+            messages=messages,
+            response_format=CategorySuggestion,  # Use Pydantic model for structured output
+            temperature=0.3
+        )
+        
+        # Parse response using Pydantic model
+        content = response.choices[0].message.content
+        result = CategorySuggestion.model_validate_json(content)
+        
+        # Convert to dict and add note_id
+        result_dict = result.model_dump()
+        result_dict["note_id"] = note_id
+        return result_dict
 
-Be conservative about creating new categories. Only suggest a new category if the note describes a fundamentally different type of failure."""
-
-        try:
-            response = litellm.completion(
-                model=CATEGORIZATION_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"}
-            )
-            
-            result = json.loads(response.choices[0].message.content)
-            result["note_id"] = note_id
-            return result
-            
-        except Exception as e:
-            raise RuntimeError(f"Failed to suggest category for note {note_id}: {str(e)}")
-    
-    async def _suggest_new_category(self, note_content: str) -> dict:
+    async def _suggest_new_category(self, note_content: str, note_id: Optional[str] = None) -> dict:
         """Suggest a new failure mode category for a note."""
-        prompt = f"""You are analyzing failure modes in an AI system.
-
-Given this observation/note about an AI failure:
+        messages = [
+            {
+                "role": "system",
+                "content": "You are analyzing failure modes in an AI system. Create a new failure mode category for the given issue."
+            },
+            {
+                "role": "user",
+                "content": f"""Given this observation/note about an AI failure:
 "{note_content}"
 
-Create a failure mode category for this issue.
+Create a failure mode category for this issue. Since there are no existing categories, this will be the first one."""
+            }
+        ]
 
-Respond in JSON format:
-{{
-    "match_type": "new",
-    "existing_mode_id": null,
-    "confidence": 1.0,
-    "reasoning": "First failure mode being created",
-    "new_category": {{
-        "name": "Short descriptive name",
-        "description": "Clear description of this failure pattern",
-        "severity": "high|medium|low",
-        "suggested_fix": "Brief suggestion for addressing this"
-    }}
-}}"""
-
-        try:
-            response = litellm.completion(
-                model=CATEGORIZATION_MODEL,
-                messages=[{"role": "user", "content": prompt}],
-                response_format={"type": "json_object"}
-            )
-            return json.loads(response.choices[0].message.content)
-        except Exception as e:
-            raise RuntimeError(f"Failed to suggest new category: {str(e)}")
+        # Use async to_thread for non-blocking LLM call
+        response = await asyncio.to_thread(
+            litellm.completion,
+            model=CATEGORIZATION_MODEL,
+            messages=messages,
+            response_format=CategorySuggestion,  # Use Pydantic model for structured output
+            temperature=0.3
+        )
+        
+        # Parse response using Pydantic model
+        content = response.choices[0].message.content
+        result = CategorySuggestion.model_validate_json(content)
+        
+        # Convert to dict and add note_id if provided
+        result_dict = result.model_dump()
+        if note_id:
+            result_dict["note_id"] = note_id
+        return result_dict
     
     async def auto_categorize_notes(self, note_ids: Optional[list[str]] = None) -> dict:
         """
@@ -1137,6 +1170,71 @@ Respond in JSON format:
             )
         
         return results
+    
+    # ------------------------------------------------------------------------
+    # Taxonomy Improvement Suggestions
+    # ------------------------------------------------------------------------
+    
+    async def suggest_taxonomy_improvements(self) -> dict:
+        """
+        Analyze the current taxonomy and suggest improvements.
+        
+        Looks for:
+        - Categories that could be merged (too similar)
+        - Categories that might need splitting (too broad)
+        - Naming improvements
+        
+        Returns:
+            Dict with suggestions list and overall assessment
+        """
+        modes = self.get_all_failure_modes()
+        
+        if len(modes) < 2:
+            return {
+                "suggestions": [],
+                "overall_assessment": "Need at least 2 failure modes to analyze taxonomy"
+            }
+        
+        modes_text = "\n".join([
+            f"- ID: {m.id}\n  Name: {m.name}\n  Description: {m.description}\n  Notes count: {m.times_seen}"
+            for m in modes
+        ])
+        
+        messages = [
+            {
+                "role": "system",
+                "content": """You are analyzing a failure mode taxonomy for an AI system.
+Suggest improvements to make the taxonomy cleaner and more actionable.
+Look for categories that are too similar (should merge), too broad (should split), or have unclear naming.
+If the taxonomy looks good, return an empty suggestions array."""
+            },
+            {
+                "role": "user",
+                "content": f"""Analyze this failure mode taxonomy:
+
+{modes_text}
+
+Suggest improvements focusing on:
+1. Categories that are too similar and should be merged
+2. Categories that seem too broad and might need splitting  
+3. Naming that could be clearer or more specific"""
+            }
+        ]
+        
+        # Use async to_thread for non-blocking LLM call
+        response = await asyncio.to_thread(
+            litellm.completion,
+            model=CATEGORIZATION_MODEL,
+            messages=messages,
+            response_format=TaxonomyImprovementsResponse,  # Use Pydantic model
+            temperature=0.3
+        )
+        
+        # Parse response using Pydantic model
+        content = response.choices[0].message.content
+        result = TaxonomyImprovementsResponse.model_validate_json(content)
+        
+        return result.model_dump()
     
     def get_taxonomy_summary(self) -> dict:
         """Get a full summary of the taxonomy."""

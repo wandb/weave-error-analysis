@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from config import PROJECT_ID
+from config import get_target_project_id
 from models import FeedbackRequest
 from services.weave_client import weave_client
 
@@ -80,7 +80,7 @@ async def get_feedback_summary(
                         "note": note_text,
                         "call_id": call_id,
                         "weave_ref": weave_ref,
-                        "weave_url": f"https://wandb.ai/{PROJECT_ID}/weave/calls/{call_id}" if call_id else "",
+                        "weave_url": f"https://wandb.ai/{get_target_project_id()}/weave/calls/{call_id}" if call_id else "",
                         "created_at": fb.get("created_at")
                     })
 

@@ -1,31 +1,63 @@
 """
 Weave API client for interacting with the Weave Trace API.
+
+This client fetches traces from the user's TARGET project (their agent's traces),
+NOT from the tool's internal project. The target project is configured by the
+user via Settings UI or environment variables.
 """
 
 import base64
 import json
 import httpx
 
-from config import WANDB_API_KEY, WEAVE_API_BASE, PROJECT_ID
+from config import WEAVE_API_BASE, get_wandb_api_key, get_target_project_id
 from utils import truncate_dict, truncate_value
 
 
 class WeaveClient:
-    """Client for Weave Trace API operations."""
+    """
+    Client for Weave Trace API operations.
+    
+    Fetches data from the user's TARGET project (their agent traces).
+    Project ID is resolved dynamically from settings on each call.
+    """
 
     def __init__(self):
         self.base_url = WEAVE_API_BASE
-        self.project_id = PROJECT_ID
+
+    @property
+    def project_id(self) -> str:
+        """
+        Get the TARGET project ID dynamically from settings.
+        
+        This allows the project to be changed via Settings UI without restart.
+        """
+        return get_target_project_id()
 
     def _get_auth_header(self) -> dict:
         """Get HTTP Basic auth header for Weave API."""
-        if not WANDB_API_KEY:
+        api_key = get_wandb_api_key()
+        if not api_key:
             return {}
-        auth = base64.b64encode(f"api:{WANDB_API_KEY}".encode()).decode()
+        auth = base64.b64encode(f"api:{api_key}".encode()).decode()
         return {
             "Authorization": f"Basic {auth}",
             "Content-Type": "application/json"
         }
+    
+    def _check_configured(self) -> None:
+        """
+        Check if the target project is configured.
+        
+        Raises:
+            ValueError: If target project is not configured
+        """
+        if not self.project_id:
+            raise ValueError(
+                "Weave target project not configured. "
+                "Please configure 'weave_entity' and 'weave_project' in Settings "
+                "to point to the Weave project where your agent logs traces."
+            )
 
     async def query_calls(
         self,
@@ -37,7 +69,9 @@ class WeaveClient:
         sort_field: str = "started_at",
         sort_direction: str = "desc"
     ) -> list[dict]:
-        """Query calls from Weave API."""
+        """Query calls from the user's TARGET Weave project."""
+        self._check_configured()
+        
         request_body = {
             "project_id": self.project_id,
             "limit": limit,
@@ -76,7 +110,9 @@ class WeaveClient:
             return calls
 
     async def read_call(self, call_id: str) -> dict | None:
-        """Read a single call by ID."""
+        """Read a single call by ID from the user's TARGET Weave project."""
+        self._check_configured()
+        
         request_body = {
             "project_id": self.project_id,
             "id": call_id
@@ -123,7 +159,9 @@ class WeaveClient:
         weave_ref: str | None = None,
         limit: int = 500
     ) -> list[dict]:
-        """Query feedback from Weave API."""
+        """Query feedback from the user's TARGET Weave project."""
+        self._check_configured()
+        
         request_body = {
             "project_id": self.project_id,
             "limit": limit
@@ -178,7 +216,9 @@ class WeaveClient:
         feedback_type: str,
         payload: dict
     ) -> dict:
-        """Create feedback for a call."""
+        """Create feedback for a call in the user's TARGET Weave project."""
+        self._check_configured()
+        
         weave_ref = f"weave:///{self.project_id}/call/{call_id}"
 
         request_body = {

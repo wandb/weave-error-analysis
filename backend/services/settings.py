@@ -59,7 +59,7 @@ DEFAULT_SETTINGS = {
         "description": "Custom API base URL (optional, for proxies or custom endpoints)"
     },
     
-    # Weave Settings
+    # Weave Settings (for connecting to USER'S agent project)
     "weave_api_key": {
         "value": "",
         "is_secret": True,
@@ -68,12 +68,12 @@ DEFAULT_SETTINGS = {
     "weave_entity": {
         "value": "",
         "is_secret": False,
-        "description": "W&B entity (username or team)"
+        "description": "W&B entity (username or team) where your agent's traces are logged"
     },
     "weave_project": {
-        "value": "error-analysis-demo",
+        "value": "",
         "is_secret": False,
-        "description": "Weave project name"
+        "description": "Weave project name where your agent logs traces (e.g., 'customer-support-agent')"
     },
     
     # AI Suggestions Settings

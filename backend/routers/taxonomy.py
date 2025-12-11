@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from services.taxonomy import taxonomy_service
 from services.weave_client import weave_client
-from config import PROJECT_ID
+from config import get_target_project_id
 
 
 router = APIRouter(prefix="/api/taxonomy", tags=["taxonomy"])
@@ -258,7 +258,7 @@ async def sync_notes_from_weave():
                         "note": note_text,
                         "call_id": call_id,
                         "weave_ref": weave_ref,
-                        "weave_url": f"https://wandb.ai/{PROJECT_ID}/weave/calls/{call_id}" if call_id else "",
+                        "weave_url": f"https://wandb.ai/{get_target_project_id()}/weave/calls/{call_id}" if call_id else "",
                         "created_at": fb.get("created_at")
                     })
         

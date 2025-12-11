@@ -18,7 +18,7 @@ import weave
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from config import CORS_ORIGINS, CORS_ALLOW_ALL, PROJECT_ID, WANDB_ENTITY, WEAVE_PROJECT
+from config import CORS_ORIGINS, CORS_ALLOW_ALL, get_target_project_id, get_tool_project_id
 from logger import setup_logging, get_logger
 
 # Initialize logging before anything else
@@ -39,29 +39,31 @@ from routers import (
 
 
 # =============================================================================
-# Weave Initialization
+# Weave Initialization (Tool Project - for internal traces/prompts)
 # =============================================================================
 
 def init_weave():
     """
-    Initialize Weave for tracing and prompt management.
+    Initialize Weave for the TOOL's internal tracing and prompt management.
     
-    This should be called once at startup. Uses WANDB_ENTITY and WEAVE_PROJECT
-    from environment/config to determine the project.
+    IMPORTANT: This initializes the TOOL project (error-analysis-tool), NOT
+    the user's target project. The target project is accessed via WeaveClient
+    using direct API calls with the user-configured project ID.
+    
+    This separation ensures:
+    - Tool traces (prompt management, analysis) don't pollute user's agent project
+    - User can analyze their agent project without tool interference
+    - Prompt versions are stored in a dedicated tool project
     """
-    project_name = "error-analysis-dev"
-    
-    if WANDB_ENTITY:
-        project_id = f"{WANDB_ENTITY}/{project_name}"
-    else:
-        project_id = project_name
+    tool_project_id = get_tool_project_id()
     
     try:
-        weave.init(project_id)
-        logger.info(f"Weave initialized: https://wandb.ai/{project_id}/weave")
+        weave.init(tool_project_id)
+        logger.info(f"Weave (tool project) initialized: https://wandb.ai/{tool_project_id}/weave")
+        logger.info("Note: User's agent traces are fetched via separate API calls to their configured project")
         return True
     except Exception as e:
-        logger.warning(f"Failed to initialize Weave: {e}")
+        logger.warning(f"Failed to initialize Weave tool project: {e}")
         return False
 
 
@@ -144,10 +146,12 @@ app.include_router(prompts_router)  # Prompt management
 @app.get("/")
 async def root():
     """Health check endpoint."""
+    target_project = get_target_project_id()
     return {
         "status": "healthy",
         "service": "error-analysis-backend",
-        "project": PROJECT_ID
+        "tool_project": get_tool_project_id(),
+        "target_project": target_project or "(not configured - set in Settings)",
     }
 
 

@@ -47,7 +47,7 @@ const SETTING_PLACEHOLDERS: Record<string, string> = {
   llm_api_base: "https://api.openai.com/v1 (optional)",
   weave_api_key: "Your W&B API key",
   weave_entity: "Your W&B username or team",
-  weave_project: "error-analysis-demo",
+  weave_project: "your-agent-project (where your agent logs traces)",
   auto_review_model: "openai/gpt-5.1",
   auto_review_concurrency: "10",
 };

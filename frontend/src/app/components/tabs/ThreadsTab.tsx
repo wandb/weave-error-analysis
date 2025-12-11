@@ -40,6 +40,7 @@ import { useApp } from "../../context/AppContext";
 import { formatRelativeTime } from "../../utils/formatters";
 import { ConversationMessage } from "../ConversationMessage";
 import { Panel, PanelHeader, Badge, ProgressBar, LoadingCards, NoThreadsFound, SelectPrompt, DualRangeSlider } from "../ui";
+import { EditPromptButton } from "../PromptEditDrawer";
 import * as api from "../../lib/api";
 import type { TraceSuggestion } from "../../types";
 
@@ -943,6 +944,11 @@ export function ThreadsTab() {
               <span className="text-xs text-ink-400">
                 {batchReviewProgress.reviewed_sessions} / {batchReviewProgress.total_sessions} reviewed
               </span>
+              <EditPromptButton
+                promptId="trace_analysis"
+                size="sm"
+                variant="outline"
+              />
               <button
                 onClick={handleAnalyzeBatch}
                 disabled={analyzingBatch}
@@ -1588,23 +1594,30 @@ export function ThreadsTab() {
                         </Badge>
                       )}
                     </h4>
-                    <button
-                      onClick={handleAnalyzeSession}
-                      disabled={analyzingSession}
-                      className="text-xs text-ink-400 hover:text-accent-plum flex items-center gap-1 px-2 py-1 rounded border border-ink-700 hover:border-accent-plum/50 transition-colors disabled:opacity-50"
-                    >
-                      {analyzingSession ? (
-                        <>
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                          Analyzing...
-                        </>
-                      ) : (
-                        <>
-                          <Sparkles className="w-3 h-3" />
-                          Analyze
-                        </>
-                      )}
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <EditPromptButton
+                        promptId="trace_analysis"
+                        size="sm"
+                        variant="ghost"
+                      />
+                      <button
+                        onClick={handleAnalyzeSession}
+                        disabled={analyzingSession}
+                        className="text-xs text-ink-400 hover:text-accent-plum flex items-center gap-1 px-2 py-1 rounded border border-ink-700 hover:border-accent-plum/50 transition-colors disabled:opacity-50"
+                      >
+                        {analyzingSession ? (
+                          <>
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            Analyzing...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-3 h-3" />
+                            Analyze
+                          </>
+                        )}
+                      </button>
+                    </div>
                   </div>
 
                   {loadingSuggestions ? (

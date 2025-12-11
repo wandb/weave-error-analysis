@@ -11,8 +11,8 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load .env from parent directory (project root)
-env_path = Path(__file__).parent.parent / ".env"
+# Load .env from backend directory
+env_path = Path(__file__).parent / ".env"
 load_dotenv(env_path)
 
 
@@ -50,7 +50,7 @@ def get_wandb_entity() -> str:
 
 
 def get_weave_project() -> str:
-    return get_config_value("weave_project", "WEAVE_PROJECT", "error-analysis-demo")
+    return get_config_value("weave_project", "WEAVE_PROJECT", "error-analysis-dev")
 
 
 def get_project_id() -> str:
@@ -62,7 +62,7 @@ def get_project_id() -> str:
 # Static values from env (for backwards compatibility)
 WANDB_API_KEY = os.getenv("WANDB_API_KEY")
 WANDB_ENTITY = os.getenv("WANDB_ENTITY")
-WEAVE_PROJECT = os.getenv("WEAVE_PROJECT", "error-analysis-demo")
+WEAVE_PROJECT = os.getenv("WEAVE_PROJECT", "error-analysis-dev")
 PROJECT_ID = f"{WANDB_ENTITY}/{WEAVE_PROJECT}" if WANDB_ENTITY else WEAVE_PROJECT
 
 # Weave Trace API
@@ -88,4 +88,3 @@ else:
 
 # For SSE streaming, we also need to handle dynamic origins (same hostname, different port)
 CORS_ALLOW_ALL = os.getenv("CORS_ALLOW_ALL", "false").lower() == "true"
-

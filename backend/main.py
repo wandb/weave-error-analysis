@@ -4,30 +4,21 @@ Backend Service for Error Analysis Workflow
 Uses Weave Trace API (https://trace.wandb.ai) to query traces and feedback.
 
 Key Features:
-- Background session sync from Weave to local SQLite (Phase 2)
+- Weave integration for tracing and prompt versioning
+- Background session sync from Weave to local SQLite
 - Fast, local-first session browsing
 - Auto-sync after batch execution
 """
 
-# =============================================================================
-# Disable Weave/Wandb Tracing for Backend LLM Calls
-# =============================================================================
-# The backend uses litellm for internal LLM calls (taxonomy categorization, etc.)
-# We don't want these internal calls traced to Weave - only agent traces should appear.
-#
-# IMPORTANT: These env vars must be set BEFORE importing weave/wandb/litellm:
-# - WANDB_MODE=disabled prevents wandb SDK from logging
-# - This does NOT affect our WeaveClient (which uses raw HTTP with API key)
 import os
-os.environ["WEAVE_DISABLED"] = "true"  # Disable wandb tracing for this process
-
 import asyncio
 from contextlib import asynccontextmanager
 
+import weave
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from config import CORS_ORIGINS, CORS_ALLOW_ALL, PROJECT_ID
+from config import CORS_ORIGINS, CORS_ALLOW_ALL, PROJECT_ID, WANDB_ENTITY, WEAVE_PROJECT
 from logger import setup_logging, get_logger
 
 # Initialize logging before anything else
@@ -48,6 +39,33 @@ from routers import (
 
 
 # =============================================================================
+# Weave Initialization
+# =============================================================================
+
+def init_weave():
+    """
+    Initialize Weave for tracing and prompt management.
+    
+    This should be called once at startup. Uses WANDB_ENTITY and WEAVE_PROJECT
+    from environment/config to determine the project.
+    """
+    project_name = "error-analysis-dev"
+    
+    if WANDB_ENTITY:
+        project_id = f"{WANDB_ENTITY}/{project_name}"
+    else:
+        project_id = project_name
+    
+    try:
+        weave.init(project_id)
+        logger.info(f"Weave initialized: https://wandb.ai/{project_id}/weave")
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to initialize Weave: {e}")
+        return False
+
+
+# =============================================================================
 # Lifespan: Startup and Shutdown Events
 # =============================================================================
 
@@ -57,17 +75,21 @@ async def lifespan(app: FastAPI):
     FastAPI lifespan context manager for startup/shutdown events.
     
     On startup:
+    - Initializes Weave for tracing
     - Initializes prompt manager
     - Triggers background incremental sync to refresh sessions cache
     """
     # --- STARTUP ---
     logger.info("Starting Error Analysis Backend...")
     
-    # Initialize prompt manager
+    # Initialize Weave (single init for the entire backend)
+    weave_enabled = init_weave()
+    
+    # Initialize prompt manager (will use existing Weave init)
     try:
         from prompts import prompt_manager
-        prompt_manager.initialize()
-        logger.info("Prompt manager initialized")
+        await prompt_manager.initialize(enable_weave=weave_enabled)
+        logger.info(f"Prompt manager initialized ({len(prompt_manager.get_all_prompts())} prompts)")
     except Exception as e:
         logger.warning(f"Failed to initialize prompt manager: {e}")
     

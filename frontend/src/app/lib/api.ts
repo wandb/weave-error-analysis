@@ -872,3 +872,74 @@ export async function fetchSuggestionHistory(
   return response.json();
 }
 
+// ============================================================================
+// Prompts API (Phase 3 - Prompt Management)
+// ============================================================================
+
+import type {
+  PromptConfig,
+  PromptsListResponse,
+  PromptVersionsResponse,
+} from "../types";
+
+export async function fetchPrompts(): Promise<PromptsListResponse> {
+  const response = await fetch(`${API_BASE}/prompts`);
+  return response.json();
+}
+
+export async function fetchPromptsByFeature(feature: string): Promise<{ prompts: PromptConfig[] }> {
+  const response = await fetch(`${API_BASE}/prompts/by-feature/${feature}`);
+  return response.json();
+}
+
+export async function fetchPrompt(promptId: string): Promise<PromptConfig> {
+  const response = await fetch(`${API_BASE}/prompts/${promptId}`);
+  if (!response.ok) {
+    throw new Error("Prompt not found");
+  }
+  return response.json();
+}
+
+export async function updatePrompt(
+  promptId: string,
+  systemPrompt: string | null,
+  userPromptTemplate: string
+): Promise<PromptConfig> {
+  const response = await fetch(`${API_BASE}/prompts/${promptId}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      system_prompt: systemPrompt,
+      user_prompt_template: userPromptTemplate,
+    }),
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to update prompt");
+  }
+  
+  return response.json();
+}
+
+export async function resetPrompt(promptId: string): Promise<PromptConfig> {
+  const response = await fetch(`${API_BASE}/prompts/${promptId}/reset`, {
+    method: "POST",
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to reset prompt");
+  }
+  
+  return response.json();
+}
+
+export async function fetchPromptVersions(promptId: string): Promise<PromptVersionsResponse> {
+  const response = await fetch(`${API_BASE}/prompts/${promptId}/versions`);
+  if (!response.ok) {
+    throw new Error("Failed to fetch prompt versions");
+  }
+  return response.json();
+}
+

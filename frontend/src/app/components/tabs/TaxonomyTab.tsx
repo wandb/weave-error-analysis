@@ -39,6 +39,7 @@ import {
   calculateDistributionPercent,
 } from "../../utils/formatters";
 import { Panel, PanelHeader, Badge, ProgressBar, Modal, StatusBadge } from "../ui";
+import { EditPromptButton } from "../PromptEditDrawer";
 import { SaturationChart } from "../SaturationChart";
 import type { TaxonomyNote, AISuggestion, FailureMode, FailureModeStatus } from "../../types";
 import * as api from "../../lib/api";
@@ -583,18 +584,25 @@ export function TaxonomyTab() {
                 <RefreshCw className={`w-4 h-4 text-teal ${syncing ? "animate-spin" : ""}`} />
                 Sync from Weave
                       </button>
-                      <button
-                onClick={autoCategorize}
-                disabled={categorizing || !taxonomy?.uncategorized_notes.length}
-                className="w-full btn-ghost text-sm flex items-center gap-2 justify-start px-3 py-2"
-              >
-                {categorizing ? (
-                  <RefreshCw className="w-4 h-4 text-gold animate-spin" />
-                ) : (
-                  <Sparkles className="w-4 h-4 text-gold" />
-                )}
-                Auto-Categorize
-              </button>
+                      <div className="flex items-center gap-1">
+                <button
+                  onClick={autoCategorize}
+                  disabled={categorizing || !taxonomy?.uncategorized_notes.length}
+                  className="flex-1 btn-ghost text-sm flex items-center gap-2 justify-start px-3 py-2"
+                >
+                  {categorizing ? (
+                    <RefreshCw className="w-4 h-4 text-gold animate-spin" />
+                  ) : (
+                    <Sparkles className="w-4 h-4 text-gold" />
+                  )}
+                  Auto-Categorize
+                </button>
+                <EditPromptButton
+                  promptId="category_suggestion"
+                  size="sm"
+                  variant="ghost"
+                />
+              </div>
                   <button
                 onClick={() => setShowCreateModal(true)}
                 className="w-full btn-ghost text-sm flex items-center gap-2 justify-start px-3 py-2"

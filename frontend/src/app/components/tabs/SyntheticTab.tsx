@@ -31,6 +31,7 @@ import {
 import { useApp } from "../../context/AppContext";
 import { formatRelativeTime } from "../../utils/formatters";
 import { Panel, Badge, StatusBadge, SelectPrompt, ProgressBar } from "../ui";
+import { EditPromptButton } from "../PromptEditDrawer";
 import * as api from "../../lib/api";
 import { getBackendUrl } from "../../lib/api";
 import type { ExecutionProgress, BatchDetail } from "../../types";
@@ -980,6 +981,22 @@ Return ONLY the user message, nothing else. No quotes around it.`);
           <span>Advanced</span>
           {showAdvancedSettings ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                 </button>
+
+        {/* Edit Prompt Buttons - for customizing LLM prompts */}
+        <div className="flex items-center gap-1 border-l border-moon-700 pl-2 ml-1">
+          <EditPromptButton
+            promptId={useDimensions ? "tuple_generation" : "tuple_generation_free"}
+            label="Tuples"
+            size="sm"
+            variant="ghost"
+          />
+          <EditPromptButton
+            promptId="query_generation"
+            label="Queries"
+            size="sm"
+            variant="ghost"
+          />
+        </div>
 
         {/* Spacer */}
         <div className="flex-1" />

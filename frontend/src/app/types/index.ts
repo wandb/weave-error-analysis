@@ -551,3 +551,38 @@ export interface WorkflowProgress {
   hasFailureModes: boolean;
 }
 
+// ============================================================================
+// Prompt Management Types (Phase 3)
+// ============================================================================
+
+export interface PromptConfig {
+  id: string;
+  name: string;
+  description: string;
+  feature: 'suggestions' | 'synthetic' | 'taxonomy';
+  system_prompt: string | null;
+  user_prompt_template: string;
+  available_variables: string[];
+  version: string | null;
+  is_default: boolean;
+}
+
+export interface PromptVersion {
+  version: string;
+  created_at: string;
+  system_prompt: string | null;
+  user_prompt_template: string;
+  is_current: boolean;
+}
+
+export interface PromptsListResponse {
+  prompts: PromptConfig[];
+  weave_enabled: boolean;
+  weave_project_url: string | null;
+}
+
+export interface PromptVersionsResponse {
+  versions: PromptVersion[];
+  weave_versions_url: string | null;
+}
+

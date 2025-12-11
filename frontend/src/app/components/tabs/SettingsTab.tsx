@@ -15,9 +15,16 @@ import {
   AlertTriangle,
   CheckCircle2,
   Loader2,
+  Sparkles,
+  ChevronRight,
+  ExternalLink,
+  MessageSquare,
+  Zap,
+  BarChart3,
 } from "lucide-react";
 import { Panel, PanelHeader, Badge, StatusBadge } from "../ui";
-import type { SettingsGroup, ConfigStatus, TestConnectionResult } from "../../types";
+import { PromptEditDrawer } from "../PromptEditDrawer";
+import type { SettingsGroup, ConfigStatus, TestConnectionResult, PromptConfig, PromptsListResponse } from "../../types";
 import * as api from "../../lib/api";
 
 // Label mappings for better display
@@ -284,6 +291,9 @@ export function SettingsTab() {
         })}
       </div>
 
+      {/* Prompt Management Section */}
+      <PromptsSection />
+
       {/* Help Text */}
       <Panel>
         <PanelHeader className="flex items-center gap-2">
@@ -481,6 +491,242 @@ function SettingField({
       </div>
       {description && <p className="text-xs text-ink-500 mt-1">{description}</p>}
     </div>
+  );
+}
+
+// ============================================================================
+// Prompts Section - Prompt Management UI
+// ============================================================================
+
+const FEATURE_CONFIG = {
+  suggestions: {
+    label: "Trace Analysis",
+    description: "Prompts for analyzing traces and finding quality issues",
+    icon: MessageSquare,
+    color: "#10BFCC",
+  },
+  taxonomy: {
+    label: "Taxonomy",
+    description: "Prompts for categorizing and organizing failure modes",
+    icon: BarChart3,
+    color: "#FCBC32",
+  },
+  synthetic: {
+    label: "Synthetic Data",
+    description: "Prompts for generating test cases and queries",
+    icon: Zap,
+    color: "#8F949E",
+  },
+};
+
+function PromptsSection() {
+  const [promptsData, setPromptsData] = useState<PromptsListResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadPrompts();
+  }, []);
+
+  const loadPrompts = async () => {
+    setLoading(true);
+    try {
+      const data = await api.fetchPrompts();
+      setPromptsData(data);
+    } catch (error) {
+      console.error("Failed to load prompts:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handlePromptSaved = () => {
+    // Reload prompts to get updated state
+    loadPrompts();
+  };
+
+  if (loading) {
+    return (
+      <Panel>
+        <PanelHeader icon={<Sparkles className="w-5 h-5 text-gold" />} title="Prompt Management" />
+        <div className="flex items-center justify-center h-32">
+          <Loader2 className="w-6 h-6 text-ink-400 animate-spin" />
+        </div>
+      </Panel>
+    );
+  }
+
+  if (!promptsData) {
+    return null;
+  }
+
+  // Group prompts by feature
+  const promptsByFeature: Record<string, PromptConfig[]> = {
+    suggestions: [],
+    taxonomy: [],
+    synthetic: [],
+  };
+
+  for (const prompt of promptsData.prompts) {
+    if (promptsByFeature[prompt.feature]) {
+      promptsByFeature[prompt.feature].push(prompt);
+    }
+  }
+
+  return (
+    <>
+      <Panel>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div
+              className="w-10 h-10 rounded-lg flex items-center justify-center"
+              style={{ backgroundColor: "rgba(252, 188, 50, 0.15)" }}
+            >
+              <Sparkles className="w-5 h-5" style={{ color: "#FCBC32" }} />
+            </div>
+            <div>
+              <h3 className="font-display text-lg text-sand-100">Prompt Management</h3>
+              <p className="text-sm text-ink-400">
+                Customize the AI prompts used throughout the application
+              </p>
+            </div>
+          </div>
+
+          {promptsData.weave_project_url && (
+            <a
+              href={promptsData.weave_project_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 text-sm text-teal hover:text-teal/80 transition-colors"
+            >
+              <ExternalLink className="w-4 h-4" />
+              View in Weave
+            </a>
+          )}
+        </div>
+
+        {/* Weave Status Indicator */}
+        <div
+          className="flex items-center gap-2 mb-6 px-3 py-2 rounded-lg"
+          style={{
+            backgroundColor: promptsData.weave_enabled
+              ? "rgba(16, 191, 204, 0.1)"
+              : "rgba(143, 148, 158, 0.1)",
+            border: `1px solid ${promptsData.weave_enabled ? "rgba(16, 191, 204, 0.2)" : "rgba(143, 148, 158, 0.2)"}`,
+          }}
+        >
+          <div
+            className="w-2 h-2 rounded-full"
+            style={{
+              backgroundColor: promptsData.weave_enabled ? "#10BFCC" : "#8F949E",
+            }}
+          />
+          <span className="text-xs" style={{ color: promptsData.weave_enabled ? "#10BFCC" : "#8F949E" }}>
+            {promptsData.weave_enabled
+              ? "Prompt versions are tracked in Weave"
+              : "Weave versioning not connected"}
+          </span>
+        </div>
+
+        {/* Prompt Groups */}
+        <div className="space-y-4">
+          {(["suggestions", "taxonomy", "synthetic"] as const).map((feature) => {
+            const config = FEATURE_CONFIG[feature];
+            const prompts = promptsByFeature[feature];
+            const Icon = config.icon;
+
+            if (prompts.length === 0) return null;
+
+            return (
+              <div
+                key={feature}
+                className="rounded-lg overflow-hidden"
+                style={{
+                  backgroundColor: "rgba(37, 40, 48, 0.5)",
+                  border: "1px solid #333333",
+                }}
+              >
+                {/* Feature Header */}
+                <div
+                  className="flex items-center gap-3 px-4 py-3"
+                  style={{ borderBottom: "1px solid #333333" }}
+                >
+                  <Icon className="w-4 h-4" style={{ color: config.color }} />
+                  <div className="flex-1">
+                    <span className="text-sm font-medium text-sand-100">{config.label}</span>
+                    <span className="text-xs text-ink-400 ml-2">
+                      {prompts.length} prompt{prompts.length !== 1 ? "s" : ""}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Prompts List */}
+                <div className="divide-y divide-moon-700/50">
+                  {prompts.map((prompt) => (
+                    <PromptListItem
+                      key={prompt.id}
+                      prompt={prompt}
+                      featureColor={config.color}
+                      onEdit={() => setEditingPromptId(prompt.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Panel>
+
+      {/* Edit Drawer */}
+      <PromptEditDrawer
+        isOpen={!!editingPromptId}
+        onClose={() => setEditingPromptId(null)}
+        promptId={editingPromptId || ""}
+        onSave={handlePromptSaved}
+      />
+    </>
+  );
+}
+
+interface PromptListItemProps {
+  prompt: PromptConfig;
+  featureColor: string;
+  onEdit: () => void;
+}
+
+function PromptListItem({ prompt, featureColor, onEdit }: PromptListItemProps) {
+  return (
+    <button
+      onClick={onEdit}
+      className="w-full flex items-center justify-between px-4 py-3 text-left transition-colors hover:bg-moon-800/30 group"
+    >
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-sand-100">{prompt.name}</span>
+          {!prompt.is_default && (
+            <span
+              className="text-[10px] px-1.5 py-0.5 rounded font-medium uppercase tracking-wide"
+              style={{
+                backgroundColor: "rgba(252, 188, 50, 0.15)",
+                color: "#FCBC32",
+              }}
+            >
+              Customized
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-ink-400 truncate mt-0.5">{prompt.description}</p>
+      </div>
+      <div className="flex items-center gap-2 ml-3">
+        <span
+          className="text-xs opacity-0 group-hover:opacity-100 transition-opacity"
+          style={{ color: featureColor }}
+        >
+          Edit
+        </span>
+        <ChevronRight className="w-4 h-4 text-ink-400 group-hover:text-sand-200 transition-colors" />
+      </div>
+    </button>
   );
 }
 

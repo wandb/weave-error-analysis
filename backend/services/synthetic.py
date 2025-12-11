@@ -14,9 +14,8 @@ from typing import List, Dict, Any, Optional, AsyncGenerator
 from datetime import datetime
 from pydantic import BaseModel
 
-import litellm
-
 from services.agent_info import AgentInfo, TestingDimension
+from services.llm import LLMClient
 from logger import get_logger, log_event, LOG_LLM_CONTENT
 
 logger = get_logger("synthetic")
@@ -60,17 +59,17 @@ class SyntheticGenerator:
     3. Convert tuples to natural language queries using LLM
     """
     
-    def __init__(self, agent_info: AgentInfo, llm_client=None):
+    def __init__(self, agent_info: AgentInfo, llm_client: Optional[LLMClient] = None):
         """
         Initialize the generator.
         
         Args:
             agent_info: Parsed AGENT_INFO containing testing dimensions
-            llm_client: LLM client for query generation (uses litellm if not provided)
+            llm_client: LLM client for query generation (uses default if not provided)
         """
         self.agent_info = agent_info
         self.dimensions = agent_info.testing_dimensions
-        self.llm_client = llm_client
+        self.llm = llm_client or LLMClient()
     
     def get_dimension_values(self) -> Dict[str, List[str]]:
         """Get all dimension names and their possible values."""
@@ -100,9 +99,6 @@ class SyntheticGenerator:
         Returns:
             List of DimensionTuple objects
         """
-        from litellm import acompletion
-        from services.settings import get_litellm_kwargs
-        
         use_dimensions = getattr(self, '_use_dimensions', True)
         dim_values = self.get_dimension_values()
         
@@ -181,16 +177,11 @@ Return a JSON object with a "tuples" key containing an array of test case object
                 dimensions=dim_values if use_dimensions else None
             )
 
-        # Get LLM settings
-        llm_kwargs = get_litellm_kwargs()
-
-        response = await acompletion(
-            messages=[{"role": "user", "content": prompt}],
-            response_format={"type": "json_object"},  # Use JSON mode for dynamic schemas
-            **llm_kwargs
+        # Use the LLM client for JSON mode completion
+        content = await self.llm.generate(
+            prompt=prompt,
+            json_mode=True
         )
-        
-        content = response.choices[0].message.content
         
         # Log response received
         log_event(logger, "llm.tuple_generation_response",
@@ -218,9 +209,21 @@ Return a JSON object with a "tuples" key containing an array of test case object
         
         for combo in tuples_data:
             if isinstance(combo, dict):
+                # Flatten any nested values to strings (LLM sometimes returns nested dicts)
+                flat_values = {}
+                for k, v in combo.items():
+                    if isinstance(v, str):
+                        flat_values[k] = v
+                    elif isinstance(v, dict):
+                        # For nested dicts, use the first string value or JSON stringify
+                        str_vals = [sv for sv in v.values() if isinstance(sv, str)]
+                        flat_values[k] = str_vals[0] if str_vals else json.dumps(v)
+                    else:
+                        flat_values[k] = str(v)
+                
                 tuples.append(DimensionTuple(
                     id=f"tuple_{uuid.uuid4().hex[:12]}",
-                    values=combo,
+                    values=flat_values,
                     created_at=now
                 ))
         
@@ -248,9 +251,6 @@ Return a JSON object with a "tuples" key containing an array of test case object
         Returns:
             Natural language query string
         """
-        from litellm import acompletion
-        from services.settings import get_litellm_kwargs
-        
         # Get dimension descriptions if available
         dim_descriptions = {}
         for dim in self.dimensions:
@@ -297,32 +297,25 @@ Guidelines:
 
 Return ONLY the user message, nothing else. No quotes around it."""
 
-        # Get LLM settings (this logs the resolved config)
-        llm_kwargs = get_litellm_kwargs()
-        
         log_event(logger, "llm.request_start",
             operation="query_generation",
-            model=llm_kwargs.get("model"),
+            model=self.llm.model,
             tuple_id=dimension_tuple.id,
             dimensions=list(dimension_tuple.values.keys())
         )
         
-        response = await acompletion(
-            messages=[{"role": "user", "content": prompt}],
-            **llm_kwargs
-        )
-        
-        query_text = response.choices[0].message.content.strip()
+        # Use LLM client for simple text generation
+        query_text = await self.llm.generate(prompt=prompt)
+        query_text = query_text.strip()
         
         # Remove quotes if LLM added them
         if query_text.startswith('"') and query_text.endswith('"'):
             query_text = query_text[1:-1]
         
-        # Log success with actual model used
+        # Log success
         log_extra = {
             "operation": "query_generation",
-            "requested_model": llm_kwargs.get("model"),
-            "actual_model": getattr(response, "model", "unknown"),
+            "model": self.llm.model,
             "tuple_id": dimension_tuple.id,
             "response_chars": len(query_text)
         }

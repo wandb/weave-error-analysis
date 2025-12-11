@@ -9,16 +9,14 @@ humans review faster. It uses:
 """
 
 import json
-import asyncio
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 
-import litellm
 from pydantic import BaseModel, Field
 
 from database import get_db, get_db_readonly, generate_id, now_iso
-from config import CATEGORIZATION_MODEL
 from services.settings import get_setting
+from services.llm import LLMClient
 
 
 # =============================================================================
@@ -74,8 +72,8 @@ class Suggestion(BaseModel):
 class SuggestionService:
     """Analyzes traces using agent context, taxonomy, and notes to suggest quality observations."""
     
-    def __init__(self, model: str = None):
-        self.model = model or CATEGORIZATION_MODEL
+    def __init__(self, model: Optional[str] = None):
+        self.llm = LLMClient(model=model) if model else LLMClient()
     
     # -------------------------------------------------------------------------
     # Context Gathering
@@ -313,17 +311,12 @@ If the response looks good, set has_issue to false."""
         # try:
         messages = self._build_analysis_prompt(context, trace_data)
         
-        response = await asyncio.to_thread(
-            litellm.completion,
-            model=self.model,
+        # Use the LLM client abstraction for structured output
+        result = await self.llm.complete(
             messages=messages,
-            response_format=AnalysisResult,  # Use Pydantic model for structured output
+            response_model=AnalysisResult,
             temperature=0.3
         )
-        
-        # Parse response using Pydantic model
-        content = response.choices[0].message.content
-        result = AnalysisResult.model_validate_json(content)
         
         # Look up failure mode name if we have an ID
         failure_mode_name = None

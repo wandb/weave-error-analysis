@@ -177,40 +177,11 @@ async def test_llm_connection():
     
     Makes a simple API call to verify the configuration works.
     """
-    from services.settings import get_litellm_kwargs
+    from services.llm import llm_client
     
-    llm_kwargs = get_litellm_kwargs()
-    
-    if not llm_kwargs.get("api_key") and not get_setting("llm_api_key"):
-        return {
-            "success": False,
-            "error": "LLM API key not configured",
-            "message": "Please set your LLM API key in Settings"
-        }
-    
-    try:
-        from litellm import acompletion
-        import asyncio
-        
-        response = await acompletion(
-            messages=[{"role": "user", "content": "Say 'hello' in one word."}],
-            max_tokens=10,
-            **llm_kwargs
-        )
-        
-        return {
-            "success": True,
-            "model": llm_kwargs.get("model"),
-            "response": response.choices[0].message.content,
-            "message": "LLM connection successful"
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "model": llm_kwargs.get("model"),
-            "error": str(e),
-            "message": "LLM connection failed"
-        }
+    # Use the LLM client's built-in test method
+    result = await llm_client.test_connection()
+    return result
 
 
 @router.post("/test-weave")

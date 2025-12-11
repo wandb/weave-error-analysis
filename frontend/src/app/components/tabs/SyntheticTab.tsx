@@ -941,12 +941,15 @@ export function SyntheticTab() {
 
         {/* Edit Prompt Buttons - for customizing LLM prompts */}
         <div className="flex items-center gap-1 border-l border-moon-700 pl-2 ml-1">
-          <EditPromptButton
-            promptId={useDimensions ? "tuple_generation" : "tuple_generation_free"}
-            label="Tuples"
-            size="sm"
-            variant="ghost"
-          />
+          {/* Only show Tuples edit when LLM decides mode is active */}
+          {!useDimensions && (
+            <EditPromptButton
+              promptId="tuple_generation_free"
+              label="Tuples"
+              size="sm"
+              variant="ghost"
+            />
+          )}
           <EditPromptButton
             promptId="query_generation"
             label="Queries"

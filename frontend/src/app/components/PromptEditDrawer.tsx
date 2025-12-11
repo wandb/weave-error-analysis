@@ -7,6 +7,7 @@ import {
   Save,
   ExternalLink,
   Sparkles,
+  Pencil,
   FileText,
   Code2,
   AlertCircle,
@@ -658,7 +659,7 @@ export function EditPromptButton({
         style={variantStyles[variant]}
         title="Edit prompt"
       >
-        <Sparkles className={size === "sm" ? "w-3 h-3" : "w-3.5 h-3.5"} />
+        <Pencil className={size === "sm" ? "w-3 h-3" : "w-3.5 h-3.5"} />
         {label && <span>{label}</span>}
       </button>
 

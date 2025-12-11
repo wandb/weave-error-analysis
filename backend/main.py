@@ -43,6 +43,7 @@ from routers import (
     settings_router,
     sessions_router,
     suggestions_router,
+    prompts_router,
 )
 
 
@@ -56,10 +57,19 @@ async def lifespan(app: FastAPI):
     FastAPI lifespan context manager for startup/shutdown events.
     
     On startup:
+    - Initializes prompt manager
     - Triggers background incremental sync to refresh sessions cache
     """
     # --- STARTUP ---
     logger.info("Starting Error Analysis Backend...")
+    
+    # Initialize prompt manager
+    try:
+        from prompts import prompt_manager
+        prompt_manager.initialize()
+        logger.info("Prompt manager initialized")
+    except Exception as e:
+        logger.warning(f"Failed to initialize prompt manager: {e}")
     
     # Trigger initial session sync in background (non-blocking)
     try:
@@ -106,6 +116,7 @@ app.include_router(synthetic_router)
 app.include_router(settings_router)
 app.include_router(sessions_router)  # Local-first session management (replaces threads)
 app.include_router(suggestions_router)  # AI suggestion service for trace quality
+app.include_router(prompts_router)  # Prompt management
 
 
 @app.get("/")

@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 
 from database import get_db, generate_id, now_iso
 from services.llm import LLMClient
+from prompts import prompt_manager
 
 
 # =============================================================================
@@ -601,17 +602,19 @@ class TaxonomyService:
             for m in failure_modes
         ])
         
+        # Get the managed prompt
+        prompt_config = prompt_manager.get_prompt("category_suggestion")
+        
+        # Prepare variables
+        variables = {
+            "note_content": note_content,
+            "modes_text": modes_text,
+        }
+        
         # Use LLM client for structured output
         result = await self.llm.analyze(
-            system_prompt="""You are analyzing failure modes in an AI system.
-Be conservative about creating new categories. Only suggest a new category if the note describes a fundamentally different type of failure.""",
-            user_prompt=f"""Given this observation/note about an AI failure:
-"{note_content}"
-
-And these existing failure mode categories:
-{modes_text}
-
-Does this note fit into one of the existing categories, or does it represent a NEW type of failure?""",
+            system_prompt=prompt_config.system_prompt,
+            user_prompt=prompt_config.user_prompt_template.format(**variables),
             response_model=CategorySuggestion,
             temperature=0.3
         )
@@ -623,13 +626,18 @@ Does this note fit into one of the existing categories, or does it represent a N
 
     async def _suggest_new_category(self, note_content: str, note_id: Optional[str] = None) -> dict:
         """Suggest a new failure mode category for a note."""
+        # Get the managed prompt
+        prompt_config = prompt_manager.get_prompt("category_creation")
+        
+        # Prepare variables
+        variables = {
+            "note_content": note_content,
+        }
+        
         # Use LLM client for structured output
         result = await self.llm.analyze(
-            system_prompt="You are analyzing failure modes in an AI system. Create a new failure mode category for the given issue.",
-            user_prompt=f"""Given this observation/note about an AI failure:
-"{note_content}"
-
-Create a failure mode category for this issue. Since there are no existing categories, this will be the first one.""",
+            system_prompt=prompt_config.system_prompt,
+            user_prompt=prompt_config.user_prompt_template.format(**variables),
             response_model=CategorySuggestion,
             temperature=0.3
         )
@@ -1169,20 +1177,18 @@ Create a failure mode category for this issue. Since there are no existing categ
             for m in modes
         ])
         
+        # Get the managed prompt
+        prompt_config = prompt_manager.get_prompt("taxonomy_improvement")
+        
+        # Prepare variables
+        variables = {
+            "modes_text": modes_text,
+        }
+        
         # Use LLM client for structured output
         result = await self.llm.analyze(
-            system_prompt="""You are analyzing a failure mode taxonomy for an AI system.
-Suggest improvements to make the taxonomy cleaner and more actionable.
-Look for categories that are too similar (should merge), too broad (should split), or have unclear naming.
-If the taxonomy looks good, return an empty suggestions array.""",
-            user_prompt=f"""Analyze this failure mode taxonomy:
-
-{modes_text}
-
-Suggest improvements focusing on:
-1. Categories that are too similar and should be merged
-2. Categories that seem too broad and might need splitting  
-3. Naming that could be clearer or more specific""",
+            system_prompt=prompt_config.system_prompt,
+            user_prompt=prompt_config.user_prompt_template.format(**variables),
             response_model=TaxonomyImprovementsResponse,
             temperature=0.3
         )

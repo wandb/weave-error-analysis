@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from services.agent_info import AgentInfo, TestingDimension
 from services.llm import LLMClient
 from logger import get_logger, log_event, LOG_LLM_CONTENT
+from prompts import prompt_manager
 
 logger = get_logger("synthetic")
 
@@ -114,22 +115,14 @@ class SyntheticGenerator:
         
         if not use_dimensions:
             # Free generation mode - LLM decides the dimensions and values
-            prompt = f"""You are generating test case combinations for testing an AI agent.
-
-Agent: {self.agent_info.name}
-Purpose: {self.agent_info.purpose or "AI assistant"}
-{focus_instruction}
-
-Generate {n} diverse and realistic test case combinations. Each combination should represent 
-a plausible user interaction scenario. You decide what dimensions to use (e.g., persona, scenario, 
-complexity, mood, intent, etc.) based on what's relevant for testing this agent.
-
-Include a mix of:
-- Common/typical cases
-- Edge cases
-- Challenging/adversarial scenarios
-
-Return a JSON object with a "tuples" key containing an array of test case objects."""
+            prompt_config = prompt_manager.get_prompt("tuple_generation_free")
+            variables = {
+                "agent_name": self.agent_info.name,
+                "agent_purpose": self.agent_info.purpose or "AI assistant",
+                "count": str(n),
+                "focus_instruction": focus_instruction,
+            }
+            prompt = prompt_config.user_prompt_template.format(**variables)
         elif custom_prompt:
             # Replace placeholders in custom prompt
             prompt = custom_prompt.replace("{agent_name}", self.agent_info.name)
@@ -138,24 +131,15 @@ Return a JSON object with a "tuples" key containing an array of test case object
             prompt = prompt.replace("{count}", str(n))
             prompt = prompt.replace("{focus_instruction}", focus_instruction)
         else:
-            prompt = f"""You are generating test case combinations for testing an AI agent.
-
-Agent: {self.agent_info.name}
-Purpose: {self.agent_info.purpose or "AI assistant"}
-
-Generate {n} diverse and realistic combinations. Each combination should represent 
-a plausible user interaction. Include a mix of:
-- Common/typical cases
-- Edge cases
-- Challenging scenarios
-
-These are the available testing dimensions that you can use as inspiration:
-{json.dumps(dim_values, indent=2)}
-{focus_instruction}
-
-However, feel free to generate tuples that makes sense for the agent and the purpose.
-
-Return a JSON object with a "tuples" key containing an array of test case objects."""
+            prompt_config = prompt_manager.get_prompt("tuple_generation")
+            variables = {
+                "agent_name": self.agent_info.name,
+                "agent_purpose": self.agent_info.purpose or "AI assistant",
+                "count": str(n),
+                "dimensions": json.dumps(dim_values, indent=2),
+                "focus_instruction": focus_instruction,
+            }
+            prompt = prompt_config.user_prompt_template.format(**variables)
 
         # Log the tuple generation request
         log_event(logger, "llm.tuple_generation_start",
@@ -277,25 +261,14 @@ Return a JSON object with a "tuples" key containing an array of test case object
             prompt = prompt.replace("{agent_capabilities}", agent_capabilities)
             prompt = prompt.replace("{dimension_values}", chr(10).join(value_context))
         else:
-            prompt = f"""You are generating a realistic user message for testing an AI agent.
-
-Agent: {self.agent_info.name}
-Purpose: {agent_purpose}
-Capabilities: {agent_capabilities}
-
-Generate a user message matching these characteristics:
-{chr(10).join(value_context)}
-
-Guidelines:
-- Sound natural and conversational, not formulaic
-- Match the persona's communication style
-- Reflect the scenario's topic and urgency
-- Include relevant details that the persona would provide
-- For multi_step complexity, may require multiple pieces of information or actions
-- For edge_case complexity, present unusual or boundary conditions
-- For adversarial, try to get something outside normal policy
-
-Return ONLY the user message, nothing else. No quotes around it."""
+            prompt_config = prompt_manager.get_prompt("query_generation")
+            variables = {
+                "agent_name": self.agent_info.name,
+                "agent_purpose": agent_purpose,
+                "agent_capabilities": agent_capabilities,
+                "dimension_values": chr(10).join(value_context),
+            }
+            prompt = prompt_config.user_prompt_template.format(**variables)
 
         log_event(logger, "llm.request_start",
             operation="query_generation",

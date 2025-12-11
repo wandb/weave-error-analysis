@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from database import get_db, get_db_readonly, generate_id, now_iso
 from services.settings import get_setting
 from services.llm import LLMClient
+from prompts import prompt_manager
 
 
 # =============================================================================
@@ -175,7 +176,10 @@ class SuggestionService:
         context: AnalysisContext, 
         trace_data: Dict
     ) -> List[Dict]:
-        """Build the analysis prompt with all context."""
+        """Build the analysis prompt with all context using managed prompts."""
+        
+        # Get the active prompt
+        prompt_config = prompt_manager.get_prompt("trace_analysis")
         
         # Format failure modes section
         failure_modes_text = ""
@@ -211,41 +215,30 @@ class SuggestionService:
         agent_display_name = context.agent_name or "AI Agent"
         agent_context = context.agent_info if context.agent_info else "(No agent documentation available)"
         
-        system_prompt = f"""You are analyzing traces from {agent_display_name} to identify quality issues.
-
-=== AGENT CONTEXT ===
-{agent_context}
-
-=== EXISTING FAILURE MODES ===
-These are the established failure categories. Use these when applicable:
-
-{failure_modes_text}
-
-=== RECENT NOTES (for style reference) ===
-{recent_notes_text}"""
-
-        user_prompt = f"""=== TRACE TO ANALYZE ===
-{trace_text}
-
-=== TASK ===
-Analyze this trace for quality issues. Consider:
-1. Did the agent use appropriate tools?
-2. Is the information accurate per the agent's knowledge base?
-3. Was the tone appropriate?
-4. Were any agent's capabilities or limitations violated?
-5. Did the agent follow documented policies?
-
-If there's an issue:
-- Use an existing failure mode category if one fits (set failure_mode_id to the category ID)
-- Write a note in similar style to the examples
-- If no existing category fits, suggest a new category name
-
-If the response looks good, set has_issue to false."""
-
-        return [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt}
-        ]
+        # Prepare template variables
+        variables = {
+            "agent_name": agent_display_name,
+            "agent_context": agent_context,
+            "failure_modes_text": failure_modes_text,
+            "recent_notes_text": recent_notes_text,
+            "trace_text": trace_text,
+        }
+        
+        # Format prompts with variables
+        messages = []
+        
+        if prompt_config.system_prompt:
+            messages.append({
+                "role": "system",
+                "content": prompt_config.system_prompt.format(**variables)
+            })
+        
+        messages.append({
+            "role": "user",
+            "content": prompt_config.user_prompt_template.format(**variables)
+        })
+        
+        return messages
     
     def _format_trace_for_prompt(self, trace_data: Dict) -> str:
         """Format trace data for the prompt."""

@@ -107,39 +107,55 @@ OPENAI_API_KEY=your_key
 ## Connecting Your Agent
 
 Your agent needs:
-1. **Weave instrumentation** - Traces are created by your agent, not this tool
-2. **HTTP endpoint** - Simple request/response interface
+1. **Weave instrumentation** - Your agent logs traces to Weave; this tool reads them
+2. **HTTP endpoint** - JSON request/response interface
 
-**Endpoint signature:**
-```python
-@app.post("/")
-async def respond(query: str) -> str:
-    """Process a query and return a response."""
-    return agent.run(query)
+**API contract:**
+```
+POST /query
+
+Request:  {"query": "user message", "thread_id": "optional"}
+Response: {"response": "agent reply", "thread_id": "...", "error": null}
 ```
 
-**Google ADK** is currently the best-supported framework.
+**Example (FastAPI + Google ADK):**
+```python
+from fastapi import FastAPI
+from pydantic import BaseModel
 
-**AGENT_INFO.md** (optional but recommended) - placed alongside your agent:
+app = FastAPI()
+
+class QueryRequest(BaseModel):
+    query: str
+    thread_id: str | None = None
+
+class QueryResponse(BaseModel):
+    response: str
+    thread_id: str | None = None
+    error: str | None = None
+
+@app.post("/query", response_model=QueryResponse)
+async def query(request: QueryRequest):
+    result = await run_agent(request.query)  # Your agent logic
+    return QueryResponse(response=result, thread_id=request.thread_id)
+```
+
+See `agent/agent_server.py` for a complete Google ADK example.
+
+**AGENT_INFO.md** (optional) - helps generate better synthetic queries:
 ```markdown
-## Agent Metadata
-- Name, Version, Type
-
 ## Purpose & Scope
 What it does, capabilities, limitations
 
 ## Testing Dimensions
 ### personas
-- first_time_user: Description
-- power_user: Description
+- first_time_user, power_user, frustrated_customer
 
 ### scenarios  
-- common_request: Description
-- edge_case: Description
+- pricing_inquiry, refund_request, feature_question
 
 ### complexity
-- simple: One-step
-- multi_step: Multiple tool calls
+- simple, multi_step, edge_case
 ```
 
 ## Tech Stack

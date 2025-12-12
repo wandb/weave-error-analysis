@@ -191,6 +191,34 @@ export async function fetchSaturationHistory(): Promise<SaturationHistory> {
   return response.json();
 }
 
+// Batch Saturation API (new batch-centric charts)
+export interface BatchSaturationData {
+  batch_id: string;
+  batch_name: string;
+  batch_order: number;
+  total_sessions: number;
+  reviewed_sessions: number;
+  new_modes_discovered: number;
+  existing_modes_matched: number;
+  cumulative_modes: number;
+}
+
+export interface BatchSaturationResponse {
+  batches: BatchSaturationData[];
+  summary: {
+    total_batches: number;
+    total_sessions: number;
+    total_reviewed: number;
+    total_modes: number;
+    saturation_status: "discovering" | "stabilizing" | "saturated";
+  };
+}
+
+export async function fetchBatchSaturation(): Promise<BatchSaturationResponse> {
+  const response = await fetch(`${API_BASE}/taxonomy/saturation-by-batch`);
+  return response.json();
+}
+
 export async function suggestCategoryForNote(noteId: string): Promise<AISuggestion> {
   const response = await fetch(`${API_BASE}/taxonomy/notes/${noteId}/suggest`, {
     method: "POST",

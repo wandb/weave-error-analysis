@@ -1223,6 +1223,131 @@ class TaxonomyService:
                 "total_categorized": sum(len(m.note_ids) for m in failure_modes)
             }
         }
+    
+    # ------------------------------------------------------------------------
+    # Batch-Based Saturation Tracking
+    # ------------------------------------------------------------------------
+    
+    def get_saturation_by_batch(self) -> dict:
+        """
+        Compute saturation stats grouped by batch.
+        
+        Returns batch-level metrics for the three charts:
+        1. Review progress per batch
+        2. New vs matched modes per batch
+        3. Cumulative mode count over batches
+        """
+        with get_db() as conn:
+            cursor = conn.cursor()
+            
+            # Get all batches ordered by creation
+            cursor.execute("""
+                SELECT id, name, created_at 
+                FROM synthetic_batches 
+                ORDER BY created_at ASC
+            """)
+            batches = cursor.fetchall()
+            
+            if not batches:
+                return {
+                    "batches": [],
+                    "summary": {
+                        "total_batches": 0,
+                        "total_sessions": 0,
+                        "total_reviewed": 0,
+                        "total_modes": 0,
+                        "saturation_status": "discovering"
+                    }
+                }
+            
+            result = []
+            cumulative_modes = 0
+            mode_ids_before_batch = set()
+            
+            for batch_order, batch in enumerate(batches):
+                batch_id = batch["id"]
+                batch_name = batch["name"] or f"Batch {batch_order + 1}"
+                
+                # Get session stats for this batch
+                cursor.execute("""
+                    SELECT 
+                        COUNT(*) as total,
+                        SUM(CASE WHEN is_reviewed = 1 THEN 1 ELSE 0 END) as reviewed
+                    FROM sessions 
+                    WHERE batch_id = ?
+                """, (batch_id,))
+                session_stats = cursor.fetchone()
+                
+                total_sessions = session_stats["total"] or 0
+                reviewed_sessions = session_stats["reviewed"] or 0
+                
+                # Get notes from this batch's sessions that are assigned to modes
+                cursor.execute("""
+                    SELECT n.failure_mode_id, fm.created_at as mode_created_at
+                    FROM notes n
+                    JOIN sessions s ON n.session_id = s.id
+                    JOIN failure_modes fm ON n.failure_mode_id = fm.id
+                    WHERE s.batch_id = ? AND n.failure_mode_id IS NOT NULL
+                """, (batch_id,))
+                assigned_notes = cursor.fetchall()
+                
+                # Count new vs matched
+                new_modes = 0
+                matched_modes = 0
+                new_mode_ids = set()
+                
+                for note in assigned_notes:
+                    mode_id = note["failure_mode_id"]
+                    if mode_id in mode_ids_before_batch:
+                        matched_modes += 1
+                    elif mode_id not in new_mode_ids:
+                        # First time seeing this mode in this batch
+                        new_modes += 1
+                        new_mode_ids.add(mode_id)
+                    else:
+                        # Same new mode, but already counted
+                        matched_modes += 1
+                
+                # Update cumulative tracking
+                mode_ids_before_batch.update(new_mode_ids)
+                cumulative_modes = len(mode_ids_before_batch)
+                
+                result.append({
+                    "batch_id": batch_id,
+                    "batch_name": batch_name,
+                    "batch_order": batch_order,
+                    "total_sessions": total_sessions,
+                    "reviewed_sessions": reviewed_sessions,
+                    "new_modes_discovered": new_modes,
+                    "existing_modes_matched": matched_modes,
+                    "cumulative_modes": cumulative_modes
+                })
+            
+            # Compute summary
+            total_reviewed = sum(b["reviewed_sessions"] for b in result)
+            total_sessions = sum(b["total_sessions"] for b in result)
+            
+            # Saturation status based on recent batches
+            recent_batches = result[-3:] if len(result) >= 3 else result
+            recent_new = sum(b["new_modes_discovered"] for b in recent_batches)
+            
+            if recent_new == 0 and len(result) >= 3:
+                status = "saturated"
+            elif recent_new <= 1:
+                status = "stabilizing"
+            else:
+                status = "discovering"
+            
+            return {
+                "batches": result,
+                "summary": {
+                    "total_batches": len(result),
+                    "total_sessions": total_sessions,
+                    "total_reviewed": total_reviewed,
+                    "total_modes": cumulative_modes,
+                    "saturation_status": status
+                }
+            }
 
 
 # Singleton instance

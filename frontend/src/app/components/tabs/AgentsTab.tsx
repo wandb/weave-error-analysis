@@ -397,10 +397,6 @@ function AgentStatusSnapshot({
     );
   }
 
-  const saturationColorClass = 
-    stats.saturation_status === "saturated" ? "text-emerald-400" :
-    stats.saturation_status === "approaching" ? "text-amber-400" : "text-accent-teal";
-
   return (
     <Panel>
       <div className="flex items-center justify-between mb-4">
@@ -468,42 +464,6 @@ function AgentStatusSnapshot({
           <div className="text-2xl font-display text-sand-100">{stats.total_failure_modes}</div>
           <div className="text-xs text-ink-400 mt-1">
             {stats.total_categorized_notes} notes categorized
-          </div>
-        </div>
-      </div>
-
-      {/* Progress Bars */}
-      <div className="grid grid-cols-2 gap-6 mb-6">
-        {/* Review Progress */}
-        <div>
-          <div className="flex items-center justify-between text-sm mb-2">
-            <span className="text-ink-400">Review Progress</span>
-            <span className="text-sand-200">{stats.review_progress_percent.toFixed(0)}%</span>
-          </div>
-          <div className="h-2 bg-ink-800 rounded-full overflow-hidden">
-            <div 
-              className="h-full bg-accent-teal rounded-full transition-all"
-              style={{ width: `${Math.min(stats.review_progress_percent, 100)}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Saturation */}
-        <div>
-          <div className="flex items-center justify-between text-sm mb-2">
-            <span className="text-ink-400">Saturation</span>
-            <span className={saturationColorClass}>
-              {stats.saturation_score.toFixed(0)}% ({stats.saturation_status})
-            </span>
-          </div>
-          <div className="h-2 bg-ink-800 rounded-full overflow-hidden">
-            <div 
-              className={`h-full rounded-full transition-all ${
-                stats.saturation_status === "saturated" ? "bg-emerald-500" :
-                stats.saturation_status === "approaching" ? "bg-amber-500" : "bg-accent-teal"
-              }`}
-              style={{ width: `${Math.min(stats.saturation_score, 100)}%` }}
-            />
           </div>
         </div>
       </div>

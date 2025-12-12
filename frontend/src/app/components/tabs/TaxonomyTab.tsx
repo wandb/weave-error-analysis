@@ -40,7 +40,7 @@ import {
 } from "../../utils/formatters";
 import { Panel, PanelHeader, Badge, ProgressBar, Modal, StatusBadge } from "../ui";
 import { EditPromptButton } from "../PromptEditDrawer";
-import { SaturationChart } from "../SaturationChart";
+import { BatchSaturationCharts } from "../BatchSaturationCharts";
 import type { TaxonomyNote, AISuggestion, FailureMode, FailureModeStatus } from "../../types";
 import * as api from "../../lib/api";
 
@@ -453,9 +453,9 @@ export function TaxonomyTab() {
                   </div>
 
       {/* ========================================================================= */}
-      {/* Saturation Discovery Chart (Collapsible) */}
+      {/* Batch Saturation Charts (Collapsible) */}
       {/* ========================================================================= */}
-      <SaturationChart onRefresh={fetchTaxonomy} />
+      <BatchSaturationCharts onRefresh={fetchTaxonomy} />
 
       {/* ========================================================================= */}
       {/* Status Filter Bar */}

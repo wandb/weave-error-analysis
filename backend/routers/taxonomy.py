@@ -111,6 +111,24 @@ async def get_saturation_history():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/saturation-by-batch")
+async def get_saturation_by_batch():
+    """
+    Get saturation statistics grouped by batch for charts.
+    
+    Returns batch-level metrics for three visualizations:
+    1. Review progress per batch (sessions reviewed vs total)
+    2. Discovery by batch (new vs matched failure modes)
+    3. Taxonomy growth (cumulative failure modes over batches)
+    
+    All data comes from real database records - no mock data.
+    """
+    try:
+        return taxonomy_service.get_saturation_by_batch()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # ============================================================================
 # Failure Mode CRUD Endpoints
 # ============================================================================

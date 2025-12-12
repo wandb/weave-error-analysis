@@ -17,6 +17,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 from rich.panel import Panel
+from dotenv import load_dotenv
 
 app = typer.Typer(help="Error Analysis Tool for AI Agents")
 console = Console()
@@ -26,6 +27,9 @@ BACKEND_DIR = ROOT_DIR / "backend"
 FRONTEND_DIR = ROOT_DIR / "frontend"
 AGENT_DIR = ROOT_DIR / "agent"
 DATA_DIR = ROOT_DIR / "data"
+
+# Load .env from project root
+load_dotenv(ROOT_DIR / ".env")
 
 
 def ensure_node_deps():
@@ -73,8 +77,8 @@ def start_agent(port: int):
     env = os.environ.copy()
     env["PYTHONPATH"] = str(AGENT_DIR)
     
-    # Agent will dynamically fetch API key from backend settings
-    # No need to pass it here - this allows key to be set after startup
+    # Agent uses OPENAI_API_KEY from environment (set in .env file)
+    # The env.copy() above already includes it if set
     
     return subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "agent_server:app", 

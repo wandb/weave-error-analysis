@@ -7,25 +7,40 @@ Bottom-up failure mode discovery for AI agents. Connect your agent, generate syn
 ```bash
 git clone git@github.com:wandb/weave-error-analysis.git
 cd weave-error-analysis
+
+# Create .env with your API key
+echo "OPENAI_API_KEY=sk-..." > .env
+
+# Start the app
 uv run ea
 ```
 
-Opens http://localhost:3000 with example data loaded.
+Opens http://localhost:3000 with:
+- **Example Agent** running on port 9000 (TaskFlow Support Bot)
+- **Backend** on port 8000
+- **Frontend** on port 3000
 
-Go to **Settings** tab to configure:
-- **LLM API Key** (OpenAI, Anthropic, etc.) - required for AI features
-- **Weave credentials** (W&B API key, entity, project) - to connect your agent's traces
+### Configuration
 
-Settings are saved locally and persist across restarts.
+**Required for Example Agent & AI Features:**
+```bash
+# .env file in project root
+OPENAI_API_KEY=sk-your-key-here
+```
+
+**Optional (configure in Settings UI):**
+- **Weave credentials** (W&B API key, entity, project) - to connect your own agent's traces
 
 ### CLI Options
 
 | Command | Description |
 |---------|-------------|
-| `uv run ea` | Start everything (default ports 3000/8000) |
+| `uv run ea` | Start everything (agent:9000, backend:8000, frontend:3000) |
 | `uv run ea --port 3001` | Custom frontend port |
 | `uv run ea --backend-port 8001` | Custom backend port |
+| `uv run ea --agent-port 9001` | Custom agent port |
 | `uv run ea --no-browser` | Don't auto-open browser |
+| `uv run ea --no-agent` | Don't start example agent |
 
 ## Features
 

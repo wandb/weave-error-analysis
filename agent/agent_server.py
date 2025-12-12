@@ -14,7 +14,6 @@ import os
 import uuid
 import warnings
 import logging
-import httpx
 from typing import Optional
 
 from pathlib import Path
@@ -59,32 +58,6 @@ app.add_middleware(
 
 # Global state for sessions
 sessions = {}
-
-# Backend URL for fetching API key from settings
-BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
-
-
-async def ensure_api_key():
-    """Fetch OpenAI API key from backend settings."""
-    # Always fetch from backend to get the latest key
-    # (user may configure it after app starts)
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(f"{BACKEND_URL}/api/settings/llm-api-key", timeout=5.0)
-            if response.status_code == 200:
-                data = response.json()
-                api_key = data.get("api_key")
-                if api_key:
-                    os.environ["OPENAI_API_KEY"] = api_key
-                    return True
-    except Exception as e:
-        logging.warning(f"Failed to fetch API key from backend: {e}")
-    
-    # Fallback to environment variable if backend fetch failed
-    if os.environ.get("OPENAI_API_KEY"):
-        return True
-    
-    return False
 
 
 class QueryRequest(BaseModel):
@@ -203,14 +176,16 @@ async def query(request: QueryRequest):
     
     This is the main endpoint for interacting with the agent.
     Simple request/response model - no streaming, no SSE.
+    
+    Requires OPENAI_API_KEY environment variable to be set.
     """
     try:
-        # Ensure API key is available (fetch from backend settings if needed)
-        if not await ensure_api_key():
+        # Check for API key
+        if not os.environ.get("OPENAI_API_KEY"):
             return QueryResponse(
                 response="",
                 thread_id=None,
-                error="OpenAI API key not configured. Please set it in Settings → LLM Configuration."
+                error="OPENAI_API_KEY not set. Please add it to your .env file and restart."
             )
         
         # Get or create thread ID

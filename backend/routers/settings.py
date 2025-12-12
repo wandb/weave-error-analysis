@@ -243,7 +243,10 @@ async def get_llm_api_key():
     
     This endpoint is for local use only - the example agent calls this
     to get the API key configured in settings.
+    
+    Uses get_setting which properly decodes base64-encoded secrets.
     """
+    # get_setting properly decodes base64-encoded secrets
     api_key = get_setting("llm_api_key")
     return {"api_key": api_key if api_key else None}
 

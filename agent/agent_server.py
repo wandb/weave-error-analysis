@@ -65,13 +65,11 @@ BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 
 
 async def ensure_api_key():
-    """Fetch OpenAI API key from backend settings if not already set."""
-    if os.environ.get("OPENAI_API_KEY"):
-        return True
-    
+    """Fetch OpenAI API key from backend settings."""
+    # Always fetch from backend to get the latest key
+    # (user may configure it after app starts)
     try:
         async with httpx.AsyncClient() as client:
-            # Fetch the API key from backend settings
             response = await client.get(f"{BACKEND_URL}/api/settings/llm-api-key", timeout=5.0)
             if response.status_code == 200:
                 data = response.json()
@@ -81,6 +79,10 @@ async def ensure_api_key():
                     return True
     except Exception as e:
         logging.warning(f"Failed to fetch API key from backend: {e}")
+    
+    # Fallback to environment variable if backend fetch failed
+    if os.environ.get("OPENAI_API_KEY"):
+        return True
     
     return False
 

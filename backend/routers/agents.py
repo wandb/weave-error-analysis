@@ -46,6 +46,7 @@ class AgentResponse(BaseModel):
     endpoint_url: str
     connection_status: str
     last_connection_test: Optional[str]
+    is_example: bool = False
     created_at: str
     updated_at: str
     # Parsed info summary
@@ -186,6 +187,7 @@ async def list_agents():
             endpoint_url=row["endpoint_url"],
             connection_status=row["connection_status"],
             last_connection_test=row["last_connection_test"],
+            is_example=bool(row["is_example"]) if "is_example" in row.keys() else False,
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             purpose=parsed.get("purpose"),
@@ -399,6 +401,7 @@ async def get_agent(agent_id: str):
         endpoint_url=row["endpoint_url"],
         connection_status=row["connection_status"],
         last_connection_test=row["last_connection_test"],
+        is_example=bool(row["is_example"]) if "is_example" in row.keys() else False,
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         agent_info_raw=row["agent_info_raw"],

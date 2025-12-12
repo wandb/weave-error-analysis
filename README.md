@@ -2,6 +2,31 @@
 
 Bottom-up failure mode discovery for AI agents. Connect your agent, generate synthetic tests, review traces, and build a taxonomy of failure patterns powered by W&B Weave.
 
+## Quick Start
+
+```bash
+git clone git@github.com:wandb/weave-error-analysis.git
+cd weave-error-analysis
+uv run ea
+```
+
+Opens http://localhost:3000 with example data loaded.
+
+Go to **Settings** tab to configure:
+- **LLM API Key** (OpenAI, Anthropic, etc.) - required for AI features
+- **Weave credentials** (W&B API key, entity, project) - to connect your agent's traces
+
+Settings are saved locally and persist across restarts.
+
+### CLI Options
+
+| Command | Description |
+|---------|-------------|
+| `uv run ea` | Start everything (default ports 3000/8000) |
+| `uv run ea --port 3001` | Custom frontend port |
+| `uv run ea --backend-port 8001` | Custom backend port |
+| `uv run ea --no-browser` | Don't auto-open browser |
+
 ## Features
 
 | Feature | Description |
@@ -70,21 +95,6 @@ Bottom-up failure mode discovery for AI agents. Connect your agent, generate syn
                        │                                     │                   │
                        └─────────────────────────────────────┴───────────────────┘
                                             Iterate
-```
-
-## Quick Start
-
-```bash
-# Setup
-./run.sh setup
-
-# Start backend (Terminal 1)
-./run.sh backend
-
-# Start frontend (Terminal 2)
-./run.sh frontend
-
-# Open http://localhost:3000
 ```
 
 ## Configuration

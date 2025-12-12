@@ -44,4 +44,7 @@ build/
 *.db-wal
 *.db-shm
 
+# But keep the example database
+!data/taxonomy_example.db
+
 wireframes/

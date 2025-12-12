@@ -252,10 +252,17 @@ def init_db():
                     agent_info_parsed JSON,
                     connection_status TEXT DEFAULT 'unknown',
                     last_connection_test TEXT,
+                    is_example BOOLEAN DEFAULT FALSE,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
             """)
+            
+            # Migration: Add is_example column if it doesn't exist
+            cursor.execute("PRAGMA table_info(agents)")
+            agent_columns = [col[1] for col in cursor.fetchall()]
+            if "is_example" not in agent_columns:
+                cursor.execute("ALTER TABLE agents ADD COLUMN is_example BOOLEAN DEFAULT FALSE")
             
             # Testing dimensions extracted from AGENT_INFO
             cursor.execute("""

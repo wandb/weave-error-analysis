@@ -1,0 +1,32 @@
+[project]
+name = "weave-error-analysis"
+version = "0.1.0"
+description = "Bottom-up failure mode discovery for AI agents"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    # Backend deps
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
+    "weave>=0.51.0",
+    "wandb>=0.18.0",
+    "litellm>=1.50.0",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.0.0",
+    "httpx>=0.27.0",
+    # CLI deps
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+]
+
+[project.scripts]
+ea = "error_analysis_cli.main:app"
+error-analysis = "error_analysis_cli.main:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["error_analysis_cli", "backend"]
+

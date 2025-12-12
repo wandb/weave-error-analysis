@@ -116,10 +116,16 @@ async def reset_prompt(prompt_id: str):
 @router.get("/{prompt_id}/versions")
 async def get_prompt_versions(prompt_id: str):
     """
-    Get all versions of a prompt from Weave.
+    Get all versions of a prompt.
     
-    Note: Full version listing is currently limited.
-    For comprehensive version browsing, use the Weave UI.
+    Returns versions tracked locally since server startup. For complete
+    version history, use the Weave UI link included in the response.
+    
+    Each version includes:
+    - version: The version label (v0, v1, v2...)
+    - digest: The full Weave hash for precise retrieval
+    - created_at: ISO timestamp
+    - is_current: Whether this is the active version
     """
     # Check prompt exists first
     prompt = prompt_manager.get_prompt(prompt_id)
@@ -135,15 +141,22 @@ async def get_prompt_versions(prompt_id: str):
     return {
         "versions": [v.model_dump() for v in versions],
         "weave_versions_url": version_url,
+        "current_version": prompt.version,
     }
 
 
-@router.post("/{prompt_id}/versions")
+@router.post("/{prompt_id}/set-version")
 async def set_prompt_version(prompt_id: str, request: VersionSelectRequest):
     """
     Switch to a specific version of a prompt.
     
     Loads the specified version from Weave and makes it the active version.
+    
+    The version can be specified as:
+    - A version label: "v0", "v1", "v2"...
+    - A full digest hash
+    
+    Note: Requires Weave to be enabled and connected.
     """
     # Check prompt exists first
     prompt = prompt_manager.get_prompt(prompt_id)
@@ -158,7 +171,10 @@ async def set_prompt_version(prompt_id: str, request: VersionSelectRequest):
     
     try:
         updated = await prompt_manager.set_version(prompt_id, request.version)
-        return updated.model_dump()
+        return {
+            **updated.model_dump(),
+            "message": f"Switched to version {request.version}",
+        }
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:

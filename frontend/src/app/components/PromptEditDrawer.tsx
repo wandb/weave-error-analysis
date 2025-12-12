@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { Badge, LoadingSpinner } from "./ui";
 import * as api from "../lib/api";
-import type { PromptConfig, PromptVersionsResponse } from "../types";
+import type { PromptConfig, PromptVersionsResponse, PromptVersion } from "../types";
 
 // ============================================================================
 // Types
@@ -53,6 +53,7 @@ export function PromptEditDrawer({
   // Version info
   const [versions, setVersions] = useState<PromptVersionsResponse | null>(null);
   const [showVersions, setShowVersions] = useState(false);
+  const [switchingVersion, setSwitchingVersion] = useState(false);
 
   // Track if there are unsaved changes
   const [isDirty, setIsDirty] = useState(false);
@@ -173,6 +174,32 @@ export function PromptEditDrawer({
       setTimeout(() => setCopiedVar(null), 2000);
     } catch {
       // Fallback for browsers without clipboard API
+    }
+  };
+
+  const handleSwitchVersion = async (version: PromptVersion) => {
+    if (isDirty) {
+      if (!confirm("You have unsaved changes. Switching versions will discard them. Continue?")) {
+        return;
+      }
+    }
+    
+    setSwitchingVersion(true);
+    setError(null);
+    try {
+      const updated = await api.setPromptVersion(promptId, version.version);
+      setPrompt(updated);
+      setSystemPrompt(updated.system_prompt || "");
+      setUserPromptTemplate(updated.user_prompt_template);
+      setIsDirty(false);
+      
+      // Reload versions to update current status
+      const versionsData = await api.fetchPromptVersions(promptId);
+      setVersions(versionsData);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to switch version");
+    } finally {
+      setSwitchingVersion(false);
     }
   };
 
@@ -314,6 +341,8 @@ export function PromptEditDrawer({
                 prompt={prompt}
                 showVersions={showVersions}
                 onToggle={() => setShowVersions(!showVersions)}
+                onSwitchVersion={handleSwitchVersion}
+                switchingVersion={switchingVersion}
               />
             </>
           ) : null}
@@ -546,9 +575,27 @@ interface VersionInfoProps {
   prompt: PromptConfig;
   showVersions: boolean;
   onToggle: () => void;
+  onSwitchVersion: (version: PromptVersion) => void;
+  switchingVersion: boolean;
 }
 
-function VersionInfo({ versions, prompt, showVersions, onToggle }: VersionInfoProps) {
+function VersionInfo({ versions, prompt, showVersions, onToggle, onSwitchVersion, switchingVersion }: VersionInfoProps) {
+  const formatDate = (isoString: string) => {
+    try {
+      const date = new Date(isoString);
+      return date.toLocaleString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    } catch {
+      return isoString;
+    }
+  };
+
+  const hasVersions = versions?.versions && versions.versions.length > 0;
+
   return (
     <div
       className="rounded-lg overflow-hidden"
@@ -569,10 +616,15 @@ function VersionInfo({ versions, prompt, showVersions, onToggle }: VersionInfoPr
           {prompt.version && (
             <code
               className="text-[10px] px-1.5 py-0.5 rounded font-mono"
-              style={{ backgroundColor: "#252830", color: "#8F949E" }}
+              style={{ backgroundColor: "#252830", color: "#10BFCC" }}
             >
-              {prompt.version.slice(0, 8)}...
+              {prompt.version}
             </code>
+          )}
+          {hasVersions && (
+            <span className="text-[10px]" style={{ color: "#8F949E" }}>
+              ({versions.versions.length} versions)
+            </span>
           )}
         </div>
         {showVersions ? (
@@ -584,23 +636,83 @@ function VersionInfo({ versions, prompt, showVersions, onToggle }: VersionInfoPr
 
       {showVersions && (
         <div
-          className="px-4 py-3 text-sm"
+          className="px-4 py-3 space-y-3"
           style={{ borderTop: "1px solid #333333" }}
         >
-          {versions?.weave_versions_url ? (
+          {/* Version List */}
+          {hasVersions && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium" style={{ color: "#8F949E" }}>
+                Click to switch version:
+              </p>
+              <div className="space-y-1 max-h-48 overflow-y-auto">
+                {versions.versions.slice().reverse().map((v) => (
+                  <button
+                    key={v.digest}
+                    onClick={() => !v.is_current && onSwitchVersion(v)}
+                    disabled={v.is_current || switchingVersion}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded text-left text-sm transition-all ${
+                      v.is_current 
+                        ? 'cursor-default' 
+                        : 'hover:bg-moon-800/50 cursor-pointer'
+                    }`}
+                    style={{
+                      backgroundColor: v.is_current ? "rgba(16, 191, 204, 0.1)" : "transparent",
+                      border: v.is_current ? "1px solid rgba(16, 191, 204, 0.3)" : "1px solid transparent",
+                    }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <code 
+                        className="text-xs font-mono px-1.5 py-0.5 rounded"
+                        style={{ 
+                          backgroundColor: v.is_current ? "rgba(16, 191, 204, 0.2)" : "#252830",
+                          color: v.is_current ? "#10BFCC" : "#FDFDFD",
+                        }}
+                      >
+                        {v.version}
+                      </code>
+                      <span className="text-xs" style={{ color: "#8F949E" }}>
+                        {formatDate(v.created_at)}
+                      </span>
+                      {v.is_current && (
+                        <span 
+                          className="text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide"
+                          style={{ backgroundColor: "rgba(16, 191, 204, 0.2)", color: "#10BFCC" }}
+                        >
+                          Current
+                        </span>
+                      )}
+                    </div>
+                    <code 
+                      className="text-[10px] font-mono"
+                      style={{ color: "#666" }}
+                    >
+                      {v.digest.slice(0, 8)}...
+                    </code>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Weave UI Link */}
+          {versions?.weave_versions_url && (
             <a
               href={versions.weave_versions_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-2 text-sm transition-colors"
-              style={{ color: "#10BFCC" }}
+              className="flex items-center gap-2 text-xs transition-colors pt-2"
+              style={{ color: "#10BFCC", borderTop: "1px solid #333333" }}
             >
-              <ExternalLink className="w-4 h-4" />
-              View all versions in Weave
+              <ExternalLink className="w-3 h-3" />
+              View complete history in Weave
             </a>
-          ) : (
-            <p style={{ color: "#8F949E" }}>
-              Version history is available in the Weave UI when connected.
+          )}
+
+          {/* No versions message */}
+          {!hasVersions && !versions?.weave_versions_url && (
+            <p className="text-sm" style={{ color: "#8F949E" }}>
+              Version history will appear here after the first edit.
             </p>
           )}
         </div>

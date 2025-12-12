@@ -28,16 +28,18 @@ class PromptConfig(BaseModel):
     )
     
     # Version tracking (set by PromptManager)
-    version: Optional[str] = Field(default=None, description="Weave version hash")
+    version: Optional[str] = Field(default=None, description="Weave version label (v0, v1, etc.)")
+    digest: Optional[str] = Field(default=None, description="Weave version digest (full hash)")
     is_default: bool = Field(default=True, description="True if using default, False if user-edited")
 
 
 class PromptVersion(BaseModel):
     """A specific version of a prompt (from Weave)."""
     
-    version: str  # Weave version hash
+    version: str  # Version label (v0, v1, v2...)
+    digest: str  # Full hash from Weave
     created_at: str
-    system_prompt: Optional[str]
+    system_prompt: Optional[str] = None
     user_prompt_template: str
     is_current: bool = False
 

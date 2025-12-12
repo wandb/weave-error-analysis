@@ -22,6 +22,7 @@ Usage:
 
 import os
 import asyncio
+from datetime import datetime
 from typing import Optional, Dict, List
 import logging
 
@@ -40,15 +41,18 @@ class PromptManager:
     2. Cache active prompt versions in memory
     3. On edit, save to local cache and publish to Weave (background)
     4. Support resetting to defaults
+    5. Track version history locally for quick access
     
     Weave Integration:
     - Uses the global Weave init from main.py (error-analysis-dev project)
     - Each prompt edit creates a new version in Weave
     - Versions can be browsed in the Weave UI
+    - Use weave.get('prompt_id:vN') for version retrieval
     """
     
     def __init__(self):
         self._active_prompts: Dict[str, PromptConfig] = {}
+        self._version_history: Dict[str, List[PromptVersion]] = {}  # Track versions locally
         self._initialized = False
         self._weave_enabled = False
         
@@ -100,13 +104,38 @@ class PromptManager:
                     weave_prompt = self._create_weave_prompt(prompt)
                     ref = weave.publish(weave_prompt, name=prompt_id)
                     
-                    # Update the version in our cache (extract digest from ObjectRef)
+                    # Extract version info from ref
+                    digest = ref.digest if hasattr(ref, 'digest') else str(ref)
+                    version_index = len(self._version_history.get(prompt_id, []))
+                    version_label = f"v{version_index}"
+                    
+                    # Create version record
+                    version = PromptVersion(
+                        version=version_label,
+                        digest=digest,
+                        created_at=datetime.utcnow().isoformat(),
+                        system_prompt=prompt.system_prompt,
+                        user_prompt_template=prompt.user_prompt_template,
+                        is_current=True
+                    )
+                    
+                    # Initialize or update version history
+                    if prompt_id not in self._version_history:
+                        self._version_history[prompt_id] = []
+                    
+                    # Mark previous versions as not current
+                    for v in self._version_history[prompt_id]:
+                        v.is_current = False
+                    
+                    self._version_history[prompt_id].append(version)
+                    
+                    # Update the version in our cache
                     if prompt_id in self._active_prompts:
-                        version_str = ref.digest if hasattr(ref, 'digest') else str(ref)
-                        self._active_prompts[prompt_id].version = version_str
+                        self._active_prompts[prompt_id].version = version_label
+                        self._active_prompts[prompt_id].digest = digest
                     
                     published_count += 1
-                    logger.debug(f"Published default prompt: {prompt_id}")
+                    logger.debug(f"Published default prompt: {prompt_id} -> {version_label}")
                     
                 except Exception as e:
                     logger.debug(f"Could not publish prompt {prompt_id}: {e}")
@@ -196,31 +225,58 @@ class PromptManager:
         return updated
     
     async def _publish_prompt(self, prompt_id: str, prompt: PromptConfig):
-        """Publish a prompt to Weave (runs in background)."""
+        """Publish a prompt to Weave and track its version."""
         try:
             import weave
             
             weave_prompt = self._create_weave_prompt(prompt)
             ref = weave.publish(weave_prompt, name=prompt_id)
             
-            # Update version in cache (extract digest from ObjectRef)
-            if prompt_id in self._active_prompts:
-                version_str = ref.digest if hasattr(ref, 'digest') else str(ref)
-                self._active_prompts[prompt_id].version = version_str
+            # Extract version info from ref
+            digest = ref.digest if hasattr(ref, 'digest') else str(ref)
+            version_index = len(self._version_history.get(prompt_id, []))
+            version_label = f"v{version_index}"
             
-            logger.info(f"Published prompt to Weave: {prompt_id} -> {ref.digest if hasattr(ref, 'digest') else ref}")
+            # Create version record
+            version = PromptVersion(
+                version=version_label,
+                digest=digest,
+                created_at=datetime.utcnow().isoformat(),
+                system_prompt=prompt.system_prompt,
+                user_prompt_template=prompt.user_prompt_template,
+                is_current=True
+            )
+            
+            # Initialize or update version history
+            if prompt_id not in self._version_history:
+                self._version_history[prompt_id] = []
+            
+            # Mark previous versions as not current
+            for v in self._version_history[prompt_id]:
+                v.is_current = False
+            
+            self._version_history[prompt_id].append(version)
+            
+            # Update version in cache
+            if prompt_id in self._active_prompts:
+                self._active_prompts[prompt_id].version = version_label
+                self._active_prompts[prompt_id].digest = digest
+            
+            logger.info(f"Published prompt to Weave: {prompt_id} -> {version_label} ({digest[:8]}...)")
             
         except Exception as e:
             logger.warning(f"Failed to publish prompt {prompt_id} to Weave: {e}")
     
     def get_versions(self, prompt_id: str) -> List[PromptVersion]:
         """
-        Get all versions of a prompt from Weave.
+        Get all tracked versions of a prompt.
         
-        Note: Full version listing requires Weave's HTTP API.
-        For now, returns empty list - versions are visible in Weave UI.
+        Returns versions tracked locally since server startup. Versions are
+        created when prompts are published to Weave (on startup and on edit).
+        
+        For complete version history, use the Weave UI link.
         """
-        return []
+        return self._version_history.get(prompt_id, [])
     
     async def set_version(self, prompt_id: str, version: str) -> PromptConfig:
         """
@@ -228,19 +284,23 @@ class PromptManager:
         
         Args:
             prompt_id: The prompt ID
-            version: The Weave version hash to switch to
+            version: The version to switch to (v0, v1, v2... or full digest)
+        
+        Uses weave.get() with short form since weave.init() was already
+        called for the TOOL PROJECT in main.py.
         """
         if not self._weave_enabled:
             raise RuntimeError("Weave is not enabled, cannot switch versions")
         
+        if prompt_id not in self._active_prompts:
+            raise ValueError(f"Unknown prompt: {prompt_id}")
+        
         try:
             import weave
             
-            # Construct the Weave ref for this version
-            project_id = self._get_weave_project_id()
-            ref_str = f"weave:///{project_id}/object/{prompt_id}:{version}"
-            ref = weave.ref(ref_str)
-            prompt_data = ref.get()
+            # Use short form since we're in the same project context
+            # weave.get('prompt_id:v0') or weave.get('prompt_id:DIGEST')
+            prompt_data = weave.ref(f'{prompt_id}:{version}').get()
             
             if not prompt_data:
                 raise ValueError(f"Version {version} not found for prompt {prompt_id}")
@@ -252,20 +312,36 @@ class PromptManager:
             user_prompt_template = ""
             
             for msg in messages:
-                if msg.get("role") == "system":
-                    system_prompt = msg.get("content", "")
-                elif msg.get("role") == "user":
-                    user_prompt_template = msg.get("content", "")
+                role = msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", None)
+                content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", "")
+                
+                if role == "system":
+                    system_prompt = content
+                elif role == "user":
+                    user_prompt_template = content
+            
+            # Find the digest for this version from our history
+            digest = None
+            for v in self._version_history.get(prompt_id, []):
+                if v.version == version or v.digest == version:
+                    digest = v.digest
+                    break
+            
+            # If not in history, use the version string as digest
+            if digest is None:
+                digest = version
+            
+            # Update version history - mark new version as current
+            for v in self._version_history.get(prompt_id, []):
+                v.is_current = (v.version == version or v.digest == version)
             
             # Update our cached prompt
-            if prompt_id not in self._active_prompts:
-                raise ValueError(f"Unknown prompt: {prompt_id}")
-            
             current = self._active_prompts[prompt_id]
             updated = current.model_copy(update={
                 "system_prompt": system_prompt,
                 "user_prompt_template": user_prompt_template,
                 "version": version,
+                "digest": digest,
                 "is_default": False,
             })
             

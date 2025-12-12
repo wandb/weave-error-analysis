@@ -563,12 +563,14 @@ export interface PromptConfig {
   system_prompt: string | null;
   user_prompt_template: string;
   available_variables: string[];
-  version: string | null;
+  version: string | null;  // Version label (v0, v1, v2...)
+  digest: string | null;   // Full Weave hash
   is_default: boolean;
 }
 
 export interface PromptVersion {
-  version: string;
+  version: string;         // Version label (v0, v1, v2...)
+  digest: string;          // Full Weave hash
   created_at: string;
   system_prompt: string | null;
   user_prompt_template: string;
@@ -584,5 +586,6 @@ export interface PromptsListResponse {
 export interface PromptVersionsResponse {
   versions: PromptVersion[];
   weave_versions_url: string | null;
+  current_version: string | null;
 }
 

@@ -943,3 +943,18 @@ export async function fetchPromptVersions(promptId: string): Promise<PromptVersi
   return response.json();
 }
 
+export async function setPromptVersion(promptId: string, version: string): Promise<PromptConfig> {
+  const response = await fetch(`${API_BASE}/prompts/${promptId}/set-version`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ version }),
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to switch version");
+  }
+  
+  return response.json();
+}
+

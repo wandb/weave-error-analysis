@@ -66,10 +66,37 @@ def init_database():
         console.print("[green]✓[/] Database ready with Example Agent")
 
 
+def get_api_key_from_settings() -> str | None:
+    """Read OpenAI API key from app settings database."""
+    import sqlite3
+    
+    db_path = BACKEND_DIR / "taxonomy.db"
+    if not db_path.exists():
+        return os.environ.get("OPENAI_API_KEY")
+    
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.execute("SELECT value FROM app_settings WHERE key = 'llm_api_key'")
+        row = cursor.fetchone()
+        conn.close()
+        if row and row[0]:
+            return row[0]
+    except:
+        pass
+    
+    # Fallback to environment variable
+    return os.environ.get("OPENAI_API_KEY")
+
+
 def start_agent(port: int):
     """Start example agent server."""
     env = os.environ.copy()
     env["PYTHONPATH"] = str(AGENT_DIR)
+    
+    # Pass OpenAI API key from settings to the agent
+    api_key = get_api_key_from_settings()
+    if api_key:
+        env["OPENAI_API_KEY"] = api_key
     
     # Start agent with output visible for debugging
     return subprocess.Popen(

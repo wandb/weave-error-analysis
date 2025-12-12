@@ -235,3 +235,15 @@ async def test_weave_connection():
             "message": "Failed to verify W&B API key"
         }
 
+
+@router.get("/llm-api-key")
+async def get_llm_api_key():
+    """
+    Get the LLM API key for internal use (e.g., example agent).
+    
+    This endpoint is for local use only - the example agent calls this
+    to get the API key configured in settings.
+    """
+    api_key = get_setting("llm_api_key")
+    return {"api_key": api_key if api_key else None}
+

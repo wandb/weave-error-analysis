@@ -14,6 +14,7 @@ import os
 import uuid
 import warnings
 import logging
+import httpx
 from typing import Optional
 
 from pathlib import Path
@@ -58,6 +59,30 @@ app.add_middleware(
 
 # Global state for sessions
 sessions = {}
+
+# Backend URL for fetching API key from settings
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+
+
+async def ensure_api_key():
+    """Fetch OpenAI API key from backend settings if not already set."""
+    if os.environ.get("OPENAI_API_KEY"):
+        return True
+    
+    try:
+        async with httpx.AsyncClient() as client:
+            # Fetch the API key from backend settings
+            response = await client.get(f"{BACKEND_URL}/api/settings/llm-api-key", timeout=5.0)
+            if response.status_code == 200:
+                data = response.json()
+                api_key = data.get("api_key")
+                if api_key:
+                    os.environ["OPENAI_API_KEY"] = api_key
+                    return True
+    except Exception as e:
+        logging.warning(f"Failed to fetch API key from backend: {e}")
+    
+    return False
 
 
 class QueryRequest(BaseModel):
@@ -178,6 +203,14 @@ async def query(request: QueryRequest):
     Simple request/response model - no streaming, no SSE.
     """
     try:
+        # Ensure API key is available (fetch from backend settings if needed)
+        if not await ensure_api_key():
+            return QueryResponse(
+                response="",
+                thread_id=None,
+                error="OpenAI API key not configured. Please set it in Settings → LLM Configuration."
+            )
+        
         # Get or create thread ID
         thread_id = request.thread_id or f"thread_{uuid.uuid4().hex[:12]}"
         

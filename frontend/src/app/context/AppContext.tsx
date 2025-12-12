@@ -202,9 +202,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [showLandingPage, setShowLandingPage] = useState<boolean>(true);
   const [isHydrated, setIsHydrated] = useState(false);
 
-  // Hydrate landing page state from localStorage after initial render
+  // Hydrate landing page state from sessionStorage after initial render
+  // Using sessionStorage so the landing page shows once per browser session
   useEffect(() => {
-    const dismissed = localStorage.getItem('landingPageDismissed');
+    const dismissed = sessionStorage.getItem('landingPageDismissed');
     if (dismissed === 'true') {
       setShowLandingPage(false);
     }
@@ -301,11 +302,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     hasFailureModes: (taxonomy?.failure_modes?.length ?? 0) > 0,
   };
 
-  // Dismiss landing page and persist to localStorage
+  // Dismiss landing page and persist to sessionStorage
   const dismissLandingPage = useCallback(() => {
     setShowLandingPage(false);
     if (typeof window !== 'undefined') {
-      localStorage.setItem('landingPageDismissed', 'true');
+      sessionStorage.setItem('landingPageDismissed', 'true');
     }
   }, []);
 

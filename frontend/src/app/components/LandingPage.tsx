@@ -1,22 +1,13 @@
 "use client";
 
-import { Layers, Cpu, Zap, MessageCircle, BarChart3, ChevronRight, Check } from "lucide-react";
+import { Layers, Cpu, Zap, MessageCircle, BarChart3, ChevronRight } from "lucide-react";
 
 // ============================================================================
 // Types
 // ============================================================================
 
-export interface WorkflowProgress {
-  hasAgents: boolean;
-  hasBatches: boolean;
-  hasReviewedSessions: boolean;
-  hasFailureModes: boolean;
-}
-
 interface LandingPageProps {
-  progress: WorkflowProgress;
   onSkipToAgents: () => void;
-  onDismiss: () => void;
 }
 
 // ============================================================================
@@ -29,12 +20,10 @@ interface StepCardProps {
   title: string;
   subtitle: string;
   description: string;
-  isCompleted: boolean;
-  isActive: boolean;
   delay: number;
 }
 
-function StepCard({ stepNumber, icon, title, subtitle, description, isCompleted, isActive, delay }: StepCardProps) {
+function StepCard({ stepNumber, icon, title, subtitle, description, delay }: StepCardProps) {
   return (
     <div 
       className="group relative animate-fade-in"
@@ -44,43 +33,16 @@ function StepCard({ stepNumber, icon, title, subtitle, description, isCompleted,
       {stepNumber > 1 && (
         <div 
           className="absolute -left-8 top-1/2 w-8 h-0.5 hidden lg:block"
-          style={{ backgroundColor: isCompleted ? '#10BFCC' : '#333333' }}
+          style={{ backgroundColor: '#333333' }}
         />
       )}
       
       <div
-        className={`relative overflow-hidden rounded-xl border p-6 transition-all duration-300 h-full ${
-          isCompleted 
-            ? 'border-teal/40 bg-teal/5' 
-            : isActive 
-              ? 'border-gold/40 bg-gold/5' 
-              : 'border-moon-700 bg-moon-800/30'
-        } ${isActive ? 'hover:border-gold/60 hover:bg-gold/10' : 'hover:border-moon-600 hover:bg-moon-800/50'}`}
+        className="relative overflow-hidden rounded-xl border p-6 transition-all duration-300 h-full border-moon-700 bg-moon-800/30 hover:border-moon-600 hover:bg-moon-800/50"
       >
-        {/* Step Number Badge */}
-        <div 
-          className={`absolute -top-1 -right-1 w-8 h-8 rounded-bl-xl flex items-center justify-center text-sm font-medium ${
-            isCompleted 
-              ? 'bg-teal text-moon-900' 
-              : isActive 
-                ? 'bg-gold text-moon-900' 
-                : 'bg-moon-700 text-moon-450'
-          }`}
-        >
-          {isCompleted ? <Check className="w-4 h-4" /> : stepNumber}
-        </div>
-
         {/* Icon */}
-        <div 
-          className={`w-14 h-14 rounded-xl flex items-center justify-center mb-4 ${
-            isCompleted 
-              ? 'bg-teal/20' 
-              : isActive 
-                ? 'bg-gold/20' 
-                : 'bg-moon-700/50'
-          }`}
-        >
-          <div className={isCompleted ? 'text-teal' : isActive ? 'text-gold' : 'text-moon-450'}>
+        <div className="w-14 h-14 rounded-xl flex items-center justify-center mb-4 bg-moon-700/50">
+          <div className="text-gold">
             {icon}
           </div>
         </div>
@@ -89,14 +51,6 @@ function StepCard({ stepNumber, icon, title, subtitle, description, isCompleted,
         <h3 className="font-display text-lg text-moon-50 mb-1">{title}</h3>
         <p className="text-sm text-gold mb-3">{subtitle}</p>
         <p className="text-sm text-moon-450 leading-relaxed">{description}</p>
-
-        {/* Active indicator */}
-        {isActive && !isCompleted && (
-          <div className="mt-4 flex items-center gap-2 text-gold text-sm">
-            <span className="w-2 h-2 rounded-full bg-gold animate-pulse" />
-            Start here
-          </div>
-        )}
       </div>
     </div>
   );
@@ -106,40 +60,33 @@ function StepCard({ stepNumber, icon, title, subtitle, description, isCompleted,
 // Main Landing Page Component
 // ============================================================================
 
-export default function LandingPage({ progress, onSkipToAgents, onDismiss }: LandingPageProps) {
+export default function LandingPage({ onSkipToAgents }: LandingPageProps) {
   const workflowSteps = [
     {
       icon: <Cpu className="w-7 h-7" />,
       title: "Connect Agent",
       subtitle: "Step 1",
       description: "Register your agent with an AG-UI endpoint. We'll extract capabilities, tools, and testing dimensions automatically.",
-      isCompleted: progress.hasAgents,
     },
     {
       icon: <Zap className="w-7 h-7" />,
       title: "Generate Test Data",
       subtitle: "Step 2", 
       description: "Create synthetic queries across testing dimensions. Execute them against your agent to generate conversation traces.",
-      isCompleted: progress.hasBatches,
     },
     {
       icon: <MessageCircle className="w-7 h-7" />,
       title: "Review Threads",
       subtitle: "Step 3",
       description: "Review agent responses, identify issues, and add notes. Each note captures an observation about agent behavior.",
-      isCompleted: progress.hasReviewedSessions,
     },
     {
       icon: <BarChart3 className="w-7 h-7" />,
       title: "Categorize Failures",
       subtitle: "Step 4",
       description: "Build your failure mode taxonomy. AI helps cluster observations into categories, tracking saturation over time.",
-      isCompleted: progress.hasFailureModes,
     },
   ];
-
-  // Find the first incomplete step for highlighting
-  const activeStepIndex = workflowSteps.findIndex(step => !step.isCompleted);
 
   return (
     <div className="min-h-screen flex flex-col" style={{ backgroundColor: '#171A1F' }}>
@@ -159,12 +106,6 @@ export default function LandingPage({ progress, onSkipToAgents, onDismiss }: Lan
               </div>
             </div>
             
-            <button 
-              onClick={onDismiss}
-              className="text-sm text-moon-450 hover:text-moon-50 transition-colors"
-            >
-              Skip to app →
-            </button>
           </div>
         </div>
       </header>
@@ -192,8 +133,6 @@ export default function LandingPage({ progress, onSkipToAgents, onDismiss }: Lan
                 title={step.title}
                 subtitle={step.subtitle}
                 description={step.description}
-                isCompleted={step.isCompleted}
-                isActive={index === activeStepIndex}
                 delay={index * 80}
               />
             ))}

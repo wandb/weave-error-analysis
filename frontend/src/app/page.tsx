@@ -39,9 +39,9 @@ function AppLayout() {
   } = useApp();
 
   const handleLogoClick = () => {
-    // Clear the localStorage dismissal and show landing page
+    // Clear the sessionStorage dismissal and show landing page
     if (typeof window !== 'undefined') {
-      localStorage.removeItem('landingPageDismissed');
+      sessionStorage.removeItem('landingPageDismissed');
     }
     setShowLandingPage(true);
   };
@@ -255,7 +255,6 @@ function TabNavigation({
 function AppRouter() {
   const { 
     showLandingPage, 
-    workflowProgress, 
     dismissLandingPage,
     setActiveTab,
   } = useApp();
@@ -268,9 +267,7 @@ function AppRouter() {
   if (showLandingPage) {
     return (
       <LandingPage
-        progress={workflowProgress}
         onSkipToAgents={handleStart}
-        onDismiss={dismissLandingPage}
       />
     );
   }

@@ -71,13 +71,12 @@ def start_agent(port: int):
     env = os.environ.copy()
     env["PYTHONPATH"] = str(AGENT_DIR)
     
+    # Start agent with output visible for debugging
     return subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "agent_server:app", 
          "--host", "0.0.0.0", "--port", str(port)],
         cwd=AGENT_DIR,
         env=env,
-        stdout=subprocess.DEVNULL,  # Suppress agent output to reduce noise
-        stderr=subprocess.DEVNULL,
     )
 
 

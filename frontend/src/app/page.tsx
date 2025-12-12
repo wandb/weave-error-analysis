@@ -7,8 +7,6 @@ import {
   Cpu,
   Zap,
   Settings,
-  ThumbsUp,
-  ThumbsDown,
   RefreshCw,
 } from "lucide-react";
 import { AppProvider, useApp } from "./context/AppContext";
@@ -24,7 +22,6 @@ function AppLayout() {
   const {
     activeTab,
     setActiveTab,
-    feedbackSummary,
     taxonomy,
     agents,
     syntheticBatches,
@@ -105,20 +102,6 @@ function AppLayout() {
             </div>
 
             <div className="flex items-center gap-3">
-              {/* Feedback Stats */}
-              {feedbackSummary && (
-                <div className="flex items-center gap-3 text-sm">
-                  <div className="flex items-center gap-1.5" style={{ color: '#10BFCC' }}>
-                    <ThumbsUp className="w-4 h-4" />
-                    <span>{feedbackSummary.thumbs_up}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5" style={{ color: '#8F949E' }}>
-                    <ThumbsDown className="w-4 h-4" />
-                    <span>{feedbackSummary.thumbs_down}</span>
-                  </div>
-                </div>
-              )}
-
               {/* Refresh */}
               <button onClick={handleRefresh} className="btn-secondary flex items-center gap-2">
                 <RefreshCw className="w-4 h-4" />

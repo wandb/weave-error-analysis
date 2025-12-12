@@ -417,40 +417,8 @@ export function TaxonomyTab() {
             </div>
           </div>
 
-          {/* Right side: Saturation progress */}
-          <div className="flex items-center gap-4">
-            <div className="w-48">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs text-moon-500">Saturation</span>
-                <span className="text-xs font-medium text-moon-300">
-                  {Math.round((taxonomy?.saturation.saturation_score || 0) * 100)}%
-                </span>
-              </div>
-              <div className="h-2 bg-moon-800 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all ${
-                    taxonomy?.saturation.status === "saturated"
-                      ? "bg-emerald-500"
-                      : taxonomy?.saturation.status === "approaching_saturation"
-                      ? "bg-amber-500"
-                      : "bg-blue-500"
-                  }`}
-                  style={{ width: `${(taxonomy?.saturation.saturation_score || 0) * 100}%` }}
-                />
-              </div>
-            </div>
-              {taxonomy?.saturation.status === "saturated" && (
-                <Badge className="bg-emerald-500/20 text-emerald-400">Saturated</Badge>
-              )}
-              {taxonomy?.saturation.status === "approaching_saturation" && (
-                <Badge className="bg-amber-500/20 text-amber-400">Approaching</Badge>
-              )}
-              {taxonomy?.saturation.status === "discovering" && (
-                <Badge className="bg-blue-500/20 text-blue-400">Discovering</Badge>
-              )}
-            </div>
-                    </div>
-                  </div>
+        </div>
+      </div>
 
       {/* ========================================================================= */}
       {/* Batch Saturation Charts (Collapsible) */}

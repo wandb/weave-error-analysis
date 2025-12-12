@@ -38,14 +38,32 @@ def ensure_node_deps():
 
 
 def init_database():
-    """Copy example database if no database exists."""
+    """Copy example database if no database exists or if empty."""
+    import sqlite3
+    
     db_path = BACKEND_DIR / "taxonomy.db"
     example_db = DATA_DIR / "taxonomy_example.db"
     
-    if not db_path.exists() and example_db.exists():
+    should_init = False
+    
+    if not db_path.exists():
+        should_init = True
+    elif example_db.exists():
+        # Check if existing database has no agents (empty/fresh)
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.execute("SELECT COUNT(*) FROM agents")
+            count = cursor.fetchone()[0]
+            conn.close()
+            if count == 0:
+                should_init = True
+        except:
+            should_init = True
+    
+    if should_init and example_db.exists():
         console.print("[yellow]Initializing database with example data...[/]")
         shutil.copy(example_db, db_path)
-        console.print("[green]✓[/] Database ready")
+        console.print("[green]✓[/] Database ready with Example Agent")
 
 
 def start_agent(port: int):

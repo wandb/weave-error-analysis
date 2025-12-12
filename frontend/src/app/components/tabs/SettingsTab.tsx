@@ -30,26 +30,22 @@ import * as api from "../../lib/api";
 // Label mappings for better display
 const SETTING_LABELS: Record<string, string> = {
   llm_provider: "Provider",
-  llm_model: "Model",
+  llm_model: "Default Model",
   llm_api_key: "API Key",
   llm_api_base: "API Base URL",
   weave_api_key: "W&B API Key",
   weave_entity: "Entity",
   weave_project: "Project",
-  auto_review_model: "Model",
-  auto_review_concurrency: "Max Concurrent Calls",
 };
 
 const SETTING_PLACEHOLDERS: Record<string, string> = {
   llm_provider: "openai, anthropic, google...",
-  llm_model: "gpt-4o-mini, claude-3-sonnet...",
+  llm_model: "gpt-4o-mini, claude-3-sonnet... (prompts can override)",
   llm_api_key: "sk-...",
   llm_api_base: "https://api.openai.com/v1 (optional)",
   weave_api_key: "Your W&B API key",
   weave_entity: "Your W&B username or team",
   weave_project: "your-agent-project (where your agent logs traces)",
-  auto_review_model: "openai/gpt-5.1",
-  auto_review_concurrency: "10",
 };
 
 export function SettingsTab() {
@@ -201,7 +197,7 @@ export function SettingsTab() {
         <div>
           <h2 className="text-2xl font-display font-semibold text-sand-100">Settings</h2>
           <p className="text-ink-400 mt-1">
-            Configure LLM and Weave connections for the application
+            Configure credentials and defaults. Per-prompt model and temperature settings are in Prompt Management below.
           </p>
         </div>
         <div className="flex items-center gap-3">

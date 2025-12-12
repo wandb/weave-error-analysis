@@ -566,6 +566,10 @@ export interface PromptConfig {
   version: string | null;  // Version label (v0, v1, v2...)
   digest: string | null;   // Full Weave hash
   is_default: boolean;
+  
+  // LLM Configuration (per-prompt overrides)
+  llm_model: string | null;       // Model override, null = use global
+  llm_temperature: number | null; // Temperature override, null = use global default
 }
 
 export interface PromptVersion {

@@ -902,16 +902,22 @@ export async function fetchPrompt(promptId: string): Promise<PromptConfig> {
 
 export async function updatePrompt(
   promptId: string,
-  systemPrompt: string | null,
-  userPromptTemplate: string
+  systemPrompt?: string | null,
+  userPromptTemplate?: string,
+  llmModel?: string | null,
+  llmTemperature?: number | null
 ): Promise<PromptConfig> {
+  // Build request body, only including defined fields
+  const body: Record<string, unknown> = {};
+  if (systemPrompt !== undefined) body.system_prompt = systemPrompt;
+  if (userPromptTemplate !== undefined) body.user_prompt_template = userPromptTemplate;
+  if (llmModel !== undefined) body.llm_model = llmModel;
+  if (llmTemperature !== undefined) body.llm_temperature = llmTemperature;
+  
   const response = await fetch(`${API_BASE}/prompts/${promptId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      system_prompt: systemPrompt,
-      user_prompt_template: userPromptTemplate,
-    }),
+    body: JSON.stringify(body),
   });
   
   if (!response.ok) {

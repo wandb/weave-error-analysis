@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   X,
   RotateCcw,
@@ -15,6 +15,7 @@ import {
   Copy,
   ChevronDown,
   ChevronUp,
+  Cpu,
 } from "lucide-react";
 import { Badge, LoadingSpinner } from "./ui";
 import * as api from "../lib/api";
@@ -50,13 +51,23 @@ export function PromptEditDrawer({
   const [error, setError] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState(false);
 
+  // LLM Configuration state
+  const [llmModel, setLlmModel] = useState<string>("");
+  const [llmTemperature, setLlmTemperature] = useState<number | null>(null);
+  // Track original LLM values to detect changes
+  const [originalLlmModel, setOriginalLlmModel] = useState<string>("");
+  const [originalLlmTemperature, setOriginalLlmTemperature] = useState<number | null>(null);
+
   // Version info
   const [versions, setVersions] = useState<PromptVersionsResponse | null>(null);
   const [showVersions, setShowVersions] = useState(false);
   const [switchingVersion, setSwitchingVersion] = useState(false);
 
-  // Track if there are unsaved changes
-  const [isDirty, setIsDirty] = useState(false);
+  // Track if there are unsaved prompt content changes (triggers Weave version)
+  const [isPromptDirty, setIsPromptDirty] = useState(false);
+  
+  // Computed: check if LLM config has changed from original
+  const isLlmConfigDirty = llmModel !== originalLlmModel || llmTemperature !== originalLlmTemperature;
 
   // Variable insertion helpers
   const [copiedVar, setCopiedVar] = useState<string | null>(null);
@@ -75,9 +86,13 @@ export function PromptEditDrawer({
       setPrompt(null);
       setSystemPrompt("");
       setUserPromptTemplate("");
+      setLlmModel("");
+      setLlmTemperature(null);
+      setOriginalLlmModel("");
+      setOriginalLlmTemperature(null);
       setError(null);
       setSaveSuccess(false);
-      setIsDirty(false);
+      setIsPromptDirty(false);
       setVersions(null);
       setShowVersions(false);
     }
@@ -94,8 +109,15 @@ export function PromptEditDrawer({
       setPrompt(promptData);
       setSystemPrompt(promptData.system_prompt || "");
       setUserPromptTemplate(promptData.user_prompt_template);
+      // Set both current and original LLM values
+      const model = promptData.llm_model || "";
+      const temp = promptData.llm_temperature;
+      setLlmModel(model);
+      setLlmTemperature(temp);
+      setOriginalLlmModel(model);
+      setOriginalLlmTemperature(temp);
       setVersions(versionsData);
-      setIsDirty(false);
+      setIsPromptDirty(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load prompt");
     } finally {
@@ -105,14 +127,24 @@ export function PromptEditDrawer({
 
   const handleSystemPromptChange = (value: string) => {
     setSystemPrompt(value);
-    setIsDirty(true);
+    setIsPromptDirty(true);
     setSaveSuccess(false);
   };
 
   const handleUserPromptChange = (value: string) => {
     setUserPromptTemplate(value);
-    setIsDirty(true);
+    setIsPromptDirty(true);
     setSaveSuccess(false);
+  };
+
+  // LLM config changes don't affect prompt dirty state
+  // They are saved separately on drawer close
+  const handleLlmModelChange = (value: string) => {
+    setLlmModel(value);
+  };
+
+  const handleLlmTemperatureChange = (value: number | null) => {
+    setLlmTemperature(value);
   };
 
   const handleSave = async () => {
@@ -121,13 +153,14 @@ export function PromptEditDrawer({
     setError(null);
     setSaveSuccess(false);
     try {
+      // Only save prompt content - LLM config is saved on close
       const updated = await api.updatePrompt(
         promptId,
         systemPrompt || null,
         userPromptTemplate
       );
       setPrompt(updated);
-      setIsDirty(false);
+      setIsPromptDirty(false);
       setSaveSuccess(true);
       onSave?.(updated);
 
@@ -144,6 +177,25 @@ export function PromptEditDrawer({
     }
   };
 
+  // Save LLM config silently (no version creation in Weave)
+  const saveLlmConfig = async () => {
+    if (!prompt || !isLlmConfigDirty) return;
+    try {
+      await api.updatePrompt(
+        promptId,
+        undefined,  // Don't update system prompt
+        undefined,  // Don't update user template
+        llmModel || null,
+        llmTemperature
+      );
+      // Update original values to reflect saved state
+      setOriginalLlmModel(llmModel);
+      setOriginalLlmTemperature(llmTemperature);
+    } catch (err) {
+      console.error("Failed to save LLM config:", err);
+    }
+  };
+
   const handleReset = async () => {
     if (!confirm("Reset this prompt to its default version? Your changes will be lost.")) {
       return;
@@ -155,7 +207,13 @@ export function PromptEditDrawer({
       setPrompt(reset);
       setSystemPrompt(reset.system_prompt || "");
       setUserPromptTemplate(reset.user_prompt_template);
-      setIsDirty(false);
+      const model = reset.llm_model || "";
+      const temp = reset.llm_temperature;
+      setLlmModel(model);
+      setLlmTemperature(temp);
+      setOriginalLlmModel(model);
+      setOriginalLlmTemperature(temp);
+      setIsPromptDirty(false);
       setSaveSuccess(true);
       onSave?.(reset);
       setTimeout(() => setSaveSuccess(false), 3000);
@@ -178,7 +236,7 @@ export function PromptEditDrawer({
   };
 
   const handleSwitchVersion = async (version: PromptVersion) => {
-    if (isDirty) {
+    if (isPromptDirty) {
       if (!confirm("You have unsaved changes. Switching versions will discard them. Continue?")) {
         return;
       }
@@ -191,7 +249,13 @@ export function PromptEditDrawer({
       setPrompt(updated);
       setSystemPrompt(updated.system_prompt || "");
       setUserPromptTemplate(updated.user_prompt_template);
-      setIsDirty(false);
+      const model = updated.llm_model || "";
+      const temp = updated.llm_temperature;
+      setLlmModel(model);
+      setLlmTemperature(temp);
+      setOriginalLlmModel(model);
+      setOriginalLlmTemperature(temp);
+      setIsPromptDirty(false);
       
       // Reload versions to update current status
       const versionsData = await api.fetchPromptVersions(promptId);
@@ -203,12 +267,19 @@ export function PromptEditDrawer({
     }
   };
 
-  const handleClose = () => {
-    if (isDirty) {
-      if (!confirm("You have unsaved changes. Discard them?")) {
+  const handleClose = async () => {
+    // Only confirm if there are unsaved PROMPT changes (not LLM config)
+    if (isPromptDirty) {
+      if (!confirm("You have unsaved prompt changes. Discard them?")) {
         return;
       }
     }
+    
+    // Save LLM config silently if it changed (no version creation)
+    if (isLlmConfigDirty) {
+      await saveLlmConfig();
+    }
+    
     onClose();
   };
 
@@ -222,7 +293,7 @@ export function PromptEditDrawer({
     document.addEventListener("keydown", handleEscape);
     return () => document.removeEventListener("keydown", handleEscape);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, isDirty]);
+  }, [isOpen, isPromptDirty, isLlmConfigDirty]);
 
   if (!isOpen) return null;
 
@@ -299,6 +370,14 @@ export function PromptEditDrawer({
             </div>
           ) : prompt ? (
             <>
+              {/* LLM Configuration */}
+              <LLMConfigSection
+                model={llmModel}
+                temperature={llmTemperature}
+                onModelChange={handleLlmModelChange}
+                onTemperatureChange={handleLlmTemperatureChange}
+              />
+
               {/* Variables Reference */}
               <VariablesReference
                 variables={prompt.available_variables}
@@ -384,7 +463,7 @@ export function PromptEditDrawer({
                 Saved to Weave
               </span>
             )}
-            {isDirty && !saveSuccess && (
+            {isPromptDirty && !saveSuccess && (
               <span className="text-xs" style={{ color: "#FCBC32" }}>
                 Unsaved changes
               </span>
@@ -398,11 +477,11 @@ export function PromptEditDrawer({
                 border: "1px solid #333333",
               }}
             >
-              Cancel
+              {isLlmConfigDirty ? "Done" : "Cancel"}
             </button>
             <button
               onClick={handleSave}
-              disabled={saving || loading || !isDirty}
+              disabled={saving || loading || !isPromptDirty}
               className="flex items-center gap-2 px-5 py-2 rounded-md text-sm font-medium transition-all uppercase tracking-wide disabled:opacity-50"
               style={{
                 backgroundColor: "#FCBC32",
@@ -715,6 +794,264 @@ function VersionInfo({ versions, prompt, showVersions, onToggle, onSwitchVersion
               Version history will appear here after the first edit.
             </p>
           )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// LLM Configuration Section
+// ============================================================================
+
+interface LLMConfigSectionProps {
+  model: string;
+  temperature: number | null;
+  onModelChange: (value: string) => void;
+  onTemperatureChange: (value: number | null) => void;
+}
+
+const MODEL_PRESETS = [
+  { value: "", label: "Use Global Setting" },
+  { value: "openai/gpt-5.1", label: "openai/gpt-5.1" },
+  { value: "openai/gpt-5", label: "openai/gpt-5" },
+  { value: "openai/gpt-5-mini", label: "openai/gpt-5-mini" },
+  { value: "openai/gpt-4o", label: "openai/gpt-4o" },
+  { value: "openai/gpt-4o-mini", label: "openai/gpt-4o-mini" },
+];
+
+function LLMConfigSection({
+  model,
+  temperature,
+  onModelChange,
+  onTemperatureChange,
+}: LLMConfigSectionProps) {
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [searchText, setSearchText] = useState("");
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Filter presets based on search
+  const filteredPresets = MODEL_PRESETS.filter(
+    (preset) =>
+      preset.label.toLowerCase().includes(searchText.toLowerCase()) ||
+      preset.value.toLowerCase().includes(searchText.toLowerCase())
+  );
+
+  // Get display text for the dropdown
+  const displayText = model || "Use Global Setting";
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsDropdownOpen(false);
+        setSearchText("");
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const handleSelectModel = (value: string) => {
+    onModelChange(value);
+    setIsDropdownOpen(false);
+    setSearchText("");
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchText(e.target.value);
+    if (!isDropdownOpen) setIsDropdownOpen(true);
+  };
+
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      // If there's a search text, use it as custom model
+      if (searchText.trim()) {
+        onModelChange(searchText.trim());
+        setIsDropdownOpen(false);
+        setSearchText("");
+      }
+    } else if (e.key === "Escape") {
+      setIsDropdownOpen(false);
+      setSearchText("");
+    }
+  };
+
+  return (
+    <div
+      className="rounded-lg"
+      style={{
+        backgroundColor: "rgba(252, 188, 50, 0.08)",
+        border: "1px solid rgba(252, 188, 50, 0.2)",
+      }}
+    >
+      {/* Header */}
+      <button
+        onClick={() => setShowAdvanced(!showAdvanced)}
+        className="w-full flex items-center justify-between px-4 py-3 rounded-t-lg transition-colors hover:bg-gold/5"
+      >
+        <div className="flex items-center gap-2">
+          <Cpu className="w-4 h-4" style={{ color: "#FCBC32" }} />
+          <span className="text-sm font-medium" style={{ color: "#FCBC32" }}>
+            LLM Configuration
+          </span>
+          {model && (
+            <code
+              className="text-[10px] px-1.5 py-0.5 rounded font-mono"
+              style={{ backgroundColor: "rgba(252, 188, 50, 0.15)", color: "#FCBC32" }}
+            >
+              {model}
+            </code>
+          )}
+          {temperature !== null && (
+            <span className="text-xs" style={{ color: "#8F949E" }}>
+              temp: {temperature.toFixed(1)}
+            </span>
+          )}
+        </div>
+        {showAdvanced ? (
+          <ChevronUp className="w-4 h-4" style={{ color: "#8F949E" }} />
+        ) : (
+          <ChevronDown className="w-4 h-4" style={{ color: "#8F949E" }} />
+        )}
+      </button>
+
+      {/* Expanded Content */}
+      {showAdvanced && (
+        <div className="px-4 py-3 space-y-4" style={{ borderTop: "1px solid rgba(252, 188, 50, 0.2)" }}>
+          {/* Model Selection - Searchable Dropdown */}
+          <div>
+            <label className="block text-xs font-medium mb-2" style={{ color: "#FDFDFD" }}>
+              Model Override
+            </label>
+            <div className="relative" ref={dropdownRef}>
+              {/* Dropdown trigger / search input */}
+              <div
+                className="flex items-center gap-2 px-3 py-2.5 rounded-lg cursor-pointer"
+                style={{
+                  backgroundColor: "#171A1F",
+                  border: isDropdownOpen ? "1px solid #FCBC32" : "1px solid #333333",
+                }}
+                onClick={() => setIsDropdownOpen(true)}
+              >
+                <input
+                  type="text"
+                  value={isDropdownOpen ? searchText : displayText}
+                  onChange={handleInputChange}
+                  onKeyDown={handleInputKeyDown}
+                  onFocus={() => setIsDropdownOpen(true)}
+                  placeholder="Search or enter model..."
+                  className="flex-1 bg-transparent text-sm font-mono outline-none"
+                  style={{ color: model ? "#FDFDFD" : "#8F949E" }}
+                />
+                <ChevronDown 
+                  className={`w-4 h-4 transition-transform ${isDropdownOpen ? "rotate-180" : ""}`}
+                  style={{ color: "#8F949E" }}
+                />
+              </div>
+
+              {/* Dropdown menu */}
+              {isDropdownOpen && (
+                <div
+                  className="absolute z-50 w-full mt-1 rounded-lg shadow-xl overflow-hidden"
+                  style={{
+                    backgroundColor: "#1C1E24",
+                    border: "1px solid #333333",
+                  }}
+                >
+                  <div>
+                    {filteredPresets.map((preset) => (
+                      <button
+                        key={preset.value}
+                        onClick={() => handleSelectModel(preset.value)}
+                        className="w-full px-3 py-2.5 text-left text-sm font-mono transition-colors hover:bg-moon-800/50 flex items-center justify-between"
+                        style={{
+                          backgroundColor: model === preset.value ? "rgba(252, 188, 50, 0.1)" : "transparent",
+                          color: "#FDFDFD",
+                        }}
+                      >
+                        <span>{preset.label}</span>
+                        {model === preset.value && (
+                          <Check className="w-4 h-4" style={{ color: "#FCBC32" }} />
+                        )}
+                      </button>
+                    ))}
+                    {/* Show custom option if search doesn't match any preset */}
+                    {searchText && !filteredPresets.some(p => p.value === searchText || p.label === searchText) && (
+                      <button
+                        onClick={() => handleSelectModel(searchText)}
+                        className="w-full px-3 py-2.5 text-left text-sm font-mono transition-colors hover:bg-moon-800/50 flex items-center gap-2"
+                        style={{
+                          backgroundColor: "transparent",
+                          color: "#10BFCC",
+                          borderTop: "1px solid #333333",
+                        }}
+                      >
+                        <span>Use custom:</span>
+                        <code className="px-1.5 py-0.5 rounded" style={{ backgroundColor: "rgba(16, 191, 204, 0.15)" }}>
+                          {searchText}
+                        </code>
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Temperature Slider */}
+          <div>
+            <label className="block text-xs font-medium mb-2" style={{ color: "#FDFDFD" }}>
+              Temperature
+              <span className="ml-2 font-mono" style={{ color: "#10BFCC" }}>
+                {temperature !== null ? temperature.toFixed(1) : "default (0.3)"}
+              </span>
+            </label>
+            <div className="flex items-center gap-3">
+              <span className="text-[10px]" style={{ color: "#8F949E" }}>Precise</span>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.1"
+                value={temperature ?? 0.3}
+                onChange={(e) => onTemperatureChange(parseFloat(e.target.value))}
+                className="flex-1"
+                style={{ accentColor: "#FCBC32" }}
+              />
+              <span className="text-[10px]" style={{ color: "#8F949E" }}>Creative</span>
+            </div>
+            <div className="flex justify-between mt-2">
+              <button
+                onClick={() => onTemperatureChange(null)}
+                className="text-[10px] hover:underline"
+                style={{ color: "#8F949E" }}
+              >
+                Reset to default
+              </button>
+              <div className="flex gap-2">
+                {[0, 0.3, 0.7, 1.0].map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => onTemperatureChange(t)}
+                    className={`text-[10px] px-1.5 py-0.5 rounded transition-all ${
+                      temperature === t ? "ring-1" : ""
+                    }`}
+                    style={{
+                      backgroundColor: temperature === t 
+                        ? "rgba(16, 191, 204, 0.2)" 
+                        : "rgba(37, 40, 48, 0.5)",
+                      color: temperature === t ? "#10BFCC" : "#8F949E",
+                      ringColor: "#10BFCC",
+                    }}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

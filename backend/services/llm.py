@@ -28,12 +28,15 @@ Usage:
 """
 
 import asyncio
-from typing import Any, Dict, List, Optional, Type, TypeVar, Union, overload
+from typing import Any, Dict, List, Optional, Type, TypeVar, Union, overload, TYPE_CHECKING
 
 import litellm
 from pydantic import BaseModel
 
 from logger import get_logger, log_event, LOG_LLM_CONTENT
+
+if TYPE_CHECKING:
+    from prompts.base import PromptConfig
 
 logger = get_logger("llm")
 
@@ -368,6 +371,32 @@ class LLMClient:
     def for_generation(cls) -> "LLMClient":
         """Create a client optimized for creative generation (higher temperature)."""
         return cls(temperature=0.7)
+    
+    @classmethod
+    def for_prompt(cls, prompt: "PromptConfig") -> "LLMClient":
+        """
+        Create an LLM client configured for a specific prompt.
+        
+        Uses the prompt's LLM settings if specified, otherwise falls back to
+        global settings. This enables per-prompt model and temperature control.
+        
+        Args:
+            prompt: The PromptConfig to use for configuration
+        
+        Returns:
+            An LLMClient instance with appropriate settings
+        
+        Example:
+            from prompts import prompt_manager
+            
+            prompt = prompt_manager.get_prompt("trace_analysis")
+            client = LLMClient.for_prompt(prompt)
+            result = await client.complete(messages=[...])
+        """
+        return cls(
+            model=prompt.llm_model,  # None means use global
+            temperature=prompt.llm_temperature if prompt.llm_temperature is not None else cls.DEFAULT_TEMPERATURE,
+        )
 
 
 # Default singleton instance

@@ -31,6 +31,24 @@ class PromptConfig(BaseModel):
     version: Optional[str] = Field(default=None, description="Weave version label (v0, v1, etc.)")
     digest: Optional[str] = Field(default=None, description="Weave version digest (full hash)")
     is_default: bool = Field(default=True, description="True if using default, False if user-edited")
+    
+    # LLM Configuration (per-prompt overrides)
+    llm_model: Optional[str] = Field(
+        default=None, 
+        description="Model override for this prompt. If None, uses global setting."
+    )
+    llm_temperature: Optional[float] = Field(
+        default=None, 
+        description="Temperature override (0.0-1.0). If None, uses global default."
+    )
+    
+    def get_effective_model(self, global_model: str) -> str:
+        """Get the effective model, preferring prompt override."""
+        return self.llm_model or global_model
+    
+    def get_effective_temperature(self, global_temp: float = 0.3) -> float:
+        """Get the effective temperature, preferring prompt override."""
+        return self.llm_temperature if self.llm_temperature is not None else global_temp
 
 
 class PromptVersion(BaseModel):

@@ -191,12 +191,23 @@ class PromptManager:
         self, 
         prompt_id: str,
         system_prompt: Optional[str] = None,
-        user_prompt_template: Optional[str] = None
+        user_prompt_template: Optional[str] = None,
+        llm_model: Optional[str] = None,
+        llm_temperature: Optional[float] = None
     ) -> PromptConfig:
         """
-        Update a prompt and create a new version in Weave.
+        Update a prompt and optionally create a new version in Weave.
         
-        Updates the local cache immediately and publishes to Weave in background.
+        Updates the local cache immediately. Only publishes to Weave if prompt
+        content (system_prompt or user_prompt_template) changed. LLM config
+        changes (model, temperature) do NOT create new Weave versions.
+        
+        Args:
+            prompt_id: The prompt ID to update
+            system_prompt: New system prompt (None = keep current)
+            user_prompt_template: New user template (None = keep current)
+            llm_model: Model override for this prompt (empty string = clear override)
+            llm_temperature: Temperature override for this prompt
         """
         if not self._initialized:
             await self.initialize()
@@ -206,22 +217,46 @@ class PromptManager:
         
         current = self._active_prompts[prompt_id]
         
+        # Track if prompt content is changing (triggers Weave version)
+        prompt_content_changed = False
+        
+        # Build update dict, only include fields that are being changed
+        updates = {}
+        
+        if system_prompt is not None:
+            if system_prompt != current.system_prompt:
+                prompt_content_changed = True
+            updates["system_prompt"] = system_prompt
+        if user_prompt_template is not None:
+            if user_prompt_template != current.user_prompt_template:
+                prompt_content_changed = True
+            updates["user_prompt_template"] = user_prompt_template
+        
+        # LLM settings - allow explicit empty string to clear override
+        # These do NOT trigger Weave version creation
+        if llm_model is not None:
+            updates["llm_model"] = llm_model if llm_model != "" else None
+        if llm_temperature is not None:
+            updates["llm_temperature"] = llm_temperature
+        
+        # Only mark as non-default if prompt content changed
+        if prompt_content_changed:
+            updates["is_default"] = False
+            updates["version"] = None  # Will be set after Weave publish
+        
         # Create updated copy
-        updated = current.model_copy(update={
-            "system_prompt": system_prompt if system_prompt is not None else current.system_prompt,
-            "user_prompt_template": user_prompt_template if user_prompt_template is not None else current.user_prompt_template,
-            "is_default": False,
-            "version": None,  # Will be set after Weave publish
-        })
+        updated = current.model_copy(update=updates)
         
         # Update local cache immediately
         self._active_prompts[prompt_id] = updated
         
-        # Publish to Weave in background
-        if self._weave_enabled:
+        # Only publish to Weave if prompt content changed (not for LLM config only)
+        if self._weave_enabled and prompt_content_changed:
             asyncio.create_task(self._publish_prompt(prompt_id, updated))
+            logger.info(f"Updated prompt content: {prompt_id} (new Weave version)")
+        else:
+            logger.info(f"Updated prompt LLM config: {prompt_id} (no new version)")
         
-        logger.info(f"Updated prompt: {prompt_id}")
         return updated
     
     async def _publish_prompt(self, prompt_id: str, prompt: PromptConfig):

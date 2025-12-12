@@ -13,7 +13,6 @@ import {
   Edit3,
   ChevronDown,
   ChevronUp,
-  Settings2,
   Hash,
   Copy,
   Check,
@@ -73,10 +72,7 @@ export function SyntheticTab() {
 
   // Generation settings
   const [batchSize, setBatchSize] = useState(20);
-  // LLM-guided is the only strategy now (cross product removed)
-  const [model, setModel] = useState("gpt-5.1");
-  const [temperature, setTemperature] = useState(0.7);
-  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+  // LLM config (model/temperature) is now per-prompt, configured in prompt drawer
   
   
   // Generation state
@@ -528,8 +524,7 @@ export function SyntheticTab() {
           agent_id: selectedAgent.id,
           // Don't send name - let backend generate consistent name using its batch_id
           count: batchSize,
-          model,
-          temperature,
+          // Model and temperature are now per-prompt, configured in the prompt drawer
           selected_dimensions: selectedDimensions,  // undefined = LLM decides freely
           use_dimensions: useDimensions,  // explicit flag for backend
         }),
@@ -928,18 +923,7 @@ export function SyntheticTab() {
           )}
         </div>
 
-        {/* Advanced Settings Toggle */}
-                <button
-          onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
-          className="flex items-center gap-1 px-3 py-1.5 rounded text-sm transition-colors"
-          style={{ color: showAdvancedSettings ? '#FCBC32' : '#8F949E' }}
-                >
-          <Settings2 className="w-4 h-4" />
-          <span>Advanced</span>
-          {showAdvancedSettings ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                </button>
-
-        {/* Edit Prompt Buttons - for customizing LLM prompts */}
+        {/* Edit Prompt Buttons - for customizing LLM prompts (model/temperature configured per-prompt) */}
         <div className="flex items-center gap-1 border-l border-moon-700 pl-2 ml-1">
           {/* Only show Tuples edit when LLM decides mode is active */}
           {!useDimensions && (
@@ -1063,60 +1047,6 @@ export function SyntheticTab() {
           className="fixed inset-0 z-40" 
           onClick={() => setShowDimensionSelector(false)}
         />
-      )}
-
-      {/* Advanced Settings Panel */}
-      {showAdvancedSettings && (
-        <div 
-          className="rounded-lg p-4 space-y-4"
-          style={{ backgroundColor: '#1C1E24', border: '1px solid #333333' }}
-        >
-          {/* Basic Settings Row */}
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="text-xs mb-1 block" style={{ color: '#8F949E' }}>Model</label>
-              <select
-                value={model}
-                onChange={(e) => setModel(e.target.value)}
-                className="w-full px-3 py-2 rounded text-sm"
-                style={{ backgroundColor: '#171A1F', border: '1px solid #333333', color: '#FDFDFD' }}
-              >
-                <option value="gpt-4.1">gpt-5.1</option>
-                <option value="gpt-4.1-mini">gpt-5.1-mini</option>
-                <option value="gpt-4o-mini">gpt-4o-mini</option>
-                <option value="gpt-4o">gpt-4o</option>
-                <option value="gpt-4-turbo">gpt-4-turbo</option>
-                <option value="claude-3-sonnet">claude-3-sonnet</option>
-                <option value="claude-3-haiku">claude-3-haiku</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-xs mb-1 block" style={{ color: '#8F949E' }}>
-                Temperature: {temperature}
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={1}
-                step={0.1}
-                value={temperature}
-                onChange={(e) => setTemperature(Number(e.target.value))}
-                className="w-full accent-gold"
-                style={{ accentColor: '#FCBC32' }}
-              />
-            </div>
-            <div>
-              <label className="text-xs mb-1 block" style={{ color: '#8F949E' }}>API Key (optional override)</label>
-              <input
-                type="password"
-                placeholder="Uses default from Settings"
-                className="w-full px-3 py-2 rounded text-sm"
-                style={{ backgroundColor: '#171A1F', border: '1px solid #333333', color: '#FDFDFD' }}
-              />
-            </div>
-          </div>
-          
-        </div>
       )}
 
       {/* ========== MAIN CONTENT ========== */}

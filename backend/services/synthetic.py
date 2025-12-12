@@ -70,7 +70,8 @@ class SyntheticGenerator:
         """
         self.agent_info = agent_info
         self.dimensions = agent_info.testing_dimensions
-        self.llm = llm_client or LLMClient()
+        # Default LLM client (fallback, but prefer prompt-specific clients)
+        self._default_llm = llm_client or LLMClient()
     
     def get_dimension_values(self) -> Dict[str, List[str]]:
         """Get all dimension names and their possible values."""
@@ -161,8 +162,11 @@ class SyntheticGenerator:
                 dimensions=dim_values if use_dimensions else None
             )
 
+        # Create LLM client with prompt-specific configuration
+        llm = LLMClient.for_prompt(prompt_config)
+        
         # Use the LLM client for JSON mode completion
-        content = await self.llm.generate(
+        content = await llm.generate(
             prompt=prompt,
             json_mode=True
         )
@@ -254,6 +258,9 @@ class SyntheticGenerator:
         agent_purpose = self.agent_info.purpose or "AI assistant"
         agent_capabilities = ', '.join(self.agent_info.capabilities[:5]) if self.agent_info.capabilities else "General assistance"
         
+        # Get the prompt config for query generation
+        prompt_config = prompt_manager.get_prompt("query_generation")
+        
         if custom_prompt:
             # Replace placeholders in custom prompt
             prompt = custom_prompt.replace("{agent_name}", self.agent_info.name)
@@ -261,7 +268,6 @@ class SyntheticGenerator:
             prompt = prompt.replace("{agent_capabilities}", agent_capabilities)
             prompt = prompt.replace("{dimension_values}", chr(10).join(value_context))
         else:
-            prompt_config = prompt_manager.get_prompt("query_generation")
             variables = {
                 "agent_name": self.agent_info.name,
                 "agent_purpose": agent_purpose,
@@ -270,15 +276,18 @@ class SyntheticGenerator:
             }
             prompt = prompt_config.user_prompt_template.format(**variables)
 
+        # Create LLM client with prompt-specific configuration
+        llm = LLMClient.for_prompt(prompt_config)
+        
         log_event(logger, "llm.request_start",
             operation="query_generation",
-            model=self.llm.model,
+            model=llm.model,
             tuple_id=dimension_tuple.id,
             dimensions=list(dimension_tuple.values.keys())
         )
         
         # Use LLM client for simple text generation
-        query_text = await self.llm.generate(prompt=prompt)
+        query_text = await llm.generate(prompt=prompt)
         query_text = query_text.strip()
         
         # Remove quotes if LLM added them
@@ -288,7 +297,7 @@ class SyntheticGenerator:
         # Log success
         log_extra = {
             "operation": "query_generation",
-            "model": self.llm.model,
+            "model": llm.model,
             "tuple_id": dimension_tuple.id,
             "response_chars": len(query_text)
         }

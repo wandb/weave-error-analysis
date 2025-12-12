@@ -74,7 +74,8 @@ class SuggestionService:
     """Analyzes traces using agent context, taxonomy, and notes to suggest quality observations."""
     
     def __init__(self, model: Optional[str] = None):
-        self.llm = LLMClient(model=model) if model else LLMClient()
+        # Default LLM client (used when no prompt-specific config needed)
+        self._default_llm = LLMClient(model=model) if model else LLMClient()
     
     # -------------------------------------------------------------------------
     # Context Gathering
@@ -300,15 +301,21 @@ class SuggestionService:
         
         trace_id = trace_data.get("trace_id") or trace_data.get("id") or generate_id()
         
+        # Get the prompt config (used in both message building and LLM config)
+        prompt_config = prompt_manager.get_prompt("trace_analysis")
+        
         # NOTE: try-except commented out for debugging - uncomment for production
         # try:
         messages = self._build_analysis_prompt(context, trace_data)
         
+        # Create LLM client with prompt-specific configuration
+        llm = LLMClient.for_prompt(prompt_config)
+        
         # Use the LLM client abstraction for structured output
-        result = await self.llm.complete(
+        # Temperature from prompt config is used via LLMClient.for_prompt()
+        result = await llm.complete(
             messages=messages,
-            response_model=AnalysisResult,
-            temperature=0.3
+            response_model=AnalysisResult
         )
         
         # Look up failure mode name if we have an ID

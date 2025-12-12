@@ -76,21 +76,13 @@ DEFAULT_SETTINGS = {
         "description": "Weave project name where your agent logs traces (e.g., 'customer-support-agent')"
     },
     
-    # AI Suggestions Settings
+    # Internal Settings (not exposed in Settings UI)
+    # These are used by services but configured programmatically or kept at defaults
     "suggestion_confidence_threshold": {
         "value": "0.6",
         "is_secret": False,
-        "description": "Minimum confidence level (0.0-1.0) for showing AI suggestions"
-    },
-    "suggestion_model": {
-        "value": "",
-        "is_secret": False,
-        "description": "Model for AI suggestions (leave empty to use default LLM model)"
-    },
-    "suggestion_auto_analyze": {
-        "value": "true",
-        "is_secret": False,
-        "description": "Automatically analyze traces after batch execution"
+        "description": "Minimum confidence level (0.0-1.0) for showing AI suggestions",
+        "internal": True,  # Not shown in Settings UI
     },
 }
 
@@ -251,13 +243,18 @@ def get_all_settings(include_secrets: bool = False) -> Dict[str, SettingValue]:
 
 
 def get_settings_grouped() -> List[SettingsGroup]:
-    """Get settings organized by group for UI display."""
+    """
+    Get settings organized by group for UI display.
+    
+    Only returns user-facing settings. Internal settings (like suggestion_confidence_threshold)
+    are not exposed in the Settings UI - they're configured per-prompt or kept at defaults.
+    """
     all_settings = get_all_settings(include_secrets=False)
     
     groups = [
         SettingsGroup(
             name="LLM Configuration",
-            description="Settings for the AI model used in synthetic data generation and AI suggestions",
+            description="Default LLM settings. Individual prompts can override model and temperature.",
             settings=[
                 all_settings.get("llm_provider", SettingValue(key="llm_provider", value="")),
                 all_settings.get("llm_model", SettingValue(key="llm_model", value="")),
@@ -272,15 +269,6 @@ def get_settings_grouped() -> List[SettingsGroup]:
                 all_settings.get("weave_api_key", SettingValue(key="weave_api_key", value="", is_secret=True)),
                 all_settings.get("weave_entity", SettingValue(key="weave_entity", value="")),
                 all_settings.get("weave_project", SettingValue(key="weave_project", value="")),
-            ]
-        ),
-        SettingsGroup(
-            name="AI Suggestions",
-            description="Settings for AI-powered quality suggestions during trace review",
-            settings=[
-                all_settings.get("suggestion_confidence_threshold", SettingValue(key="suggestion_confidence_threshold", value="0.6")),
-                all_settings.get("suggestion_model", SettingValue(key="suggestion_model", value="")),
-                all_settings.get("suggestion_auto_analyze", SettingValue(key="suggestion_auto_analyze", value="true")),
             ]
         ),
     ]

@@ -160,7 +160,8 @@ class TaxonomyService:
     """Service for managing the failure mode taxonomy."""
     
     def __init__(self):
-        self.llm = LLMClient()
+        # Default LLM client (fallback, but prefer prompt-specific clients)
+        self._default_llm = LLMClient()
     
     # ------------------------------------------------------------------------
     # Failure Mode CRUD
@@ -611,12 +612,15 @@ class TaxonomyService:
             "modes_text": modes_text,
         }
         
+        # Create LLM client with prompt-specific configuration
+        llm = LLMClient.for_prompt(prompt_config)
+        
         # Use LLM client for structured output
-        result = await self.llm.analyze(
+        # Temperature from prompt config is used via LLMClient.for_prompt()
+        result = await llm.analyze(
             system_prompt=prompt_config.system_prompt,
             user_prompt=prompt_config.user_prompt_template.format(**variables),
-            response_model=CategorySuggestion,
-            temperature=0.3
+            response_model=CategorySuggestion
         )
         
         # Convert to dict and add note_id
@@ -634,12 +638,15 @@ class TaxonomyService:
             "note_content": note_content,
         }
         
+        # Create LLM client with prompt-specific configuration
+        llm = LLMClient.for_prompt(prompt_config)
+        
         # Use LLM client for structured output
-        result = await self.llm.analyze(
+        # Temperature from prompt config is used via LLMClient.for_prompt()
+        result = await llm.analyze(
             system_prompt=prompt_config.system_prompt,
             user_prompt=prompt_config.user_prompt_template.format(**variables),
-            response_model=CategorySuggestion,
-            temperature=0.3
+            response_model=CategorySuggestion
         )
         
         # Convert to dict and add note_id if provided
@@ -1185,12 +1192,15 @@ class TaxonomyService:
             "modes_text": modes_text,
         }
         
+        # Create LLM client with prompt-specific configuration
+        llm = LLMClient.for_prompt(prompt_config)
+        
         # Use LLM client for structured output
-        result = await self.llm.analyze(
+        # Temperature from prompt config is used via LLMClient.for_prompt()
+        result = await llm.analyze(
             system_prompt=prompt_config.system_prompt,
             user_prompt=prompt_config.user_prompt_template.format(**variables),
-            response_model=TaxonomyImprovementsResponse,
-            temperature=0.3
+            response_model=TaxonomyImprovementsResponse
         )
         
         return result.model_dump()

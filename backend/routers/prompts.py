@@ -19,6 +19,8 @@ class PromptUpdateRequest(BaseModel):
     """Request body for updating a prompt."""
     system_prompt: Optional[str] = None
     user_prompt_template: Optional[str] = None
+    llm_model: Optional[str] = None
+    llm_temperature: Optional[float] = None
 
 
 class VersionSelectRequest(BaseModel):
@@ -79,16 +81,22 @@ async def get_prompt(prompt_id: str):
 @router.put("/{prompt_id}")
 async def update_prompt(prompt_id: str, request: PromptUpdateRequest):
     """
-    Update a prompt.
+    Update a prompt including LLM configuration.
     
     Creates a new version in Weave (if enabled).
     The update is applied immediately to the local cache.
+    
+    LLM Configuration:
+    - llm_model: Override the model for this prompt (empty string clears override)
+    - llm_temperature: Override the temperature for this prompt
     """
     try:
         updated = await prompt_manager.update_prompt(
             prompt_id=prompt_id,
             system_prompt=request.system_prompt,
-            user_prompt_template=request.user_prompt_template
+            user_prompt_template=request.user_prompt_template,
+            llm_model=request.llm_model,
+            llm_temperature=request.llm_temperature
         )
         return {
             **updated.model_dump(),

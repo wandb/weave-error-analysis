@@ -383,6 +383,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         batch_id: isOrganicFilter ? null : filterBatchId,
         exclude_batches: isOrganicFilter ? true : undefined,
         primary_model: filterModel,
+        id_prefix: "session_",  // Only show session_* threads (not random UUIDs)
         limit: 100,
       });
       setSessions(data.sessions);

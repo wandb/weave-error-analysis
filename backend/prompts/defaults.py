@@ -24,9 +24,10 @@ DEFAULT_PROMPTS = {
 
 
 # Group by feature for UI display
+# Note: tuple_generation_free is now an alias for tuple_generation (merged prompt)
 PROMPTS_BY_FEATURE = {
     "suggestions": ["trace_analysis"],
     "taxonomy": ["category_suggestion", "category_creation", "taxonomy_improvement"],
-    "synthetic": ["tuple_generation", "tuple_generation_free", "query_generation"],
+    "synthetic": ["tuple_generation", "query_generation"],
 }
 

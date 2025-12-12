@@ -112,6 +112,9 @@ class SessionFilters:
     
     # Note Search (searches session_notes.content)
     note_search: Optional[str] = None
+    
+    # ID Prefix Filter (e.g., "session_" to show only session_* IDs)
+    id_prefix: Optional[str] = None
 
 
 @dataclass
@@ -849,6 +852,11 @@ class SessionRepository:
         if filters.primary_model:
             conditions.append("s.primary_model = ?")
             params.append(filters.primary_model)
+        
+        # ID prefix filter (e.g., "session_" to only show session_* threads)
+        if filters.id_prefix:
+            conditions.append("s.id LIKE ?")
+            params.append(f"{filters.id_prefix}%")
         
         # Note search is handled separately in search_by_notes()
         # because it requires a JOIN

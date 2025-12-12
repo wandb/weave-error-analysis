@@ -585,6 +585,7 @@ export async function fetchSessions(params: FetchSessionsParams = {}): Promise<S
   if (params.primary_model) urlParams.append("primary_model", params.primary_model);
   if (params.note_search) urlParams.append("note_search", params.note_search);
   if (params.random_sample != null) urlParams.append("random_sample", String(params.random_sample));
+  if (params.id_prefix) urlParams.append("id_prefix", params.id_prefix);
 
   const response = await fetch(`${API_BASE}/sessions?${urlParams}`);
   return response.json();

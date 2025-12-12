@@ -168,6 +168,7 @@ export interface SessionFilters {
   primary_model?: string | null;
   note_search?: string | null;
   random_sample?: number | null;
+  id_prefix?: string | null;  // Filter by ID prefix (e.g., "session_" to show only session_* threads)
 }
 
 export interface FeedbackSummary {

@@ -114,30 +114,37 @@ class SyntheticGenerator:
         # Determine prompt mode for logging
         prompt_mode = "free_generation" if not use_dimensions else ("custom_prompt" if custom_prompt else "dimensions_guided")
         
-        if not use_dimensions:
-            # Free generation mode - LLM decides the dimensions and values
-            prompt_config = prompt_manager.get_prompt("tuple_generation_free")
-            variables = {
-                "agent_name": self.agent_info.name,
-                "agent_purpose": self.agent_info.purpose or "AI assistant",
-                "count": str(n),
-                "focus_instruction": focus_instruction,
-            }
-            prompt = prompt_config.user_prompt_template.format(**variables)
-        elif custom_prompt:
+        # Build dimensions section (empty for free mode, populated otherwise)
+        if use_dimensions and dim_values:
+            dimensions_section = f"""
+These are the available testing dimensions that you can use as inspiration:
+{json.dumps(dim_values, indent=2)}
+
+Feel free to generate tuples that make sense for the agent and purpose.
+"""
+        else:
+            # Free mode - let LLM decide dimensions
+            dimensions_section = """
+You decide what dimensions to use (e.g., persona, scenario, complexity, mood, intent, etc.)
+based on what's relevant for testing this agent.
+"""
+        
+        if custom_prompt:
             # Replace placeholders in custom prompt
             prompt = custom_prompt.replace("{agent_name}", self.agent_info.name)
             prompt = prompt.replace("{agent_purpose}", self.agent_info.purpose or "AI assistant")
             prompt = prompt.replace("{dimensions}", json.dumps(dim_values, indent=2))
+            prompt = prompt.replace("{dimensions_section}", dimensions_section)
             prompt = prompt.replace("{count}", str(n))
             prompt = prompt.replace("{focus_instruction}", focus_instruction)
+            prompt_config = prompt_manager.get_prompt("tuple_generation")
         else:
             prompt_config = prompt_manager.get_prompt("tuple_generation")
             variables = {
                 "agent_name": self.agent_info.name,
                 "agent_purpose": self.agent_info.purpose or "AI assistant",
                 "count": str(n),
-                "dimensions": json.dumps(dim_values, indent=2),
+                "dimensions_section": dimensions_section,
                 "focus_instruction": focus_instruction,
             }
             prompt = prompt_config.user_prompt_template.format(**variables)

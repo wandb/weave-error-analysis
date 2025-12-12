@@ -106,6 +106,9 @@ async def list_sessions(
     # Model Filter
     primary_model: Optional[str] = Query(None, description="Filter by primary model"),
     
+    # ID Prefix Filter
+    id_prefix: Optional[str] = Query(None, description="Filter by ID prefix (e.g., 'session_' to only show session_* threads)"),
+    
     # Sampling
     random_sample: Optional[int] = Query(None, ge=1, le=100, description="Return random N sessions"),
     
@@ -138,6 +141,7 @@ async def list_sessions(
             started_after=started_after,
             started_before=started_before,
             primary_model=primary_model,
+            id_prefix=id_prefix,
         )
         
         # Parse sort options

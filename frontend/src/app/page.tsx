@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback } from "react";
 import {
   Layers,
   MessageCircle,
@@ -13,6 +14,9 @@ import { AppProvider, useApp } from "./context/AppContext";
 import { ThreadsTab, TaxonomyTab, AgentsTab, SyntheticTab, SettingsTab } from "./components/tabs";
 import { Badge } from "./components/ui";
 import LandingPage from "./components/LandingPage";
+import SetupWizard from "./components/SetupWizard";
+import { useKeyboardShortcuts } from "./lib/useKeyboardShortcuts";
+import { Loader2 } from "lucide-react";
 
 // ============================================================================
 // Main Layout
@@ -33,6 +37,11 @@ function AppLayout() {
     fetchDimensions,
     fetchBatches,
     setShowLandingPage,
+    // Session navigation for keyboard shortcuts
+    sessions,
+    selectedSession,
+    fetchSessionDetail,
+    markSessionReviewed,
   } = useApp();
 
   const handleLogoClick = () => {
@@ -43,7 +52,7 @@ function AppLayout() {
     setShowLandingPage(true);
   };
 
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
     switch (activeTab) {
       case "threads":
         fetchSessions();
@@ -61,7 +70,52 @@ function AppLayout() {
         }
         break;
     }
-  };
+  }, [activeTab, fetchSessions, fetchTaxonomy, fetchAgents, fetchDimensions, fetchBatches, selectedAgent]);
+
+  // Keyboard shortcuts: navigate sessions in Threads tab
+  const navigateSession = useCallback((direction: "prev" | "next") => {
+    if (!sessions.length) return;
+    
+    const currentIndex = selectedSession 
+      ? sessions.findIndex(s => s.id === selectedSession.id)
+      : -1;
+    
+    let newIndex: number;
+    if (direction === "next") {
+      newIndex = currentIndex < sessions.length - 1 ? currentIndex + 1 : 0;
+    } else {
+      newIndex = currentIndex > 0 ? currentIndex - 1 : sessions.length - 1;
+    }
+    
+    fetchSessionDetail(sessions[newIndex].id);
+  }, [sessions, selectedSession, fetchSessionDetail]);
+
+  const markReviewedAndNext = useCallback(async () => {
+    if (!selectedSession) return;
+    
+    // Mark current as reviewed
+    await markSessionReviewed(selectedSession.id);
+    
+    // Move to next session
+    navigateSession("next");
+  }, [selectedSession, markSessionReviewed, navigateSession]);
+
+  // Register keyboard shortcuts
+  useKeyboardShortcuts({
+    activeTab,
+    goToAgents: () => setActiveTab("agents"),
+    goToSynthetic: () => setActiveTab("synthetic"),
+    goToThreads: () => setActiveTab("threads"),
+    goToTaxonomy: () => setActiveTab("taxonomy"),
+    refresh: handleRefresh,
+    markReviewedAndNext,
+    previousSession: () => navigateSession("prev"),
+    nextSession: () => navigateSession("next"),
+    deselectSession: () => {
+      // We don't have a direct setter, but clicking elsewhere works
+      // For now, just navigate to first session if any
+    },
+  });
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#171A1F' }}>
@@ -232,7 +286,7 @@ function TabNavigation({
 }
 
 // ============================================================================
-// App Router - Conditional Landing Page
+// App Router - Conditional Setup / Landing Page
 // ============================================================================
 
 function AppRouter() {
@@ -240,6 +294,9 @@ function AppRouter() {
     showLandingPage, 
     dismissLandingPage,
     setActiveTab,
+    needsSetup,
+    checkingSetup,
+    completeSetup,
   } = useApp();
 
   const handleStart = () => {
@@ -247,6 +304,27 @@ function AppRouter() {
     setActiveTab("agents");
   };
 
+  const handleSetupComplete = () => {
+    completeSetup();
+    dismissLandingPage();
+    setActiveTab("agents");
+  };
+
+  // Show loading while checking setup status
+  if (checkingSetup) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#171A1F' }}>
+        <Loader2 className="w-8 h-8 text-gold animate-spin" />
+      </div>
+    );
+  }
+
+  // Show setup wizard if essential config is missing
+  if (needsSetup) {
+    return <SetupWizard onComplete={handleSetupComplete} />;
+  }
+
+  // Show landing page (workflow guide) on first visit
   if (showLandingPage) {
     return (
       <LandingPage

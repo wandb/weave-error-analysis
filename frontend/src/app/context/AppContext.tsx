@@ -29,6 +29,7 @@ import type {
   BatchReviewProgress,
   FilterRanges,
   WorkflowProgress,
+  ConfigStatus,
 } from "../types";
 import * as api from "../lib/api";
 import { ORGANIC_FILTER, SESSION_ID_PREFIX } from "../constants";
@@ -38,6 +39,13 @@ import { ORGANIC_FILTER, SESSION_ID_PREFIX } from "../constants";
 // ============================================================================
 
 interface AppState {
+  // Setup State
+  configStatus: ConfigStatus | null;
+  needsSetup: boolean;
+  checkingSetup: boolean;
+  completeSetup: () => void;
+  refreshConfigStatus: () => Promise<void>;
+  
   // Landing Page
   showLandingPage: boolean;
   setShowLandingPage: (show: boolean) => void;
@@ -178,10 +186,57 @@ export function useApp() {
 // ============================================================================
 
 export function AppProvider({ children }: { children: ReactNode }) {
+  // Setup State - check if essential configuration is done
+  const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null);
+  const [needsSetup, setNeedsSetup] = useState<boolean>(false);
+  const [checkingSetup, setCheckingSetup] = useState<boolean>(true);
+  const [setupComplete, setSetupComplete] = useState<boolean>(false);
+  
   // Landing Page State
   // Initialize to true to match server render, then hydrate from localStorage
   const [showLandingPage, setShowLandingPage] = useState<boolean>(true);
   const [isHydrated, setIsHydrated] = useState(false);
+
+  // Check config status on mount to determine if setup is needed
+  const refreshConfigStatus = useCallback(async () => {
+    try {
+      const status = await api.fetchConfigStatus();
+      setConfigStatus(status);
+      // Require LLM to be configured (Weave is optional)
+      setNeedsSetup(!status.llm.configured);
+    } catch (error) {
+      console.error("Error checking config status:", error);
+      // On error, assume setup is not needed (don't block the user)
+      setNeedsSetup(false);
+    } finally {
+      setCheckingSetup(false);
+    }
+  }, []);
+
+  // Mark setup as complete (called from SetupWizard)
+  const completeSetup = useCallback(() => {
+    setSetupComplete(true);
+    setNeedsSetup(false);
+    // Persist that setup was completed for this session
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('setupCompleted', 'true');
+    }
+  }, []);
+
+  // Check setup on mount
+  useEffect(() => {
+    // Check if setup was already completed this session
+    if (typeof window !== 'undefined') {
+      const completed = sessionStorage.getItem('setupCompleted');
+      if (completed === 'true') {
+        setSetupComplete(true);
+        setNeedsSetup(false);
+        setCheckingSetup(false);
+        return;
+      }
+    }
+    refreshConfigStatus();
+  }, [refreshConfigStatus]);
 
   // Hydrate landing page state from sessionStorage after initial render
   // Using sessionStorage so the landing page shows once per browser session
@@ -227,8 +282,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [filterRanges, setFilterRanges] = useState<FilterRanges | null>(null);
   const [loadingFilterRanges, setLoadingFilterRanges] = useState(false);
 
-  // Sync status polling ref
+  // Sync status polling ref with exponential backoff
   const syncPollRef = useRef<NodeJS.Timeout | null>(null);
+  const syncPollIntervalRef = useRef<number>(1000); // Start at 1s, max 5s
+  
+  // Agent health check polling ref (30s interval)
+  const agentHealthPollRef = useRef<NodeJS.Timeout | null>(null);
 
   // Agents state
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -405,20 +464,39 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const triggerSyncAction = async (fullSync: boolean = false) => {
     try {
       await api.triggerSync(fullSync, filterBatchId ?? undefined);
-      // Start polling for sync status
+      // Start polling for sync status with exponential backoff
       refreshSyncStatusData();
       
-      // Poll while syncing
-      if (syncPollRef.current) clearInterval(syncPollRef.current);
-      syncPollRef.current = setInterval(async () => {
+      // Reset polling interval to initial value
+      syncPollIntervalRef.current = 1000;
+      
+      // Clear any existing polling
+      if (syncPollRef.current) {
+        clearTimeout(syncPollRef.current);
+        syncPollRef.current = null;
+      }
+      
+      // Poll with exponential backoff (1s -> 1.5s -> 2.25s -> ... -> max 5s)
+      const pollWithBackoff = async () => {
         const status = await refreshSyncStatusData();
+        
         if (status && !status.is_syncing) {
-          if (syncPollRef.current) clearInterval(syncPollRef.current);
-          // Refresh sessions and filter ranges after sync completes
+          // Sync complete - refresh data and stop polling
           fetchSessionsData();
           fetchFilterRangesData();
+          syncPollRef.current = null;
+        } else {
+          // Continue polling with backoff (1.5x, capped at 5s)
+          syncPollIntervalRef.current = Math.min(
+            syncPollIntervalRef.current * 1.5,
+            5000
+          );
+          syncPollRef.current = setTimeout(pollWithBackoff, syncPollIntervalRef.current);
         }
-      }, 2000);
+      };
+      
+      // Start the first poll after initial interval
+      syncPollRef.current = setTimeout(pollWithBackoff, syncPollIntervalRef.current);
     } catch (error) {
       console.error("Error triggering sync:", error);
     }
@@ -504,6 +582,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const result = await api.testAgentConnection(agentId);
       setConnectionResult(result);
       await fetchAgentsData();
+      
+      // Update selected agent's connection status if it matches
+      if (selectedAgent?.id === agentId) {
+        setSelectedAgent(prev => prev ? {
+          ...prev,
+          connection_status: result.success ? "connected" : "error"
+        } : null);
+      }
     } catch (error) {
       setConnectionResult({
         success: false,
@@ -513,6 +599,34 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
     }
   };
+
+  // Background health check for selected agent (silent - doesn't update connectionResult)
+  const checkAgentHealthSilently = useCallback(async (agentId: string) => {
+    try {
+      const result = await api.testAgentConnection(agentId);
+      // Update selected agent's connection status silently
+      setSelectedAgent(prev => {
+        if (prev?.id !== agentId) return prev;
+        const newStatus = result.success ? "connected" : "disconnected";
+        if (prev.connection_status !== newStatus) {
+          return { ...prev, connection_status: newStatus };
+        }
+        return prev;
+      });
+      // Also update in agents list
+      setAgents(prev => prev.map(a => 
+        a.id === agentId 
+          ? { ...a, connection_status: result.success ? "connected" : "disconnected" }
+          : a
+      ));
+    } catch {
+      // Silently mark as disconnected on error
+      setSelectedAgent(prev => {
+        if (prev?.id !== agentId) return prev;
+        return { ...prev, connection_status: "disconnected" };
+      });
+    }
+  }, []);
 
   const createAgentAction = async (name: string, endpoint: string, info: string) => {
     if (!name || !endpoint || !info) return;
@@ -689,7 +803,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Cleanup sync polling on unmount
   useEffect(() => {
     return () => {
-      if (syncPollRef.current) clearInterval(syncPollRef.current);
+      if (syncPollRef.current) clearTimeout(syncPollRef.current);
     };
   }, []);
 
@@ -734,11 +848,47 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [agents, selectedAgent, loadingAgents]);
 
+  // Background health checks for selected agent (every 30s)
+  useEffect(() => {
+    // Clear any existing health check polling
+    if (agentHealthPollRef.current) {
+      clearInterval(agentHealthPollRef.current);
+      agentHealthPollRef.current = null;
+    }
+
+    if (selectedAgent) {
+      // Perform immediate health check when agent is selected
+      checkAgentHealthSilently(selectedAgent.id);
+      
+      // Start polling every 30 seconds
+      agentHealthPollRef.current = setInterval(() => {
+        if (selectedAgent) {
+          checkAgentHealthSilently(selectedAgent.id);
+        }
+      }, 30000);
+    }
+
+    // Cleanup on unmount or when agent changes
+    return () => {
+      if (agentHealthPollRef.current) {
+        clearInterval(agentHealthPollRef.current);
+        agentHealthPollRef.current = null;
+      }
+    };
+  }, [selectedAgent?.id, checkAgentHealthSilently]);
+
   // ============================================================================
   // Context Value
   // ============================================================================
 
   const value: AppState = {
+    // Setup State
+    configStatus,
+    needsSetup: needsSetup && !setupComplete,
+    checkingSetup,
+    completeSetup,
+    refreshConfigStatus,
+    
     // Landing Page
     showLandingPage,
     setShowLandingPage,

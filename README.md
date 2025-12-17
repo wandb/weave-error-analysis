@@ -139,6 +139,35 @@ WEAVE_PROJECT=your_agent_project  # Where your agent logs traces
 OPENAI_API_KEY=your_key
 ```
 
+### Environment Variable Reference
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `WANDB_API_KEY` | W&B API key for Weave access | (required) |
+| `WANDB_ENTITY` | W&B entity (username or team) | (required) |
+| `WEAVE_PROJECT` | Weave project name for your agent's traces | (required) |
+| `OPENAI_API_KEY` | OpenAI API key for LLM operations | (required) |
+| `TOOL_PROJECT_NAME` | Weave project for tool's internal traces | `error-analysis-tool` |
+| `WEAVE_API_BASE` | Weave API base URL (for enterprise) | `https://trace.wandb.ai` |
+| `CORS_ORIGINS` | Comma-separated list of allowed origins | localhost:3000,8000 |
+| `CORS_ALLOW_ALL` | Set to `true` to allow all origins | `false` |
+| `SYNC_QUERY_LIMIT` | Max calls to fetch per sync | `500` |
+| `AGENT_QUERY_TIMEOUT` | Timeout (seconds) for agent queries | `120` |
+| `WEAVE_API_TIMEOUT` | Timeout (seconds) for Weave API calls | `60` |
+| `HEALTH_CHECK_TIMEOUT` | Timeout (seconds) for health checks | `10` |
+
+**CORS Configuration:**
+
+By default, CORS is configured for local development (localhost:3000, localhost:8000). For production deployments:
+
+```bash
+# Allow specific origins (recommended)
+CORS_ORIGINS=https://your-app.example.com,https://your-domain.com
+
+# Or allow all origins (use with caution)
+CORS_ALLOW_ALL=true
+```
+
 ## Connecting Your Agent
 
 Your agent needs:

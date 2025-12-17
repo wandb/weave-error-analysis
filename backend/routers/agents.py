@@ -27,6 +27,10 @@ class AgentCreateRequest(BaseModel):
     name: str = Field(..., description="Display name for the agent")
     endpoint_url: str = Field(..., description="AG-UI compatible endpoint URL")
     agent_info_content: str = Field(..., description="Raw AGENT_INFO.md content")
+    weave_project: Optional[str] = Field(
+        default=None,
+        description="Weave project where this agent logs traces (e.g., 'my-chatbot')"
+    )
 
 
 class AgentUpdateRequest(BaseModel):
@@ -44,6 +48,7 @@ class AgentResponse(BaseModel):
     agent_type: Optional[str]
     framework: Optional[str]
     endpoint_url: str
+    weave_project: Optional[str] = None
     connection_status: str
     last_connection_test: Optional[str]
     is_example: bool = False
@@ -116,9 +121,9 @@ async def create_agent(request: AgentCreateRequest):
         cursor.execute("""
             INSERT INTO agents (
                 id, name, version, agent_type, framework, endpoint_url,
-                agent_info_raw, agent_info_parsed, connection_status,
+                weave_project, agent_info_raw, agent_info_parsed, connection_status,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'unknown', ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'unknown', ?, ?)
         """, (
             agent_id,
             request.name,
@@ -126,6 +131,7 @@ async def create_agent(request: AgentCreateRequest):
             parsed.get("agent_type"),
             parsed.get("framework"),
             request.endpoint_url,
+            request.weave_project,
             request.agent_info_content,
             json.dumps(parsed),
             now,
@@ -153,6 +159,7 @@ async def create_agent(request: AgentCreateRequest):
         agent_type=parsed.get("agent_type"),
         framework=parsed.get("framework"),
         endpoint_url=request.endpoint_url,
+        weave_project=request.weave_project,
         connection_status="unknown",
         last_connection_test=None,
         created_at=now,
@@ -185,6 +192,7 @@ async def list_agents():
             agent_type=row["agent_type"],
             framework=row["framework"],
             endpoint_url=row["endpoint_url"],
+            weave_project=row["weave_project"] if "weave_project" in row.keys() else None,
             connection_status=row["connection_status"],
             last_connection_test=row["last_connection_test"],
             is_example=bool(row["is_example"]) if "is_example" in row.keys() else False,
@@ -399,6 +407,7 @@ async def get_agent(agent_id: str):
         agent_type=row["agent_type"],
         framework=row["framework"],
         endpoint_url=row["endpoint_url"],
+        weave_project=row["weave_project"] if "weave_project" in row.keys() else None,
         connection_status=row["connection_status"],
         last_connection_test=row["last_connection_test"],
         is_example=bool(row["is_example"]) if "is_example" in row.keys() else False,
@@ -505,6 +514,7 @@ async def update_agent(agent_id: str, request: AgentUpdateRequest):
         agent_type=row["agent_type"],
         framework=row["framework"],
         endpoint_url=row["endpoint_url"],
+        weave_project=row["weave_project"] if "weave_project" in row.keys() else None,
         connection_status=row["connection_status"],
         last_connection_test=row["last_connection_test"],
         created_at=row["created_at"],
@@ -686,4 +696,146 @@ async def get_agent_status(agent_id: str):
         "health_check": health,
         "last_updated": now_iso()
     }
+
+
+# =============================================================================
+# Example Agent Management
+# =============================================================================
+# The example agent (TaskFlow Support) is started on-demand from the UI.
+# This allows users to configure their API key in Settings first.
+
+import subprocess
+import sys
+from pathlib import Path
+from services.settings import get_setting
+
+# Global reference to example agent process
+_example_agent_process: Optional[subprocess.Popen] = None
+AGENT_DIR = Path(__file__).parent.parent.parent / "agent"
+
+
+class ExampleAgentStartRequest(BaseModel):
+    """Request to start the example agent."""
+    port: int = Field(default=9000, description="Port to run the agent on")
+
+
+class ExampleAgentStatusResponse(BaseModel):
+    """Status of the example agent."""
+    running: bool
+    port: Optional[int] = None
+    pid: Optional[int] = None
+    exit_code: Optional[int] = None
+    requires_api_key: bool = False
+
+
+@router.post("/agents/example/start")
+async def start_example_agent(request: ExampleAgentStartRequest = ExampleAgentStartRequest()):
+    """
+    Start the example TaskFlow Support agent.
+    
+    Requires LLM API key to be configured in Settings.
+    The agent fetches the API key from the backend settings.
+    """
+    global _example_agent_process
+    
+    port = request.port
+    
+    # Check if already running
+    if _example_agent_process is not None and _example_agent_process.poll() is None:
+        return {"status": "already_running", "port": port, "pid": _example_agent_process.pid}
+    
+    # Check if LLM API key is configured
+    api_key = get_setting("llm_api_key")
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="LLM API key not configured. Go to Settings to add your OpenAI API key."
+        )
+    
+    # Start the agent with the API key from settings
+    import os
+    env = os.environ.copy()
+    env["OPENAI_API_KEY"] = api_key
+    env["PYTHONPATH"] = str(AGENT_DIR)
+    
+    # Also set Weave credentials if configured (for trace logging)
+    weave_api_key = get_setting("weave_api_key")
+    weave_entity = get_setting("weave_entity")
+    if weave_api_key:
+        env["WANDB_API_KEY"] = weave_api_key
+    if weave_entity:
+        env["WANDB_ENTITY"] = weave_entity
+    env["WEAVE_PROJECT"] = "error-analysis-demo"  # Example agent's fixed project
+    
+    try:
+        _example_agent_process = subprocess.Popen(
+            [sys.executable, "-m", "uvicorn", "agent_server:app",
+             "--host", "0.0.0.0", "--port", str(port)],
+            cwd=AGENT_DIR,
+            env=env,
+        )
+        
+        return {
+            "status": "started",
+            "port": port,
+            "pid": _example_agent_process.pid
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start agent: {str(e)}")
+
+
+@router.post("/agents/example/stop")
+async def stop_example_agent():
+    """Stop the example agent if running."""
+    global _example_agent_process
+    
+    if _example_agent_process is None:
+        return {"status": "not_running"}
+    
+    if _example_agent_process.poll() is None:
+        _example_agent_process.terminate()
+        try:
+            _example_agent_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            _example_agent_process.kill()
+    
+    exit_code = _example_agent_process.returncode
+    _example_agent_process = None
+    return {"status": "stopped", "exit_code": exit_code}
+
+
+@router.get("/agents/example/status", response_model=ExampleAgentStatusResponse)
+async def get_example_agent_status():
+    """
+    Check if the example agent is running.
+    
+    Also indicates if an API key is required to start the agent.
+    """
+    global _example_agent_process
+    
+    # Check if API key is configured
+    api_key = get_setting("llm_api_key")
+    requires_api_key = not bool(api_key)
+    
+    if _example_agent_process is None:
+        return ExampleAgentStatusResponse(
+            running=False,
+            requires_api_key=requires_api_key
+        )
+    
+    if _example_agent_process.poll() is None:
+        return ExampleAgentStatusResponse(
+            running=True,
+            port=9000,
+            pid=_example_agent_process.pid,
+            requires_api_key=False
+        )
+    else:
+        exit_code = _example_agent_process.returncode
+        _example_agent_process = None
+        return ExampleAgentStatusResponse(
+            running=False,
+            exit_code=exit_code,
+            requires_api_key=requires_api_key
+        )
 

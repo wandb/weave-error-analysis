@@ -7,40 +7,50 @@ Bottom-up failure mode discovery for AI agents. Connect your agent, generate syn
 ```bash
 git clone git@github.com:wandb/weave-error-analysis.git
 cd weave-error-analysis
-
-# Create .env with your API key
-echo "OPENAI_API_KEY=sk-..." > .env
-
-# Start the app
 uv run ea
 ```
 
 Opens http://localhost:3000 with:
-- **Example Agent** running on port 9000 (TaskFlow Support Bot)
 - **Backend** on port 8000
 - **Frontend** on port 3000
+- **Example Agent** pre-registered (start it from the Agents tab)
 
-### Configuration
+### Getting Started
 
-**Required for Example Agent & AI Features:**
-```bash
-# .env file in project root
-OPENAI_API_KEY=sk-your-key-here
-```
+1. **Configure Settings** — Go to Settings tab, add your OpenAI API key
+2. **Start the Example Agent** — Go to Agents tab, click "Start Example Agent"
+3. **Generate Queries** — Go to Synthetic tab, create test queries from dimensions
+4. **Execute Batch** — Run queries against the agent to generate sessions
+5. **Review & Categorize** — Browse sessions, add notes, build your failure taxonomy
 
-**Optional (configure in Settings UI):**
-- **Weave credentials** (W&B API key, entity, project) - to connect your own agent's traces
+### Bring Your Own Agent
+
+When you're ready to analyze your own agent:
+
+1. Implement a simple HTTP endpoint (`POST /query`) that accepts `{query, thread_id}` and returns `{response, thread_id, error}`
+2. Register it in the Agents tab with AGENT_INFO.md describing its capabilities
+3. Optionally specify the Weave project where your agent logs traces
+4. Generate synthetic queries based on your agent's testing dimensions
 
 ### CLI Options
 
 | Command | Description |
 |---------|-------------|
-| `uv run ea` | Start everything (agent:9000, backend:8000, frontend:3000) |
+| `uv run ea` | Start backend + frontend |
 | `uv run ea --port 3001` | Custom frontend port |
 | `uv run ea --backend-port 8001` | Custom backend port |
-| `uv run ea --agent-port 9001` | Custom agent port |
 | `uv run ea --no-browser` | Don't auto-open browser |
-| `uv run ea --no-agent` | Don't start example agent |
+
+**Note:** The Example Agent is started from the Agents tab, not the CLI. This lets you configure your API key first.
+
+### Testing a Fresh Install
+
+```bash
+rm -f backend/taxonomy.db   # Remove existing database
+uv run ea --no-browser      # Start fresh
+```
+
+Then: Settings → Add API key → Agents → Start Example Agent → Generate queries
 
 ## Features
 

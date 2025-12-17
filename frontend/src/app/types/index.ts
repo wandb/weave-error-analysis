@@ -195,6 +195,7 @@ export interface Agent {
   agent_type: string | null;
   framework: string | null;
   endpoint_url: string;
+  weave_project: string | null;  // Weave project where agent logs traces
   connection_status: string;
   last_connection_test: string | null;
   created_at: string;

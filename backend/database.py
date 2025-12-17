@@ -264,6 +264,10 @@ def init_db():
             if "is_example" not in agent_columns:
                 cursor.execute("ALTER TABLE agents ADD COLUMN is_example BOOLEAN DEFAULT FALSE")
             
+            # Migration: Add weave_project column for tracking agent's trace project
+            if "weave_project" not in agent_columns:
+                cursor.execute("ALTER TABLE agents ADD COLUMN weave_project TEXT")
+            
             # Testing dimensions extracted from AGENT_INFO
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS agent_dimensions (

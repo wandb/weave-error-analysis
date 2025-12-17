@@ -6,7 +6,7 @@ Endpoints for managing application settings.
 
 from typing import Dict, List, Any, Optional
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from services.settings import (
     get_setting,
@@ -249,4 +249,91 @@ async def get_llm_api_key():
     # get_setting properly decodes base64-encoded secrets
     api_key = get_setting("llm_api_key")
     return {"api_key": api_key if api_key else None}
+
+
+# ============================================================================
+# Database Management
+# ============================================================================
+
+class DatabaseResetRequest(BaseModel):
+    """Request to reset the database."""
+    keep_settings: bool = True
+    keep_agents: bool = True
+
+
+class DatabaseResetResponse(BaseModel):
+    """Response from database reset."""
+    status: str
+    keep_settings: bool
+    keep_agents: bool
+    tables_cleared: List[str]
+
+
+@router.post("/database/reset", response_model=DatabaseResetResponse)
+async def reset_database(request: DatabaseResetRequest = DatabaseResetRequest()):
+    """
+    Reset the database for a fresh start with a new agent.
+    
+    Clears:
+    - All synthetic batches and queries
+    - All sessions and session notes
+    - All failure modes and notes
+    - All saturation data
+    - All auto-reviews and suggestions
+    
+    Optionally keeps:
+    - App settings (API keys, etc.) if keep_settings=True
+    - Agents if keep_agents=True
+    """
+    from database import get_db
+    
+    tables_cleared = []
+    
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        # Clear data tables (order matters due to foreign keys)
+        data_tables = [
+            "trace_suggestions",
+            "session_notes",
+            "sessions",
+            "auto_reviews",
+            "synthetic_queries",
+            "synthetic_batches",
+            "notes",
+            "failure_modes",
+            "saturation_log",
+            "saturation_snapshots",
+            "reviewed_threads",
+            "sync_status",
+        ]
+        
+        for table in data_tables:
+            try:
+                cursor.execute(f"DELETE FROM {table}")
+                tables_cleared.append(table)
+            except Exception:
+                pass  # Table might not exist
+        
+        # Reset sync_status to idle state
+        cursor.execute("""
+            INSERT OR REPLACE INTO sync_status (id, status) VALUES ('sessions', 'idle')
+        """)
+        
+        if not request.keep_agents:
+            cursor.execute("DELETE FROM agent_dimensions")
+            cursor.execute("DELETE FROM agent_versions")
+            cursor.execute("DELETE FROM agents")
+            tables_cleared.extend(["agent_dimensions", "agent_versions", "agents"])
+        
+        if not request.keep_settings:
+            cursor.execute("DELETE FROM app_settings")
+            tables_cleared.append("app_settings")
+    
+    return DatabaseResetResponse(
+        status="reset",
+        keep_settings=request.keep_settings,
+        keep_agents=request.keep_agents,
+        tables_cleared=tables_cleared
+    )
 

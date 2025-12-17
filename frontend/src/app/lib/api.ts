@@ -141,6 +141,77 @@ export async function fetchAgentStats(agentId: string): Promise<AgentStats> {
 }
 
 // ============================================================================
+// Example Agent API
+// ============================================================================
+
+export interface ExampleAgentStatus {
+  running: boolean;
+  port?: number;
+  pid?: number;
+  exit_code?: number;
+  requires_api_key: boolean;
+}
+
+export interface ExampleAgentStartResult {
+  status: "started" | "already_running";
+  port: number;
+  pid?: number;
+}
+
+export async function getExampleAgentStatus(): Promise<ExampleAgentStatus> {
+  const response = await fetch(`${API_BASE}/agents/example/status`);
+  return response.json();
+}
+
+export async function startExampleAgent(port: number = 9000): Promise<ExampleAgentStartResult> {
+  const response = await fetch(`${API_BASE}/agents/example/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ port }),
+  });
+  
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.detail || "Failed to start example agent");
+  }
+  
+  return response.json();
+}
+
+export async function stopExampleAgent(): Promise<{ status: string }> {
+  const response = await fetch(`${API_BASE}/agents/example/stop`, {
+    method: "POST",
+  });
+  return response.json();
+}
+
+// ============================================================================
+// Database Management API
+// ============================================================================
+
+export interface DatabaseResetResult {
+  status: string;
+  keep_settings: boolean;
+  keep_agents: boolean;
+  tables_cleared: string[];
+}
+
+export async function resetDatabase(
+  keepSettings: boolean = true,
+  keepAgents: boolean = true
+): Promise<DatabaseResetResult> {
+  const response = await fetch(`${API_BASE}/settings/database/reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      keep_settings: keepSettings,
+      keep_agents: keepAgents,
+    }),
+  });
+  return response.json();
+}
+
+// ============================================================================
 // Taxonomy API
 // ============================================================================
 

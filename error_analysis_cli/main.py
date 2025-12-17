@@ -2,8 +2,11 @@
 Error Analysis CLI
 
 Usage:
-    uv run ea              # Start everything
+    uv run ea              # Start backend + frontend
     uv run ea --port 3001  # Custom frontend port
+    
+The Example Agent is started from the UI (Agents tab), not the CLI.
+This allows users to configure their API key in Settings first.
 """
 
 import os
@@ -25,10 +28,9 @@ console = Console()
 ROOT_DIR = Path(__file__).parent.parent
 BACKEND_DIR = ROOT_DIR / "backend"
 FRONTEND_DIR = ROOT_DIR / "frontend"
-AGENT_DIR = ROOT_DIR / "agent"
 DATA_DIR = ROOT_DIR / "data"
 
-# Load .env from project root
+# Load .env from project root (for developer use only)
 load_dotenv(ROOT_DIR / ".env")
 
 
@@ -42,50 +44,18 @@ def ensure_node_deps():
 
 
 def init_database():
-    """Copy example database if no database exists or if empty."""
-    import sqlite3
+    """
+    Initialize the database if it doesn't exist.
     
+    The database schema is auto-created by the backend on startup.
+    We just ensure the directory exists and optionally register the 
+    Example Agent so it appears in the Agents tab.
+    """
     db_path = BACKEND_DIR / "taxonomy.db"
-    example_db = DATA_DIR / "taxonomy_example.db"
-    
-    should_init = False
     
     if not db_path.exists():
-        should_init = True
-    elif example_db.exists():
-        # Check if existing database has no agents (empty/fresh)
-        try:
-            conn = sqlite3.connect(db_path)
-            cursor = conn.execute("SELECT COUNT(*) FROM agents")
-            count = cursor.fetchone()[0]
-            conn.close()
-            if count == 0:
-                should_init = True
-        except:
-            should_init = True
-    
-    if should_init and example_db.exists():
-        console.print("[yellow]Initializing database with example data...[/]")
-        shutil.copy(example_db, db_path)
-        console.print("[green]✓[/] Database ready with Example Agent")
+        console.print("[dim]Database will be initialized on first request[/]")
 
-
-
-
-def start_agent(port: int):
-    """Start example agent server."""
-    env = os.environ.copy()
-    env["PYTHONPATH"] = str(AGENT_DIR)
-    
-    # Agent uses OPENAI_API_KEY from environment (set in .env file)
-    # The env.copy() above already includes it if set
-    
-    return subprocess.Popen(
-        [sys.executable, "-m", "uvicorn", "agent_server:app", 
-         "--host", "0.0.0.0", "--port", str(port)],
-        cwd=AGENT_DIR,
-        env=env,
-    )
 
 
 def start_backend(port: int):
@@ -119,11 +89,15 @@ def start_frontend(port: int, backend_port: int):
 def start(
     port: int = typer.Option(3000, "--port", "-p", help="Frontend port"),
     backend_port: int = typer.Option(8000, "--backend-port", "-b", help="Backend port"),
-    agent_port: int = typer.Option(9000, "--agent-port", "-a", help="Example agent port"),
     no_browser: bool = typer.Option(False, "--no-browser", help="Don't open browser"),
-    no_agent: bool = typer.Option(False, "--no-agent", help="Don't start example agent"),
 ):
-    """Start the Error Analysis tool."""
+    """
+    Start the Error Analysis tool.
+    
+    Launches the backend API server and frontend UI.
+    The Example Agent can be started from the Agents tab after
+    configuring your API key in Settings.
+    """
     console.print(Panel.fit(
         "[bold cyan]Error Analysis[/]\n"
         "Failure mode discovery for AI agents",
@@ -134,14 +108,8 @@ def start(
     ensure_node_deps()
     init_database()
     
-    # Start servers
+    # Start servers (no agent - lazy loaded via UI)
     console.print(f"\n[bold]Starting...[/]")
-    
-    # Start example agent (optional)
-    agent_proc = None
-    if not no_agent:
-        agent_proc = start_agent(agent_port)
-        console.print(f"  Agent:    http://localhost:{agent_port} [dim](Example Agent)[/]")
     
     backend_proc = start_backend(backend_port)
     console.print(f"  Backend:  http://localhost:{backend_port}")
@@ -149,20 +117,19 @@ def start(
     frontend_proc = start_frontend(port, backend_port)
     console.print(f"  Frontend: http://localhost:{port}")
     
+    console.print(f"\n[bold green]Ready![/] http://localhost:{port}")
+    console.print("[dim]Configure Settings, then start Example Agent from Agents tab[/]")
+    console.print("[dim]Ctrl+C to stop[/]\n")
+    
     # Open browser
     if not no_browser:
         time.sleep(3)
         webbrowser.open(f"http://localhost:{port}")
     
-    console.print(f"\n[bold green]Ready![/] http://localhost:{port}")
-    console.print("[dim]Ctrl+C to stop[/]\n")
-    
     try:
         backend_proc.wait()
     except KeyboardInterrupt:
         console.print("\n[yellow]Stopping...[/]")
-        if agent_proc:
-            agent_proc.terminate()
         backend_proc.terminate()
         frontend_proc.terminate()
 

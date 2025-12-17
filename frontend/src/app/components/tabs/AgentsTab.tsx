@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Cpu,
   Plus,
@@ -29,6 +29,8 @@ import {
   Clock,
   ArrowRight,
   Wrench,
+  Square,
+  Settings,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { Panel, Badge, NoAgentsRegistered, SelectPrompt } from "../ui";
@@ -62,6 +64,7 @@ export function AgentsTab() {
   const [agentFormMode, setAgentFormMode] = useState<"create" | "edit">("create");
   const [newAgentName, setNewAgentName] = useState("");
   const [newAgentEndpoint, setNewAgentEndpoint] = useState("");
+  const [newAgentWeaveProject, setNewAgentWeaveProject] = useState("");
   const [newAgentInfo, setNewAgentInfo] = useState("");
   const [testingConnection, setTestingConnection] = useState(false);
   const [savingAgent, setSavingAgent] = useState(false);
@@ -79,6 +82,7 @@ export function AgentsTab() {
     setAgentFormMode("create");
     setNewAgentName("");
     setNewAgentEndpoint("");
+    setNewAgentWeaveProject("");
     setNewAgentInfo("");
   };
 
@@ -269,16 +273,23 @@ export function AgentsTab() {
         />
       )}
 
+      {/* Example Agent Banner - shown when no agents are selected */}
+      {!showAgentForm && (
+        <ExampleAgentBanner onGoToSettings={() => setActiveTab("settings")} />
+      )}
+
       {/* Agent Form Modal */}
       {showAgentForm ? (
         <AgentForm
           mode={agentFormMode}
           name={newAgentName}
           endpoint={newAgentEndpoint}
+          weaveProject={newAgentWeaveProject}
           info={newAgentInfo}
           saving={savingAgent}
           onNameChange={setNewAgentName}
           onEndpointChange={setNewAgentEndpoint}
+          onWeaveProjectChange={setNewAgentWeaveProject}
           onInfoChange={setNewAgentInfo}
           onLoadTemplate={getAgentInfoTemplate}
           onSave={agentFormMode === "create" ? handleCreateAgent : handleUpdateAgent}
@@ -314,6 +325,7 @@ export function AgentsTab() {
               setAgentFormMode("edit");
               setNewAgentName(selectedAgent.name);
               setNewAgentEndpoint(selectedAgent.endpoint_url);
+              setNewAgentWeaveProject(selectedAgent.weave_project || "");
               setNewAgentInfo(selectedAgent.agent_info_raw);
               setShowAgentForm(true);
             }}
@@ -349,6 +361,156 @@ export function AgentsTab() {
 }
 
 // Sub-components
+
+// ============================================================================
+// Example Agent Banner
+// ============================================================================
+// Prompts users to start the example agent after configuring their API key.
+// This allows new users to try the full workflow without their own agent.
+
+function ExampleAgentBanner({ onGoToSettings }: { onGoToSettings: () => void }) {
+  const [status, setStatus] = useState<'unknown' | 'stopped' | 'running' | 'starting' | 'stopping'>('unknown');
+  const [requiresApiKey, setRequiresApiKey] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    checkStatus();
+    // Poll for status while component is mounted
+    const interval = setInterval(checkStatus, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const checkStatus = async () => {
+    try {
+      const data = await api.getExampleAgentStatus();
+      setStatus(data.running ? 'running' : 'stopped');
+      setRequiresApiKey(data.requires_api_key);
+    } catch {
+      setStatus('stopped');
+    }
+  };
+
+  const startAgent = async () => {
+    setStatus('starting');
+    setError(null);
+    try {
+      await api.startExampleAgent(9000);
+      setStatus('running');
+    } catch (err) {
+      setStatus('stopped');
+      setError(err instanceof Error ? err.message : 'Failed to start agent');
+    }
+  };
+
+  const stopAgent = async () => {
+    setStatus('stopping');
+    try {
+      await api.stopExampleAgent();
+      setStatus('stopped');
+    } catch {
+      // Refresh status to get actual state
+      await checkStatus();
+    }
+  };
+
+  // Running state
+  if (status === 'running') {
+    return (
+      <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-4 mb-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">
+              <Bot className="w-5 h-5 text-emerald-400" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-emerald-400">Example Agent Running</span>
+                <span className="text-xs text-emerald-500">localhost:9000</span>
+              </div>
+              <p className="text-sm text-ink-400">TaskFlow Support Agent is ready for queries</p>
+            </div>
+          </div>
+          <button 
+            onClick={stopAgent}
+            disabled={status === 'stopping'}
+            className="btn-ghost text-sm flex items-center gap-1 text-red-400 hover:text-red-300"
+          >
+            <Square className="w-4 h-4" />
+            {status === 'stopping' ? 'Stopping...' : 'Stop'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Needs API key
+  if (requiresApiKey) {
+    return (
+      <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4 mb-4">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center flex-shrink-0">
+            <Bot className="w-5 h-5 text-amber-400" />
+          </div>
+          <div className="flex-1">
+            <h3 className="font-medium text-amber-400 mb-1">Try the Example Agent</h3>
+            <p className="text-sm text-ink-400 mb-3">
+              We've included a TaskFlow Support Agent so you can experience the full workflow.
+              Configure your OpenAI API key first, then start the agent.
+            </p>
+            <div className="flex items-center gap-3">
+              <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+              <span className="text-sm text-amber-400">OpenAI API key required</span>
+              <button 
+                onClick={onGoToSettings}
+                className="btn-primary text-sm flex items-center gap-1"
+              >
+                <Settings className="w-4 h-4" />
+                Go to Settings
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Ready to start
+  return (
+    <div className="bg-accent-teal/10 border border-accent-teal/20 rounded-lg p-4 mb-4">
+      <div className="flex items-start gap-3">
+        <div className="w-10 h-10 rounded-lg bg-accent-teal/20 flex items-center justify-center flex-shrink-0">
+          <Bot className="w-5 h-5 text-accent-teal" />
+        </div>
+        <div className="flex-1">
+          <h3 className="font-medium text-sand-100 mb-1">Try the Example Agent</h3>
+          <p className="text-sm text-ink-400 mb-3">
+            The TaskFlow Support Agent lets you experience the full workflow.
+            Start it to test queries, generate synthetic data, and analyze failure modes.
+          </p>
+          
+          {error && (
+            <div className="mb-3 p-2 bg-red-500/10 border border-red-500/20 rounded text-sm text-red-400">
+              {error}
+            </div>
+          )}
+          
+          <button 
+            onClick={startAgent}
+            disabled={status === 'starting'}
+            className="btn-primary flex items-center gap-2"
+          >
+            {status === 'starting' ? (
+              <><RefreshCw className="w-4 h-4 animate-spin" /> Starting...</>
+            ) : (
+              <><Play className="w-4 h-4" /> Start Example Agent</>
+            )}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 function ConnectionStatusIcon({ status }: { status: string }) {
   const colorClass =
@@ -555,10 +717,12 @@ function AgentForm({
   mode,
   name,
   endpoint,
+  weaveProject,
   info,
   saving,
   onNameChange,
   onEndpointChange,
+  onWeaveProjectChange,
   onInfoChange,
   onLoadTemplate,
   onSave,
@@ -567,10 +731,12 @@ function AgentForm({
   mode: "create" | "edit";
   name: string;
   endpoint: string;
+  weaveProject: string;
   info: string;
   saving: boolean;
   onNameChange: (v: string) => void;
   onEndpointChange: (v: string) => void;
+  onWeaveProjectChange: (v: string) => void;
   onInfoChange: (v: string) => void;
   onLoadTemplate: () => void;
   onSave: () => void;
@@ -610,6 +776,20 @@ function AgentForm({
         </div>
 
         <div>
+          <label className="block text-sm text-ink-400 mb-1">Weave Project</label>
+          <input
+            type="text"
+            value={weaveProject}
+            onChange={(e) => onWeaveProjectChange(e.target.value)}
+            placeholder="e.g., my-chatbot-traces"
+            className="w-full"
+          />
+          <p className="text-xs text-ink-500 mt-1">
+            The Weave project where this agent logs traces (optional). Leave empty if not using Weave tracing.
+          </p>
+        </div>
+
+        <div>
           <div className="flex items-center justify-between mb-1">
             <label className="text-sm text-ink-400">AGENT_INFO.md Content *</label>
             <button onClick={onLoadTemplate} className="text-xs text-accent-teal hover:text-accent-teal/80">
@@ -620,7 +800,7 @@ function AgentForm({
             value={info}
             onChange={(e) => onInfoChange(e.target.value)}
             placeholder="Paste your AGENT_INFO.md content here..."
-            rows={15}
+            rows={12}
             className="w-full font-mono text-sm"
           />
           <p className="text-xs text-ink-500 mt-1">

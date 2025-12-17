@@ -44,7 +44,7 @@ DEFAULT_SETTINGS = {
         "description": "LLM provider (openai, anthropic, google, etc.)"
     },
     "llm_model": {
-        "value": "gpt-5",
+        "value": "gpt-5-mini",
         "is_secret": False,
         "description": "Model name for synthetic data generation and AI suggestions"
     },
@@ -318,10 +318,14 @@ def get_litellm_kwargs() -> Dict[str, Any]:
     
     This allows synthetic generation and AI suggestions to use the configured LLM.
     Logs the resolved configuration for visibility.
+    
+    The default model comes from DEFAULT_SETTINGS to ensure a single source of truth.
     """
     kwargs = {}
     
-    model = get_setting("llm_model", "gpt-4o-mini")
+    # Use DEFAULT_SETTINGS as the single source of truth for the default model
+    default_model = DEFAULT_SETTINGS["llm_model"]["value"]
+    model = get_setting("llm_model", default_model)
     api_key = get_setting("llm_api_key")
     api_base = get_setting("llm_api_base")
     

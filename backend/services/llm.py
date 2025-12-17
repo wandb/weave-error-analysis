@@ -54,10 +54,22 @@ class LLMClient:
     - Async-first with sync wrapper
     - Consistent logging
     - Temperature defaults
+    
+    Configuration Priority:
+    1. Instance overrides (set in __init__)
+    2. Database settings (via get_litellm_kwargs from Settings UI)
+    3. Environment variables (handled by settings module)
+    4. DEFAULT_MODEL constant (bootstrap fallback when DB unavailable)
+    
+    The single source of truth for the default model is the Settings database.
+    DEFAULT_MODEL is only used during bootstrap before DB is initialized.
     """
     
     DEFAULT_TEMPERATURE = 0.3
-    DEFAULT_MODEL = "gpt-4o-mini"
+    # Bootstrap fallback - only used when settings module unavailable.
+    # The actual default is in settings.py DEFAULT_SETTINGS["llm_model"]
+    # Using gpt-5-mini: modern model with good cost/performance for tool operations
+    DEFAULT_MODEL = "gpt-5-mini"
     
     def __init__(
         self,

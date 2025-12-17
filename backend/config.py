@@ -156,9 +156,6 @@ def get_weave_api_base() -> str:
 # Keep static value for backwards compatibility with imports, but prefer function
 WEAVE_API_BASE = get_weave_api_base()
 
-# LLM Configuration
-CATEGORIZATION_MODEL = os.getenv("CATEGORIZATION_MODEL", "gpt-4o-mini")
-
 # CORS Origins - Configure for SSE streaming direct to backend
 # In production, set CORS_ORIGINS env var to comma-separated list of allowed origins
 # e.g., CORS_ORIGINS=https://app.example.com,https://www.example.com

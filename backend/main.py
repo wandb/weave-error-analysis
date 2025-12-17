@@ -225,6 +225,19 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# =============================================================================
+# Exception Handlers (Standardized Error Responses)
+# =============================================================================
+
+from errors import APIError, api_error_handler
+
+# Handle custom API errors with standardized response format
+app.add_exception_handler(APIError, api_error_handler)
+
+# Note: We don't add a generic exception handler here because FastAPI's
+# default handler provides better debugging info. In production, you may
+# want to add: app.add_exception_handler(Exception, generic_exception_handler)
+
 # CORS configuration for SSE streaming support
 # SSE endpoints are called directly from frontend to backend (bypassing Next.js proxy)
 # This requires proper CORS headers to be set

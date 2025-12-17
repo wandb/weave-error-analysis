@@ -398,7 +398,8 @@ class SessionSyncService:
         # Get existing reviewed threads for migration
         reviewed_threads = self._get_reviewed_threads()
         
-        # Upsert sessions to local DB
+        # Prepare session data for batch upsert
+        sessions_to_upsert = []
         for session_id, calls in sessions_data.items():
             try:
                 # Extract metrics
@@ -411,24 +412,23 @@ class SessionSyncService:
                 is_reviewed = session_id in reviewed_threads
                 reviewed_at = reviewed_threads.get(session_id)
                 
-                # Upsert to database
-                is_new = self._upsert_session(
-                    session_id=session_id,
-                    metrics=metrics,
-                    batch_id=batch_id,
-                    query_id=query_id,
-                    is_reviewed=is_reviewed,
-                    reviewed_at=reviewed_at
-                )
-                
-                if is_new:
-                    result.sessions_added += 1
-                else:
-                    result.sessions_updated += 1
-                    
+                sessions_to_upsert.append({
+                    "session_id": session_id,
+                    "metrics": metrics,
+                    "batch_id": batch_id,
+                    "query_id": query_id,
+                    "is_reviewed": is_reviewed,
+                    "reviewed_at": reviewed_at,
+                })
             except Exception as e:
-                logger.error(f"Failed to sync session {session_id}: {e}")
+                logger.error(f"Failed to prepare session {session_id}: {e}")
                 result.sessions_failed += 1
+        
+        # Batch upsert all sessions in a single transaction
+        added, updated, failed = self._batch_upsert_sessions(sessions_to_upsert)
+        result.sessions_added = added
+        result.sessions_updated = updated
+        result.sessions_failed += failed
         
         return result
     
@@ -498,7 +498,8 @@ class SessionSyncService:
         # Get existing reviewed threads for migration
         reviewed_threads = self._get_reviewed_threads()
         
-        # Upsert batch sessions
+        # Prepare session data for batch upsert
+        sessions_to_upsert = []
         for session_id, calls in batch_sessions.items():
             try:
                 metrics = self._extract_session_metrics(calls)
@@ -515,23 +516,23 @@ class SessionSyncService:
                 is_reviewed = session_id in reviewed_threads
                 reviewed_at = reviewed_threads.get(session_id)
                 
-                is_new = self._upsert_session(
-                    session_id=session_id,
-                    metrics=metrics,
-                    batch_id=batch_id,
-                    query_id=query_id,
-                    is_reviewed=is_reviewed,
-                    reviewed_at=reviewed_at
-                )
-                
-                if is_new:
-                    result.sessions_added += 1
-                else:
-                    result.sessions_updated += 1
-                    
+                sessions_to_upsert.append({
+                    "session_id": session_id,
+                    "metrics": metrics,
+                    "batch_id": batch_id,
+                    "query_id": query_id,
+                    "is_reviewed": is_reviewed,
+                    "reviewed_at": reviewed_at,
+                })
             except Exception as e:
-                logger.error(f"Failed to sync batch session {session_id}: {e}")
+                logger.error(f"Failed to prepare batch session {session_id}: {e}")
                 result.sessions_failed += 1
+        
+        # Batch upsert all sessions in a single transaction
+        added, updated, failed = self._batch_upsert_sessions(sessions_to_upsert)
+        result.sessions_added = added
+        result.sessions_updated = updated
+        result.sessions_failed += failed
         
         return result
     
@@ -867,6 +868,158 @@ class SessionSyncService:
                     now
                 ))
                 return True
+    
+    def _batch_upsert_sessions(
+        self,
+        sessions: List[Dict[str, Any]]
+    ) -> Tuple[int, int, int]:
+        """
+        Batch upsert multiple sessions in a single transaction.
+        
+        This is much more efficient than individual upserts because:
+        1. Single transaction instead of one per session
+        2. Uses executemany() for batch operations
+        3. Minimizes database round-trips
+        
+        Args:
+            sessions: List of dicts with session_id, metrics, batch_id, query_id,
+                     is_reviewed, reviewed_at
+        
+        Returns:
+            Tuple of (sessions_added, sessions_updated, sessions_failed)
+        """
+        if not sessions:
+            return 0, 0, 0
+        
+        now = now_iso()
+        session_ids = [s["session_id"] for s in sessions]
+        
+        # Get existing session IDs in one query
+        with get_db() as conn:
+            cursor = conn.cursor()
+            
+            # Query existing IDs
+            placeholders = ",".join("?" * len(session_ids))
+            cursor.execute(
+                f"SELECT id FROM sessions WHERE id IN ({placeholders})",
+                session_ids
+            )
+            existing_ids = {row["id"] for row in cursor.fetchall()}
+            
+            # Separate into new and existing
+            new_sessions = []
+            update_sessions = []
+            
+            for s in sessions:
+                if s["session_id"] in existing_ids:
+                    update_sessions.append(s)
+                else:
+                    new_sessions.append(s)
+            
+            # Batch insert new sessions
+            if new_sessions:
+                insert_data = []
+                for s in new_sessions:
+                    m = s["metrics"]
+                    insert_data.append((
+                        s["session_id"],
+                        s["session_id"],  # weave_session_id
+                        m.root_trace_id,
+                        s["batch_id"],
+                        s["query_id"],
+                        m.turn_count,
+                        m.call_count,
+                        round(m.total_latency_ms, 2),
+                        m.total_input_tokens,
+                        m.total_output_tokens,
+                        m.total_tokens,
+                        m.estimated_cost_usd,
+                        m.primary_model,
+                        m.has_error,
+                        m.error_summary,
+                        m.started_at,
+                        m.ended_at,
+                        now,
+                        "synced",
+                        s["is_reviewed"],
+                        s["reviewed_at"],
+                        now,
+                        now
+                    ))
+                
+                cursor.executemany("""
+                    INSERT INTO sessions (
+                        id, weave_session_id, root_trace_id,
+                        batch_id, query_id,
+                        turn_count, call_count, total_latency_ms,
+                        total_input_tokens, total_output_tokens, total_tokens,
+                        estimated_cost_usd, primary_model,
+                        has_error, error_summary,
+                        started_at, ended_at,
+                        last_synced_at, sync_status,
+                        is_reviewed, reviewed_at,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, insert_data)
+            
+            # Batch update existing sessions
+            if update_sessions:
+                update_data = []
+                for s in update_sessions:
+                    m = s["metrics"]
+                    update_data.append((
+                        s["session_id"],  # weave_session_id
+                        m.root_trace_id,
+                        s["batch_id"],
+                        s["query_id"],
+                        m.turn_count,
+                        m.call_count,
+                        round(m.total_latency_ms, 2),
+                        m.total_input_tokens,
+                        m.total_output_tokens,
+                        m.total_tokens,
+                        m.estimated_cost_usd,
+                        m.primary_model,
+                        m.has_error,
+                        m.error_summary,
+                        m.started_at,
+                        m.ended_at,
+                        now,
+                        s["is_reviewed"],
+                        s["reviewed_at"],
+                        now,
+                        s["session_id"]
+                    ))
+                
+                cursor.executemany("""
+                    UPDATE sessions SET
+                        weave_session_id = ?,
+                        root_trace_id = ?,
+                        batch_id = COALESCE(?, batch_id),
+                        query_id = COALESCE(?, query_id),
+                        turn_count = ?,
+                        call_count = ?,
+                        total_latency_ms = ?,
+                        total_input_tokens = ?,
+                        total_output_tokens = ?,
+                        total_tokens = ?,
+                        estimated_cost_usd = ?,
+                        primary_model = ?,
+                        has_error = ?,
+                        error_summary = ?,
+                        started_at = ?,
+                        ended_at = ?,
+                        last_synced_at = ?,
+                        sync_status = 'synced',
+                        is_reviewed = CASE WHEN is_reviewed THEN is_reviewed ELSE ? END,
+                        reviewed_at = CASE WHEN reviewed_at IS NOT NULL THEN reviewed_at ELSE ? END,
+                        updated_at = ?
+                    WHERE id = ?
+                """, update_data)
+            
+            logger.debug(f"Batch upsert: {len(new_sessions)} inserted, {len(update_sessions)} updated")
+            
+            return len(new_sessions), len(update_sessions), 0
     
     def _update_sync_status(
         self,

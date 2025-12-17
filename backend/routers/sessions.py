@@ -27,6 +27,7 @@ from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from errors import NotFoundError, ValidationError, ServiceError
 from services.session_repository import (
     session_repository,
     SessionFilters,
@@ -249,7 +250,7 @@ async def get_session_detail(session_id: str):
         # Get session from repository
         session = session_repository.get_session_by_id(session_id)
         if not session:
-            raise HTTPException(status_code=404, detail=f"Session not found: {session_id}")
+            raise NotFoundError("Session", session_id)
         
         # Get notes
         notes_data = session_repository.list_notes(session_id)
@@ -543,7 +544,7 @@ async def mark_session_reviewed(
         success = session_repository.mark_reviewed(session_id, notes)
         
         if not success:
-            raise HTTPException(status_code=404, detail="Session not found")
+            raise NotFoundError("Session")
         
         # Record a saturation snapshot for the discovery curve
         try:
@@ -646,7 +647,7 @@ async def create_session_note(session_id: str, request: CreateNoteRequest):
         )
         
         if not note:
-            raise HTTPException(status_code=404, detail="Session not found")
+            raise NotFoundError("Session")
         
         # Notes are stored locally; Weave sync happens on next session sync
         
@@ -676,7 +677,7 @@ async def delete_session_note(session_id: str, note_id: str):
         success = session_repository.delete_note(session_id, note_id)
         
         if not success:
-            raise HTTPException(status_code=404, detail="Note not found")
+            raise NotFoundError("Note")
         
         return {"status": "success", "note_id": note_id}
         
@@ -701,7 +702,7 @@ async def get_batch_review_progress(batch_id: str):
         progress = session_repository.get_batch_review_progress(batch_id)
         
         if not progress:
-            raise HTTPException(status_code=404, detail="Batch not found")
+            raise NotFoundError("Batch")
         
         return BatchReviewProgress(
             batch_id=progress["batch_id"],

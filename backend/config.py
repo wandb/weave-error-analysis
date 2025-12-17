@@ -34,22 +34,40 @@ load_dotenv(env_path)
 # Tool Project (Internal - for this tool's traces and prompts)
 # =============================================================================
 
-# Fixed project name for the tool's internal traces/prompts
-# This is NOT user-configurable - it's always separate from the target project
-TOOL_PROJECT_NAME = "error-analysis-tool"
+# Default project name for the tool's internal traces/prompts
+# Can be overridden via TOOL_PROJECT_NAME env var or Settings
+DEFAULT_TOOL_PROJECT_NAME = "error-analysis-tool"
+
+
+def get_tool_project_name() -> str:
+    """
+    Get the tool project name from settings, env var, or default.
+    
+    Priority: Settings DB → TOOL_PROJECT_NAME env var → default
+    """
+    return get_config_value("tool_project_name", "TOOL_PROJECT_NAME", DEFAULT_TOOL_PROJECT_NAME)
 
 
 def get_tool_project_id() -> str:
     """
-    Get the project ID for this tool's internal traces and prompts.
+    Get the full project ID for this tool's internal traces and prompts.
     
     This is always separate from the target project to avoid mixing
     tool traces with user's agent traces.
+    
+    The project name is configurable for:
+    - Users who want to customize the tool's project name
+    - Avoiding conflicts with existing projects
     """
     entity = os.getenv("WANDB_ENTITY", "")
+    tool_project = get_tool_project_name()
     if entity:
-        return f"{entity}/{TOOL_PROJECT_NAME}"
-    return TOOL_PROJECT_NAME
+        return f"{entity}/{tool_project}"
+    return tool_project
+
+
+# Legacy alias for backwards compatibility
+TOOL_PROJECT_NAME = DEFAULT_TOOL_PROJECT_NAME
 
 
 # =============================================================================
@@ -140,6 +158,48 @@ WANDB_API_KEY = os.getenv("WANDB_API_KEY")
 WANDB_ENTITY = os.getenv("WANDB_ENTITY")
 WEAVE_PROJECT = os.getenv("WEAVE_PROJECT", "")  # No default - must be configured
 PROJECT_ID = f"{WANDB_ENTITY}/{WEAVE_PROJECT}" if WANDB_ENTITY and WEAVE_PROJECT else WEAVE_PROJECT
+
+
+# =============================================================================
+# Query/Sync Limits (Configurable via Settings)
+# =============================================================================
+
+def get_sync_query_limit() -> int:
+    """Get the maximum number of calls to fetch per sync operation."""
+    return int(get_config_value("sync_query_limit", "SYNC_QUERY_LIMIT", "500"))
+
+
+def get_feedback_query_limit() -> int:
+    """Get the maximum number of feedback entries to fetch per query."""
+    return int(get_config_value("feedback_query_limit", "FEEDBACK_QUERY_LIMIT", "500"))
+
+
+# =============================================================================
+# Timeout Configuration (Configurable via Settings)
+# =============================================================================
+
+def get_agent_query_timeout() -> float:
+    """Get timeout in seconds for agent query requests."""
+    return float(get_config_value("agent_query_timeout", "AGENT_QUERY_TIMEOUT", "120"))
+
+
+def get_weave_api_timeout() -> float:
+    """Get timeout in seconds for Weave API requests."""
+    return float(get_config_value("weave_api_timeout", "WEAVE_API_TIMEOUT", "60"))
+
+
+def get_health_check_timeout() -> float:
+    """Get timeout in seconds for agent health checks."""
+    return float(get_config_value("health_check_timeout", "HEALTH_CHECK_TIMEOUT", "10"))
+
+
+# =============================================================================
+# Synthetic Query Configuration
+# =============================================================================
+
+def get_default_batch_size() -> int:
+    """Get default number of queries per synthetic batch."""
+    return int(get_config_value("default_batch_size", "DEFAULT_BATCH_SIZE", "20"))
 
 # Weave Trace API
 # Default to public Weave API; enterprise users can configure via Settings or WEAVE_API_BASE env var

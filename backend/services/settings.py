@@ -89,6 +89,65 @@ DEFAULT_SETTINGS = {
         "description": "Minimum confidence level (0.0-1.0) for showing AI suggestions",
         "internal": True,  # Not shown in Settings UI
     },
+    
+    # Tool Project Name - where this tool logs its own traces/prompts
+    # Separate from user's agent project to avoid mixing traces
+    "tool_project_name": {
+        "value": "error-analysis-tool",
+        "is_secret": False,
+        "description": "Weave project name for tool's internal traces and prompts (separate from your agent's project)",
+        "internal": True,  # Typically not changed, but available via env var
+    },
+    
+    # Query/Sync Limits - configurable for performance tuning
+    "sync_query_limit": {
+        "value": "500",
+        "is_secret": False,
+        "description": "Maximum number of calls to fetch per sync operation (higher = more data, slower sync)",
+        "internal": True,
+    },
+    "feedback_query_limit": {
+        "value": "500",
+        "is_secret": False,
+        "description": "Maximum number of feedback entries to fetch per query",
+        "internal": True,
+    },
+    
+    # Timeout Configuration
+    "agent_query_timeout": {
+        "value": "120",
+        "is_secret": False,
+        "description": "Timeout in seconds for agent query requests (increase for slow agents)",
+        "internal": True,
+    },
+    "weave_api_timeout": {
+        "value": "60",
+        "is_secret": False,
+        "description": "Timeout in seconds for Weave API requests",
+        "internal": True,
+    },
+    "health_check_timeout": {
+        "value": "10",
+        "is_secret": False,
+        "description": "Timeout in seconds for agent health checks",
+        "internal": True,
+    },
+    
+    # LLM Rate Limiting
+    "llm_max_concurrent": {
+        "value": "10",
+        "is_secret": False,
+        "description": "Maximum concurrent LLM API calls (rate limiting)",
+        "internal": True,
+    },
+    
+    # Synthetic Query Defaults
+    "default_batch_size": {
+        "value": "20",
+        "is_secret": False,
+        "description": "Default number of queries per synthetic batch",
+        "internal": True,
+    },
 }
 
 

@@ -16,6 +16,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from config import get_agent_query_timeout, get_default_batch_size
 from database import get_db, now_iso
 from logger import get_logger
 
@@ -47,7 +48,7 @@ class DimensionResponse(BaseModel):
 class TupleGenerateRequest(BaseModel):
     """Request to generate dimension tuples."""
     agent_id: str
-    count: int = 20
+    count: Optional[int] = None  # None = use configured default_batch_size
     focus_areas: Optional[List[str]] = None
     custom_dimensions: Optional[Dict[str, List[str]]] = None
 
@@ -84,7 +85,7 @@ class BatchCreateRequest(BaseModel):
     """Request to create a synthetic batch."""
     agent_id: str
     name: Optional[str] = None
-    count: int = 20
+    count: Optional[int] = None  # None = use configured default_batch_size
     focus_areas: Optional[List[str]] = None
     # Custom prompts (optional - uses defaults if not provided)
     custom_tuple_prompt: Optional[str] = None  # Prompt for generating tuples
@@ -405,8 +406,11 @@ async def generate_tuples(request: TupleGenerateRequest) -> List[TupleResponse]:
     
     generator = SyntheticGenerator(agent_info)
     
+    # Use configured default if count not specified
+    count = request.count if request.count is not None else get_default_batch_size()
+    
     tuples = await generator.generate_tuples_llm_guided(
-        n=request.count,
+        n=count,
         focus_areas=request.focus_areas
     )
     
@@ -501,9 +505,12 @@ async def create_batch(request: BatchCreateRequest) -> BatchResponse:
     
     generator = SyntheticGenerator(agent_info)
     
+    # Use configured default if count not specified
+    count = request.count if request.count is not None else get_default_batch_size()
+    
     # Generate batch
     batch = await generator.generate_batch(
-        n=request.count,
+        n=count,
         name=request.name,
         focus_areas=request.focus_areas
     )
@@ -586,13 +593,16 @@ async def create_batch_streaming(request: BatchCreateRequest):
     
     generator = SyntheticGenerator(agent_info)
     
+    # Use configured default if count not specified
+    count = request.count if request.count is not None else get_default_batch_size()
+    
     async def event_stream():
         batch_id = None
         queries = []
         
         try:
             async for event in generator.generate_batch_streaming(
-                n=request.count,
+                n=count,
                 name=request.name,
                 focus_areas=request.focus_areas,
                 custom_tuple_prompt=request.custom_tuple_prompt,
@@ -1054,7 +1064,7 @@ from services.batch_executor import (
 
 
 class ExecuteBatchRequest(BaseModel):
-    timeout_per_query: float = 60.0
+    timeout_per_query: Optional[float] = None  # None = use configured agent_query_timeout
     max_concurrent: int = 5  # Execute up to 5 queries concurrently
 
 

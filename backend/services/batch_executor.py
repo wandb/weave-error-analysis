@@ -19,6 +19,7 @@ from typing import Optional, Dict, Any, AsyncGenerator, List
 from pydantic import BaseModel
 from enum import Enum
 
+from config import get_agent_query_timeout
 from database import get_db, now_iso
 from services.agent_client import AgentClient
 from logger import get_logger, log_event, generate_correlation_id
@@ -79,15 +80,16 @@ class BatchExecutor:
         agent_endpoint: str,
         batch_id: str,
         max_concurrent: int = 1,  # Default to sequential for easier debugging
-        timeout_per_query: float = 60.0,
+        timeout_per_query: Optional[float] = None,  # None = use config default
         batch_info: Optional[Dict[str, Any]] = None,  # Pre-fetched batch data to avoid redundant query
         correlation_id: Optional[str] = None  # For tracing related operations
     ):
         self.agent_endpoint = agent_endpoint
         self.batch_id = batch_id
         self.max_concurrent = max_concurrent
-        self.timeout_per_query = timeout_per_query
-        self.client = AgentClient(agent_endpoint, timeout=timeout_per_query)
+        # Use configured timeout if not explicitly provided
+        self.timeout_per_query = timeout_per_query if timeout_per_query is not None else get_agent_query_timeout()
+        self.client = AgentClient(agent_endpoint, timeout=self.timeout_per_query)
         self._cancelled = False
         self._start_times: Dict[str, datetime] = {}
         self._batch_info = batch_info  # Use pre-fetched data if available
@@ -596,7 +598,7 @@ class BatchExecutor:
 async def execute_batch(
     agent_endpoint: str,
     batch_id: str,
-    timeout_per_query: float = 60.0,
+    timeout_per_query: Optional[float] = None,  # None = use config default
     max_concurrent: int = 5,
     batch_info: Optional[Dict[str, Any]] = None
 ) -> AsyncGenerator[BatchExecutionProgress, None]:
@@ -606,7 +608,7 @@ async def execute_batch(
     Args:
         agent_endpoint: AG-UI endpoint URL of the agent
         batch_id: ID of the batch to execute
-        timeout_per_query: Timeout in seconds for each query
+        timeout_per_query: Timeout in seconds for each query. If None, uses configured agent_query_timeout.
         max_concurrent: Maximum concurrent query executions (default 5)
         batch_info: Pre-fetched batch data to avoid redundant DB query
         

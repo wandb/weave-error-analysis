@@ -16,7 +16,7 @@ import json
 from typing import Optional
 import httpx
 
-from config import get_weave_api_base, get_wandb_api_key, get_target_project_id
+from config import get_weave_api_base, get_wandb_api_key, get_target_project_id, get_weave_api_timeout
 from logger import get_logger
 from utils import truncate_dict, truncate_value
 
@@ -29,13 +29,20 @@ POOL_LIMITS = httpx.Limits(
     keepalive_expiry=30.0  # seconds
 )
 
-# Default timeout configuration
-DEFAULT_TIMEOUT = httpx.Timeout(
-    timeout=60.0,  # Total timeout
-    connect=10.0,  # Connection timeout
-    read=60.0,     # Read timeout (can be long for streaming)
-    write=10.0     # Write timeout
-)
+def _get_timeout() -> httpx.Timeout:
+    """
+    Get timeout configuration from settings.
+    
+    Uses configurable weave_api_timeout for read operations.
+    Connect and write timeouts are kept shorter as they shouldn't vary much.
+    """
+    timeout_secs = get_weave_api_timeout()
+    return httpx.Timeout(
+        timeout=timeout_secs,      # Total timeout
+        connect=10.0,              # Connection timeout (fixed - network only)
+        read=timeout_secs,         # Read timeout (configurable for slow responses)
+        write=10.0                 # Write timeout (fixed - sending data is fast)
+    )
 
 
 class WeaveClient:
@@ -67,7 +74,7 @@ class WeaveClient:
         if self._client is None:
             self._client = httpx.AsyncClient(
                 limits=POOL_LIMITS,
-                timeout=DEFAULT_TIMEOUT
+                timeout=_get_timeout()
             )
             logger.info("WeaveClient HTTP client initialized with connection pooling")
     

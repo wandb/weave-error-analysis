@@ -15,7 +15,7 @@ from pydantic import BaseModel
 
 from services.taxonomy import taxonomy_service
 from services.weave_client import weave_client
-from config import get_target_project_id
+from config import get_target_project_id, get_feedback_query_limit
 
 
 router = APIRouter(prefix="/api/taxonomy", tags=["taxonomy"])
@@ -259,7 +259,7 @@ async def sync_notes_from_weave():
     """
     try:
         # Fetch notes from Weave
-        feedback_list = await weave_client.query_feedback(limit=500)
+        feedback_list = await weave_client.query_feedback(limit=get_feedback_query_limit())
         
         # Filter to notes only
         weave_notes = []

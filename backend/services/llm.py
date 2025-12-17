@@ -4,8 +4,12 @@ LLM Client Abstraction
 Centralizes all LLM calls with consistent:
 - Configuration (model, api key, etc.)
 - Structured outputs via Pydantic
-- Async execution
+- Async execution with rate limiting
 - Logging and error handling
+
+Rate Limiting:
+    The client uses a semaphore to limit concurrent LLM calls and avoid hitting
+    rate limits. Default is 10 concurrent requests, configurable via settings.
 
 Usage:
     from services.llm import llm_client
@@ -28,12 +32,21 @@ Usage:
 """
 
 import asyncio
+import random
 from typing import Any, Dict, List, Optional, Type, TypeVar, Union, overload, TYPE_CHECKING
 
 import litellm
 from pydantic import BaseModel
 
 from logger import get_logger, log_event, LOG_LLM_CONTENT
+
+# Default max concurrent LLM requests (configurable via settings)
+DEFAULT_MAX_CONCURRENT_LLM = 10
+
+# Retry configuration for rate limit errors
+MAX_RETRIES = 3
+INITIAL_RETRY_DELAY = 1.0  # seconds
+MAX_RETRY_DELAY = 30.0  # seconds
 
 if TYPE_CHECKING:
     from prompts.base import PromptConfig
@@ -52,6 +65,8 @@ class LLMClient:
     - Lazy configuration loading (respects runtime settings)
     - Pydantic structured outputs
     - Async-first with sync wrapper
+    - Rate limiting via semaphore (configurable max concurrent requests)
+    - Exponential backoff retry for rate limit errors
     - Consistent logging
     - Temperature defaults
     
@@ -71,12 +86,17 @@ class LLMClient:
     # Using gpt-5-mini: modern model with good cost/performance for tool operations
     DEFAULT_MODEL = "gpt-5-mini"
     
+    # Class-level semaphore for rate limiting (shared across instances)
+    _semaphore: Optional[asyncio.Semaphore] = None
+    _semaphore_limit: int = DEFAULT_MAX_CONCURRENT_LLM
+    
     def __init__(
         self,
         model: Optional[str] = None,
         temperature: Optional[float] = None,
         api_key: Optional[str] = None,
         api_base: Optional[str] = None,
+        max_concurrent: Optional[int] = None,
     ):
         """
         Initialize with optional overrides.
@@ -86,11 +106,44 @@ class LLMClient:
             temperature: Default temperature for completions
             api_key: API key override
             api_base: API base URL override
+            max_concurrent: Override max concurrent requests (rate limiting)
         """
         self._model_override = model
         self._temperature = temperature if temperature is not None else self.DEFAULT_TEMPERATURE
         self._api_key = api_key
         self._api_base = api_base
+        self._max_concurrent_override = max_concurrent
+    
+    @classmethod
+    def _get_max_concurrent(cls) -> int:
+        """Get max concurrent LLM requests from settings."""
+        try:
+            from services.settings import get_setting
+            value = get_setting("llm_max_concurrent")
+            if value:
+                return int(value)
+        except Exception:
+            pass
+        return DEFAULT_MAX_CONCURRENT_LLM
+    
+    @classmethod
+    def _get_semaphore(cls) -> asyncio.Semaphore:
+        """
+        Get or create the rate limiting semaphore.
+        
+        The semaphore limits concurrent LLM API calls to avoid hitting rate limits.
+        """
+        desired_limit = cls._get_max_concurrent()
+        
+        # Create or recreate semaphore if limit changed
+        if cls._semaphore is None or cls._semaphore_limit != desired_limit:
+            cls._semaphore = asyncio.Semaphore(desired_limit)
+            cls._semaphore_limit = desired_limit
+            log_event(logger, "llm.semaphore_created", level="debug",
+                max_concurrent=desired_limit
+            )
+        
+        return cls._semaphore
     
     def _get_kwargs(self) -> Dict[str, Any]:
         """
@@ -165,21 +218,30 @@ class LLMClient:
         response_model: Optional[Type[T]] = None,
         temperature: Optional[float] = None,
         json_mode: bool = False,
+        max_retries: int = MAX_RETRIES,
         **kwargs: Any
     ) -> Union[str, T]:
         """
-        Make an async LLM completion call.
+        Make an async LLM completion call with rate limiting and retry logic.
         
         Args:
             messages: List of message dicts with 'role' and 'content'
             response_model: Optional Pydantic model for structured output
             temperature: Override default temperature
             json_mode: If True (and no response_model), request JSON output
+            max_retries: Maximum retries for rate limit errors (default: 3)
             **kwargs: Additional kwargs passed to litellm
         
         Returns:
             - If response_model: Validated Pydantic model instance
             - Otherwise: Raw response string
+        
+        Rate Limiting:
+            Uses a semaphore to limit concurrent requests. If the limit is reached,
+            requests will wait for a slot to become available.
+        
+        Retry Logic:
+            For rate limit errors (429), uses exponential backoff with jitter.
         
         Example:
             # Simple text
@@ -212,6 +274,9 @@ class LLMClient:
         elif json_mode:
             request_kwargs["response_format"] = {"type": "json_object"}
         
+        # Get semaphore for rate limiting
+        semaphore = self._get_semaphore()
+        
         # Log request
         log_event(logger, "llm.request_start",
             model=request_kwargs.get("model"),
@@ -226,37 +291,81 @@ class LLMClient:
                 messages=messages
             )
         
-        try:
-            # Use acompletion for native async
-            response = await litellm.acompletion(**request_kwargs)
-            content = response.choices[0].message.content
-            
-            # Log response
-            log_event(logger, "llm.request_complete",
-                model=request_kwargs.get("model"),
-                actual_model=getattr(response, "model", "unknown"),
-                response_length=len(content) if content else 0,
-                has_response_model=response_model is not None
-            )
-            
-            if LOG_LLM_CONTENT:
-                log_event(logger, "llm.response_content", level="debug",
-                    content_preview=content[:500] if content else None
-                )
-            
-            # Parse structured output if model provided
-            if response_model is not None:
-                return response_model.model_validate_json(content)
-            
-            return content
-            
-        except Exception as e:
-            log_event(logger, "llm.request_error", level="error",
-                model=request_kwargs.get("model"),
-                error=str(e),
-                error_type=type(e).__name__
-            )
-            raise
+        last_error: Optional[Exception] = None
+        
+        for attempt in range(max_retries + 1):
+            try:
+                # Acquire semaphore slot (rate limiting)
+                async with semaphore:
+                    # Log if we had to wait
+                    if attempt > 0:
+                        log_event(logger, "llm.retry_attempt",
+                            attempt=attempt + 1,
+                            max_retries=max_retries,
+                            model=request_kwargs.get("model")
+                        )
+                    
+                    # Use acompletion for native async
+                    response = await litellm.acompletion(**request_kwargs)
+                    content = response.choices[0].message.content
+                    
+                    # Log response
+                    log_event(logger, "llm.request_complete",
+                        model=request_kwargs.get("model"),
+                        actual_model=getattr(response, "model", "unknown"),
+                        response_length=len(content) if content else 0,
+                        has_response_model=response_model is not None,
+                        attempt=attempt + 1
+                    )
+                    
+                    if LOG_LLM_CONTENT:
+                        log_event(logger, "llm.response_content", level="debug",
+                            content_preview=content[:500] if content else None
+                        )
+                    
+                    # Parse structured output if model provided
+                    if response_model is not None:
+                        return response_model.model_validate_json(content)
+                    
+                    return content
+                    
+            except Exception as e:
+                last_error = e
+                error_str = str(e).lower()
+                
+                # Check if this is a rate limit error
+                is_rate_limit = (
+                    "rate" in error_str and "limit" in error_str
+                ) or "429" in error_str or "too many requests" in error_str
+                
+                if is_rate_limit and attempt < max_retries:
+                    # Exponential backoff with jitter
+                    delay = min(
+                        INITIAL_RETRY_DELAY * (2 ** attempt) + random.uniform(0, 1),
+                        MAX_RETRY_DELAY
+                    )
+                    log_event(logger, "llm.rate_limited", level="warning",
+                        model=request_kwargs.get("model"),
+                        attempt=attempt + 1,
+                        retry_delay=delay,
+                        error=str(e)
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    # Non-retryable error or max retries exceeded
+                    log_event(logger, "llm.request_error", level="error",
+                        model=request_kwargs.get("model"),
+                        error=str(e),
+                        error_type=type(e).__name__,
+                        attempt=attempt + 1,
+                        is_rate_limit=is_rate_limit
+                    )
+                    raise
+        
+        # Should not reach here, but just in case
+        if last_error:
+            raise last_error
+        raise RuntimeError("Unexpected error in LLM completion")
     
     def complete_sync(
         self,

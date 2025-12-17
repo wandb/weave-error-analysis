@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
-from config import get_target_project_id
+from config import get_target_project_id, get_feedback_query_limit
 from logger import get_logger
 from models import FeedbackRequest
 from services.weave_client import weave_client
@@ -57,7 +57,7 @@ async def get_feedback_summary(
 ):
     """Get summary of all feedback."""
     try:
-        feedback_list = await weave_client.query_feedback(limit=500)
+        feedback_list = await weave_client.query_feedback(limit=get_feedback_query_limit())
 
         thumbs_up = 0
         thumbs_down = 0

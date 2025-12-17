@@ -15,6 +15,7 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 from pydantic import BaseModel
 
+from config import get_agent_query_timeout, get_health_check_timeout
 from logger import get_logger, log_event, generate_correlation_id
 
 logger = get_logger("agent")
@@ -41,16 +42,23 @@ class AgentClient:
     No streaming, no SSE, just plain request/response.
     """
     
-    def __init__(self, endpoint_url: str, timeout: float = 120.0):
+    def __init__(self, endpoint_url: str, timeout: Optional[float] = None):
         """
         Initialize the agent client.
         
         Args:
             endpoint_url: Full URL of the agent query endpoint (e.g., http://localhost:9000/query)
-            timeout: Request timeout in seconds (default 120s for long agent runs)
+            timeout: Request timeout in seconds. If not provided, uses configured agent_query_timeout.
         """
         self.endpoint_url = endpoint_url
-        self.timeout = timeout
+        self._custom_timeout = timeout  # None means use config
+    
+    @property
+    def timeout(self) -> float:
+        """Get the timeout value, using config if not explicitly set."""
+        if self._custom_timeout is not None:
+            return self._custom_timeout
+        return get_agent_query_timeout()
     
     def _get_base_url(self) -> str:
         """Derive base URL from the endpoint URL."""
@@ -77,9 +85,10 @@ class AgentClient:
                 f"{base_url}/",
             ]
             
+            health_timeout = get_health_check_timeout()
             for endpoint in endpoints_to_try:
                 try:
-                    response = await client.get(endpoint, timeout=10.0)
+                    response = await client.get(endpoint, timeout=health_timeout)
                     response_time = (datetime.utcnow() - start_time).total_seconds() * 1000
                     
                     if response.status_code == 200:
@@ -233,9 +242,10 @@ class AgentClient:
                 (f"{base_url}/api/agent-info", "markdown"),
             ]
             
+            info_timeout = get_health_check_timeout()  # Use health check timeout for metadata fetches
             for endpoint, format_type in endpoints_to_try:
                 try:
-                    response = await client.get(endpoint, timeout=10.0)
+                    response = await client.get(endpoint, timeout=info_timeout)
                     
                     if response.status_code == 200:
                         if format_type == "json":
@@ -259,7 +269,7 @@ async def query_agent(
     endpoint_url: str,
     query: str,
     thread_id: Optional[str] = None,
-    timeout: float = 120.0
+    timeout: Optional[float] = None
 ) -> QueryResponse:
     """
     Convenience function to run a query against an agent.
@@ -268,7 +278,7 @@ async def query_agent(
         endpoint_url: The full agent query endpoint URL (e.g., http://localhost:9000/query)
         query: The query to send
         thread_id: Optional thread ID for conversation continuity
-        timeout: Request timeout in seconds
+        timeout: Request timeout in seconds. If None, uses configured agent_query_timeout.
         
     Returns:
         QueryResponse with the agent's response or error

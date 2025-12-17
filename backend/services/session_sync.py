@@ -24,6 +24,7 @@ from typing import Optional, Dict, Any, List, Set, Tuple
 from collections import defaultdict
 from enum import Enum
 
+from config import get_sync_query_limit
 from database import get_db, now_iso, generate_id
 from services.weave_client import weave_client
 from logger import get_logger, log_event, generate_correlation_id
@@ -375,7 +376,7 @@ class SessionSyncService:
         # doesn't support that well, so we fetch recent and dedupe
         try:
             all_calls = await weave_client.query_calls(
-                limit=500,  # Match existing behavior
+                limit=get_sync_query_limit(),
                 sort_field="started_at",
                 sort_direction="desc"
             )
@@ -472,7 +473,7 @@ class SessionSyncService:
         # Fetch calls from Weave
         try:
             all_calls = await weave_client.query_calls(
-                limit=500,
+                limit=get_sync_query_limit(),
                 sort_field="started_at",
                 sort_direction="desc"
             )

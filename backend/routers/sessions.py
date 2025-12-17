@@ -27,6 +27,7 @@ from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
+from config import get_sync_query_limit
 from errors import NotFoundError, ValidationError, ServiceError
 from services.session_repository import (
     session_repository,
@@ -316,7 +317,7 @@ async def _fetch_conversation(session_id: str) -> List[ConversationMessage]:
         # Fetch recent calls (descending to get newest first)
         # Then we'll sort them back to ascending order for conversation display
         all_calls = await weave_client.query_calls(
-            limit=500,
+            limit=get_sync_query_limit(),
             sort_field="started_at",
             sort_direction="desc"
         )

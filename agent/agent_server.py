@@ -33,7 +33,8 @@ logging.getLogger("opentelemetry").setLevel(logging.ERROR)
 AGENT_DIR = Path(__file__).parent
 AGENT_INFO_PATH = AGENT_DIR / "AGENT_INFO.md"
 
-load_dotenv()
+# Load .env from project root (one directory up from agent/)
+load_dotenv(AGENT_DIR.parent / ".env")
 
 # Import the agent
 from customer_support import create_support_agent, flush_traces

@@ -7,8 +7,11 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 from config import get_target_project_id
+from logger import get_logger
 from models import FeedbackRequest
 from services.weave_client import weave_client
+
+logger = get_logger("feedback_api")
 
 router = APIRouter(prefix="/api", tags=["feedback"])
 
@@ -92,7 +95,7 @@ async def get_feedback_summary(
         }
 
     except Exception as e:
-        print(f"Error fetching feedback summary: {e}")
+        logger.error(f"Error fetching feedback summary: {e}", exc_info=True)
         return {
             "thumbs_up": 0,
             "thumbs_down": 0,

@@ -2,20 +2,6 @@
 // Core Domain Types
 // ============================================================================
 
-export interface Thread {
-  thread_id: string;
-  turn_count: number;
-  start_time: string | null;
-  last_updated: string | null;
-  is_reviewed?: boolean;
-}
-
-export interface ThreadMetrics {
-  total_latency_ms: number;
-  turn_count: number;
-  has_error: boolean;
-}
-
 export interface ConversationMessage {
   type: "user" | "assistant" | "tool_call" | "system";
   content?: string;
@@ -26,33 +12,8 @@ export interface ConversationMessage {
   timestamp: string;
 }
 
-export interface ThreadDetail {
-  thread_id: string;
-  calls: Array<{
-    id: string;
-    op_name: string;
-    started_at: string;
-    ended_at: string;
-    inputs: Record<string, unknown>;
-    output: unknown;
-  }>;
-  conversation: ConversationMessage[];
-  feedback: Record<string, Array<{ type: string; payload: unknown }>>;
-  total_calls: number;
-  metrics?: ThreadMetrics;
-  is_reviewed?: boolean;
-}
-
-export interface AnnotationProgress {
-  reviewed_count: number;
-  target: number;
-  progress_percent: number;
-  recent_reviews_24h: number;
-  remaining: number;
-}
-
 // ============================================================================
-// Session Types (Phase 5 - Local-First Sessions)
+// Session Types (Local-First Sessions)
 // ============================================================================
 
 export interface Session {

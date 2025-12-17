@@ -32,50 +32,59 @@ logger = get_logger("session_sync")
 
 
 # =============================================================================
-# Model Pricing (for cost estimation)
+# Cost Extraction from Weave
 # =============================================================================
 
-# Approximate pricing per 1M tokens (USD) - update as needed
-MODEL_PRICING: Dict[str, Tuple[float, float]] = {
-    # (input_price_per_1M, output_price_per_1M)
-    "gpt-4o": (2.50, 10.00),
-    "gpt-4o-mini": (0.15, 0.60),
-    "gpt-4-turbo": (10.00, 30.00),
-    "gpt-4": (30.00, 60.00),
-    "gpt-3.5-turbo": (0.50, 1.50),
-    "claude-3-5-sonnet": (3.00, 15.00),
-    "claude-3-opus": (15.00, 75.00),
-    "claude-3-haiku": (0.25, 1.25),
-    # Default for unknown models
-    "default": (1.00, 3.00),
-}
+def extract_cost_from_call(call: dict) -> float:
+    """
+    Extract cost from Weave's native cost tracking.
+    
+    Weave tracks costs in summary.weave.costs with the structure:
+    {
+        "model_name": {
+            "prompt_tokens": int,
+            "completion_tokens": int,
+            "requests": int,
+            "total_tokens": int,
+            "cost": float  # <-- The actual cost
+        }
+    }
+    
+    We sum all model costs. If Weave doesn't have cost data, return 0.
+    No client-side estimation - the source of truth is Weave.
+    """
+    summary = call.get("summary", {})
+    weave_data = summary.get("weave", {})
+    costs = weave_data.get("costs", {})
+    
+    if costs and isinstance(costs, dict):
+        return sum(
+            model_cost.get("cost", 0) 
+            for model_cost in costs.values() 
+            if isinstance(model_cost, dict)
+        )
+    
+    return 0.0
 
 
-def estimate_cost(
-    input_tokens: int, 
-    output_tokens: int, 
-    model: Optional[str] = None
-) -> float:
+def get_call_duration_ms(call: dict) -> float:
     """
-    Estimate cost in USD based on token counts and model.
+    Get call duration in milliseconds from timestamps.
     
-    Uses approximate pricing; actual costs may vary.
+    Returns 0.0 if timestamps are missing or invalid.
     """
-    if model:
-        # Normalize model name (remove version suffixes, etc.)
-        model_key = model.lower()
-        for key in MODEL_PRICING:
-            if key in model_key:
-                input_price, output_price = MODEL_PRICING[key]
-                break
-        else:
-            input_price, output_price = MODEL_PRICING["default"]
-    else:
-        input_price, output_price = MODEL_PRICING["default"]
+    started = call.get("started_at")
+    ended = call.get("ended_at")
     
-    # Calculate cost (prices are per 1M tokens)
-    cost = (input_tokens * input_price / 1_000_000) + (output_tokens * output_price / 1_000_000)
-    return round(cost, 6)
+    if not (started and ended):
+        return 0.0
+    
+    try:
+        start_dt = datetime.fromisoformat(started.replace("Z", "+00:00"))
+        end_dt = datetime.fromisoformat(ended.replace("Z", "+00:00"))
+        return (end_dt - start_dt).total_seconds() * 1000
+    except Exception:
+        return 0.0
 
 
 # =============================================================================
@@ -534,57 +543,34 @@ class SessionSyncService:
         """
         Group calls by session_id.
         
-        Uses the same logic as threads.py to determine session_id:
-        - thread_id (preferred)
-        - summary.session_id
-        - trace_id (fallback)
+        Session ID determination (simplified):
+        - thread_id if present (agents should use weave.attributes(thread_id=...) for multi-turn)
+        - trace_id as fallback (single-turn or un-attributed calls)
         
-        Only returns "real" sessions (multiple calls or starts with session_).
+        Returns sessions with at least one root call (parent_id is None).
         """
-        # Build root-to-thread map (some root calls don't have thread_id but children do)
-        root_to_thread: Dict[str, str] = {}
-        for call in calls:
-            thread_id = call.get("thread_id")
-            trace_id = call.get("trace_id")
-            if thread_id and trace_id:
-                if trace_id not in root_to_thread:
-                    root_to_thread[trace_id] = thread_id
-        
-        # Group calls by session
         sessions: Dict[str, List[dict]] = defaultdict(list)
         
         for call in calls:
-            trace_id = call.get("trace_id")
-            
-            # Determine session_id with priority
-            session_id = (
-                call.get("thread_id") or
-                root_to_thread.get(trace_id) or
-                call.get("summary", {}).get("session_id") or
-                trace_id
-            )
-            
-            if not session_id:
-                continue
-            
-            # Skip if session_id is a trace_id that maps to a thread_id
-            if session_id == trace_id and trace_id in root_to_thread:
-                continue
-            
-            sessions[session_id].append(call)
+            session_id = self._get_session_id(call)
+            if session_id:
+                sessions[session_id].append(call)
         
-        # Filter to "real" sessions only
-        real_sessions = {}
-        for session_id, session_calls in sessions.items():
-            is_real = (
-                session_id.startswith("session_") or
-                len(session_calls) > 1 or
-                any(c.get("parent_id") is None for c in session_calls)
-            )
-            if is_real:
-                real_sessions[session_id] = session_calls
+        # Filter to sessions with at least one root call
+        return {
+            sid: session_calls 
+            for sid, session_calls in sessions.items()
+            if any(c.get("parent_id") is None for c in session_calls)
+        }
+    
+    def _get_session_id(self, call: dict) -> Optional[str]:
+        """
+        Get session ID for a call.
         
-        return real_sessions
+        Uses thread_id if present, otherwise falls back to trace_id.
+        Agents should use weave.attributes(thread_id=...) for multi-turn conversations.
+        """
+        return call.get("thread_id") or call.get("trace_id") or call.get("id")
     
     # =========================================================================
     # Helper Methods - Metrics Extraction
@@ -622,15 +608,7 @@ class SessionSyncService:
             
             # Calculate latency for root calls only
             if is_root:
-                started = call.get("started_at")
-                ended = call.get("ended_at")
-                if started and ended:
-                    try:
-                        start_dt = datetime.fromisoformat(started.replace("Z", "+00:00"))
-                        end_dt = datetime.fromisoformat(ended.replace("Z", "+00:00"))
-                        metrics.total_latency_ms += (end_dt - start_dt).total_seconds() * 1000
-                    except Exception:
-                        pass
+                metrics.total_latency_ms += get_call_duration_ms(call)
             
             # Track timestamps
             started = call.get("started_at")
@@ -643,32 +621,31 @@ class SessionSyncService:
                     metrics.ended_at = ended
             
             # Extract token usage from summary
+            # Weave normalizes to input_tokens/output_tokens - trust the format
             summary = call.get("summary", {})
             usage = summary.get("usage", {})
             
-            # Handle different usage formats
             if isinstance(usage, dict):
                 # Nested by model: {"gpt-4o": {"input_tokens": 100, ...}}
                 for model_name, model_usage in usage.items():
                     if isinstance(model_usage, dict):
-                        input_tokens = model_usage.get("input_tokens", 0) or model_usage.get("prompt_tokens", 0) or 0
-                        output_tokens = model_usage.get("output_tokens", 0) or model_usage.get("completion_tokens", 0) or 0
+                        input_tokens = model_usage.get("input_tokens", 0) or 0
+                        output_tokens = model_usage.get("output_tokens", 0) or 0
                         
                         metrics.total_input_tokens += input_tokens
                         metrics.total_output_tokens += output_tokens
                         
-                        # Track model usage
+                        # Track model usage by token count
                         if input_tokens or output_tokens:
                             model_counts[model_name] += input_tokens + output_tokens
             
-            # Extract model from op_name or attributes
-            op_name = call.get("op_name", "")
-            if "gpt" in op_name.lower() or "claude" in op_name.lower():
-                model_counts[op_name] += 1
-            
-            # Check for model in attributes
+            # Extract model from structured data only (no op_name string matching)
+            # Priority: 1. attributes.model, 2. inputs.model, 3. usage keys (already handled above)
             attributes = call.get("attributes", {})
             model = attributes.get("model")
+            if not model:
+                # Fallback to inputs.model for LLM calls
+                model = call.get("inputs", {}).get("model")
             if model:
                 model_counts[model] += 1
             
@@ -680,6 +657,9 @@ class SessionSyncService:
                     errors.append(exception[:200])
                 elif isinstance(exception, dict):
                     errors.append(str(exception.get("message", exception))[:200])
+            
+            # Extract cost from Weave's native cost tracking
+            metrics.estimated_cost_usd += extract_cost_from_call(call)
         
         # Calculate totals
         metrics.total_tokens = metrics.total_input_tokens + metrics.total_output_tokens
@@ -687,14 +667,6 @@ class SessionSyncService:
         # Determine primary model
         if model_counts:
             metrics.primary_model = max(model_counts, key=model_counts.get)
-        
-        # Calculate cost estimate
-        if metrics.total_input_tokens or metrics.total_output_tokens:
-            metrics.estimated_cost_usd = estimate_cost(
-                metrics.total_input_tokens,
-                metrics.total_output_tokens,
-                metrics.primary_model
-            )
         
         # Summarize errors
         if errors:

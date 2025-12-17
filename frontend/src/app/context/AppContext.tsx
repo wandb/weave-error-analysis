@@ -11,10 +11,6 @@ import {
 } from "react";
 import type {
   TabType,
-  Thread,
-  ThreadDetail,
-  FeedbackSummary,
-  AnnotationProgress,
   Agent,
   AgentDetail,
   AgentStats,
@@ -35,6 +31,7 @@ import type {
   WorkflowProgress,
 } from "../types";
 import * as api from "../lib/api";
+import { ORGANIC_FILTER, SESSION_ID_PREFIX } from "../constants";
 
 // ============================================================================
 // Context Types
@@ -51,15 +48,7 @@ interface AppState {
   activeTab: TabType;
   setActiveTab: (tab: TabType) => void;
 
-  // Sessions (Legacy - Thread-based)
-  threads: Thread[];
-  selectedThread: ThreadDetail | null;
-  feedbackSummary: FeedbackSummary | null;
-  annotationProgress: AnnotationProgress | null;
-  loadingThreads: boolean;
-  loadingDetail: boolean;
-
-  // Sessions (New - Local DB based)
+  // Sessions (Local DB based)
   sessions: Session[];
   selectedSession: SessionDetail | null;
   syncStatus: SyncStatus | null;
@@ -106,15 +95,7 @@ interface AppState {
   loadingFilterRanges: boolean;
   fetchFilterRanges: () => Promise<void>;
 
-  // Session Actions (Legacy)
-  fetchThreads: () => Promise<void>;
-  fetchRandomSample: (size?: number) => Promise<void>;
-  fetchThreadDetail: (threadId: string) => Promise<void>;
-  markThreadReviewed: (threadId: string) => Promise<void>;
-  unmarkThreadReviewed: (threadId: string) => Promise<void>;
-  addNoteToThread: (threadId: string, note: string) => Promise<void>;
-
-  // Session Actions (New - Local DB)
+  // Session Actions
   fetchSessions: () => Promise<void>;
   fetchSessionDetail: (sessionId: string) => Promise<void>;
   markSessionReviewed: (sessionId: string) => Promise<void>;
@@ -216,15 +197,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Start with Agents tab - first step in the workflow
   const [activeTab, setActiveTab] = useState<TabType>("agents");
 
-  // Sessions state (Legacy - Thread-based)
-  const [threads, setThreads] = useState<Thread[]>([]);
-  const [selectedThread, setSelectedThread] = useState<ThreadDetail | null>(null);
-  const [feedbackSummary, setFeedbackSummary] = useState<FeedbackSummary | null>(null);
-  const [annotationProgress, setAnnotationProgress] = useState<AnnotationProgress | null>(null);
-  const [loadingThreads, setLoadingThreads] = useState(true);
-  const [loadingDetail, setLoadingDetail] = useState(false);
-
-  // Sessions state (New - Local DB based)
+  // Sessions state (Local DB based)
   const [sessions, setSessions] = useState<Session[]>([]);
   const [selectedSession, setSelectedSession] = useState<SessionDetail | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
@@ -314,59 +287,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   // Session Actions
   // ============================================================================
 
-  // Legacy thread functions - these are deprecated and use session-based API now
-  // Kept for backwards compatibility with any code that might still reference them
-  const fetchThreads = useCallback(async () => {
-    console.warn("fetchThreads is deprecated - use fetchSessions instead");
-    setLoadingThreads(false);
-  }, []);
-
-  const fetchRandomSample = async (_size: number = 20) => {
-    console.warn("fetchRandomSample is deprecated - use fetchSessions with random_sample filter instead");
-    setLoadingThreads(false);
-  };
-
-  const fetchFeedbackSummaryData = useCallback(async () => {
-    try {
-      const data = await api.fetchFeedbackSummary();
-      setFeedbackSummary(data);
-    } catch (error) {
-      console.error("Error fetching feedback summary:", error);
-    }
-  }, []);
-
-  // Legacy: fetchAnnotationProgress was removed - use session stats or batch review progress instead
-  const fetchAnnotationProgressData = useCallback(async () => {
-    // No longer supported - annotation progress is tracked via sessions now
-    setAnnotationProgress(null);
-  }, []);
-
-  const fetchThreadDetail = async (_threadId: string) => {
-    console.warn("fetchThreadDetail is deprecated - use fetchSessionDetail instead");
-    setLoadingDetail(false);
-  };
-
-  const markThreadReviewed = async (_threadId: string) => {
-    console.warn("markThreadReviewed is deprecated - use markSessionReviewed instead");
-  };
-
-  const unmarkThreadReviewed = async (_threadId: string) => {
-    console.warn("unmarkThreadReviewed is deprecated - use unmarkSessionReviewed instead");
-  };
-
-  const addNoteToThread = async (_threadId: string, _note: string) => {
-    console.warn("addNoteToThread is deprecated - use addSessionNote instead");
-  };
-
-  // ============================================================================
-  // Session Actions (New - Local DB based)
-  // ============================================================================
-
   const fetchSessionsData = useCallback(async () => {
     setLoadingSessions(true);
     try {
-      // Handle special "__organic__" filter (threads without a batch)
-      const isOrganicFilter = filterBatchId === "__organic__";
+      // Handle special organic filter (sessions without a batch)
+      const isOrganicFilter = filterBatchId === ORGANIC_FILTER;
       
       const data = await api.fetchSessions({
         sort_by: sortBy,
@@ -384,7 +309,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         batch_id: isOrganicFilter ? null : filterBatchId,
         exclude_batches: isOrganicFilter ? true : undefined,
         primary_model: filterModel,
-        id_prefix: "session_",  // Only show session_* threads (not random UUIDs)
+        id_prefix: SESSION_ID_PREFIX,  // Only show session_* threads (not random UUIDs)
         limit: 100,
       });
       setSessions(data.sessions);
@@ -749,9 +674,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   // Initial data load
   useEffect(() => {
-    fetchFeedbackSummaryData();
     fetchAgentsData(); // Load agents on startup for auto-selection
-  }, [fetchFeedbackSummaryData, fetchAgentsData]);
+  }, [fetchAgentsData]);
 
   // Threads tab - load from local DB
   useEffect(() => {
@@ -824,15 +748,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     activeTab,
     setActiveTab,
 
-    // Legacy thread-based
-    threads,
-    selectedThread,
-    feedbackSummary,
-    annotationProgress,
-    loadingThreads,
-    loadingDetail,
-
-    // New local DB sessions
+    // Sessions (Local DB)
     sessions,
     selectedSession,
     syncStatus,
@@ -876,15 +792,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     loadingFilterRanges,
     fetchFilterRanges: fetchFilterRangesData,
 
-    // Legacy thread actions
-    fetchThreads,
-    fetchRandomSample,
-    fetchThreadDetail,
-    markThreadReviewed,
-    unmarkThreadReviewed,
-    addNoteToThread,
-
-    // New session actions
+    // Session actions
     fetchSessions: fetchSessionsData,
     fetchSessionDetail: fetchSessionDetailData,
     markSessionReviewed: markSessionReviewedAction,

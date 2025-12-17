@@ -648,8 +648,7 @@ async def create_session_note(session_id: str, request: CreateNoteRequest):
         if not note:
             raise HTTPException(status_code=404, detail="Session not found")
         
-        # TODO: Trigger async Weave sync in background
-        # asyncio.create_task(sync_note_to_weave(note["id"]))
+        # Notes are stored locally; Weave sync happens on next session sync
         
         return SessionNote(
             id=note["id"],

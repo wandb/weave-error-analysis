@@ -17,6 +17,9 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from database import get_db, now_iso
+from logger import get_logger
+
+logger = get_logger("synthetic_api")
 
 router = APIRouter(prefix="/api", tags=["synthetic"])
 
@@ -146,7 +149,7 @@ async def get_agent_info_for_generation(agent_id: str):
             parsed = parse_agent_info(agent_row["agent_info_raw"])
             dimensions = parsed.testing_dimensions
         except Exception as e:
-            print(f"[Warning] Failed to parse agent_info_raw for dimensions: {e}")
+            logger.warning(f"Failed to parse agent_info_raw for dimensions: {e}")
     
     # Build minimal AgentInfo for generation
     # Parse purpose from agent_info_parsed if available
@@ -156,7 +159,7 @@ async def get_agent_info_for_generation(agent_id: str):
             parsed = json.loads(agent_row["agent_info_parsed"])
             purpose = parsed.get("purpose", purpose)
         except json.JSONDecodeError as e:
-            print(f"[Warning] Failed to parse agent_info_parsed JSON: {e}")
+            logger.warning(f"Failed to parse agent_info_parsed JSON: {e}")
     
     agent_info = AgentInfo(
         name=agent_row["name"] or "Unknown Agent",
@@ -308,7 +311,7 @@ async def import_dimensions_from_agent(agent_id: str):
                         "descriptions": dim.get("descriptions")
                     })
         except Exception as e:
-            print(f"[Warning] Failed to fetch dimensions from remote agent: {e}")
+            logger.warning(f"Failed to fetch dimensions from remote agent: {e}")
     
     # Fallback to stored agent_info_raw
     if not dimensions and row["agent_info_raw"]:
@@ -321,7 +324,7 @@ async def import_dimensions_from_agent(agent_id: str):
                     "descriptions": dim.descriptions
                 })
         except Exception as e:
-            print(f"[Warning] Failed to parse agent_info_raw for dimensions: {e}")
+            logger.warning(f"Failed to parse agent_info_raw for dimensions: {e}")
     
     if not dimensions:
         raise HTTPException(status_code=400, detail="No testing dimensions found in AGENT_INFO")
@@ -1110,7 +1113,7 @@ async def execute_synthetic_batch(batch_id: str, request: ExecuteBatchRequest = 
                 batch_info=batch_data  # Pass pre-fetched data to avoid redundant query
             ):
                 event_data = f"data: {progress.model_dump_json()}\n\n"
-                print(f"[SSE] Sending progress: {progress.completed_queries}/{progress.total_queries} - {progress.status}")
+                logger.debug(f"SSE progress: {progress.completed_queries}/{progress.total_queries} - {progress.status}")
                 yield event_data
         except Exception as e:
             error_data = json.dumps({
@@ -1118,7 +1121,7 @@ async def execute_synthetic_batch(batch_id: str, request: ExecuteBatchRequest = 
                 "status": "error",
                 "error": str(e)
             })
-            print(f"[SSE] Error: {e}")
+            logger.error(f"SSE streaming error: {e}")
             yield f"data: {error_data}\n\n"
     
     return StreamingResponse(

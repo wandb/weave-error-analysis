@@ -160,6 +160,7 @@ async def lifespan(app: FastAPI):
     FastAPI lifespan context manager for startup/shutdown events.
     
     On startup:
+    - Initializes database (creates tables if needed)
     - Registers Example Agent if not present
     - Initializes Weave for tracing
     - Initializes prompt manager
@@ -167,6 +168,11 @@ async def lifespan(app: FastAPI):
     """
     # --- STARTUP ---
     logger.info("Starting Error Analysis Backend...")
+    
+    # Initialize database first (must happen before any DB access)
+    from database import ensure_initialized
+    ensure_initialized()
+    logger.debug("Database initialized")
     
     # Register Example Agent (so it appears in Agents tab on first run)
     register_example_agent()
@@ -182,6 +188,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Failed to initialize prompt manager: {e}")
     
+    # Initialize Weave API client (connection pooling)
+    try:
+        from services.weave_client import weave_client
+        await weave_client.init()
+        logger.info("WeaveClient HTTP connection pool initialized")
+    except Exception as e:
+        logger.warning(f"Failed to initialize WeaveClient: {e}")
+    
     # Trigger initial session sync in background (non-blocking)
     try:
         from services.session_sync import startup_sync
@@ -194,6 +208,14 @@ async def lifespan(app: FastAPI):
     
     # --- SHUTDOWN ---
     logger.info("Shutting down Error Analysis Backend...")
+    
+    # Close Weave API client connections
+    try:
+        from services.weave_client import weave_client
+        await weave_client.close()
+        logger.info("WeaveClient HTTP connection pool closed")
+    except Exception as e:
+        logger.warning(f"Error closing WeaveClient: {e}")
 
 
 app = FastAPI(

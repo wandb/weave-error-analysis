@@ -38,6 +38,7 @@ import {
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { formatRelativeTime } from "../../utils/formatters";
+import { ORGANIC_FILTER, ORGANIC_DISPLAY_NAME } from "../../constants";
 import { ConversationMessage } from "../ConversationMessage";
 import { Panel, PanelHeader, Badge, ProgressBar, LoadingCards, NoThreadsFound, SelectPrompt, DualRangeSlider } from "../ui";
 import { EditPromptButton } from "../PromptEditDrawer";
@@ -585,7 +586,7 @@ export function ThreadsTab() {
 
   // Fetch batch-level suggestions when batch filter changes
   useEffect(() => {
-    if (!filterBatchId || filterBatchId === "__organic__") {
+    if (!filterBatchId || filterBatchId === ORGANIC_FILTER) {
       setBatchSuggestions([]);
       setSelectedSuggestionIds(new Set());
       setShowBulkSuggestionsPanel(false);
@@ -677,7 +678,7 @@ export function ThreadsTab() {
 
   // Analyze batch for issues
   const handleAnalyzeBatch = async () => {
-    if (!filterBatchId || filterBatchId === "__organic__") return;
+    if (!filterBatchId || filterBatchId === ORGANIC_FILTER) return;
     setAnalyzingBatch(true);
     try {
       const result = await api.analyzeBatch(filterBatchId);
@@ -904,14 +905,14 @@ export function ThreadsTab() {
   // Get the current batch display name
   const getCurrentBatchDisplay = () => {
     if (!filterBatchId) return "All Threads";
-    if (filterBatchId === "__organic__") return "Organic (no batch)";
+    if (filterBatchId === ORGANIC_FILTER) return ORGANIC_DISPLAY_NAME;
     return filterBatchName || filterBatchId;
   };
 
   return (
     <div className="space-y-4">
       {/* Batch Filter Indicator - shown when filtering by specific batch */}
-      {filterBatchId && filterBatchId !== "__organic__" && (
+      {filterBatchId && filterBatchId !== ORGANIC_FILTER && (
         <div className="bg-accent-coral/10 border border-accent-coral/30 rounded-xl p-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Filter className="w-4 h-4 text-accent-coral" />
@@ -979,7 +980,7 @@ export function ThreadsTab() {
       )}
 
       {/* Bulk Suggestions Panel (when filtering by batch) */}
-      {filterBatchId && filterBatchId !== "__organic__" && (batchSuggestions.length > 0 || loadingBatchSuggestions) && (
+      {filterBatchId && filterBatchId !== ORGANIC_FILTER && (batchSuggestions.length > 0 || loadingBatchSuggestions) && (
         <Panel className="bg-gradient-to-r from-accent-plum/5 to-accent-coral/5 border-accent-plum/30">
           {/* Header - always visible */}
           <button
@@ -1209,9 +1210,9 @@ export function ThreadsTab() {
 
                     {/* Organic option */}
                     <button
-                      onClick={() => handleBatchSelect("__organic__", "Organic (no batch)")}
+                      onClick={() => handleBatchSelect(ORGANIC_FILTER, ORGANIC_DISPLAY_NAME)}
                       className={`w-full text-left px-3 py-2 text-xs transition-colors flex items-center gap-2 ${
-                        filterBatchId === "__organic__" 
+                        filterBatchId === ORGANIC_FILTER 
                           ? 'bg-accent-coral/10 text-accent-coral' 
                           : 'text-sand-200 hover:bg-ink-800'
                       }`}

@@ -59,9 +59,12 @@ def get_tool_project_id() -> str:
 def get_config_value(setting_key: str, env_key: str, default: str = "") -> str:
     """
     Get a configuration value with priority:
-    1. Database setting
+    1. Database setting (if database is initialized)
     2. Environment variable
     3. Default value
+    
+    Note: Uses lazy import to avoid circular dependency with services.settings.
+    Database errors are expected during startup before init_db() runs.
     """
     # Try database first (lazy import to avoid circular dependency)
     try:
@@ -69,8 +72,12 @@ def get_config_value(setting_key: str, env_key: str, default: str = "") -> str:
         db_value = get_setting(setting_key)
         if db_value:
             return db_value
+    except ImportError:
+        pass  # Module not available (shouldn't happen in normal operation)
     except Exception:
-        pass  # Settings table might not exist yet
+        # Database not initialized yet - this is expected during startup
+        # before ensure_initialized() is called in lifespan
+        pass
     
     # Fall back to environment variable
     env_value = os.getenv(env_key)
@@ -135,7 +142,19 @@ WEAVE_PROJECT = os.getenv("WEAVE_PROJECT", "")  # No default - must be configure
 PROJECT_ID = f"{WANDB_ENTITY}/{WEAVE_PROJECT}" if WANDB_ENTITY and WEAVE_PROJECT else WEAVE_PROJECT
 
 # Weave Trace API
-WEAVE_API_BASE = "https://trace.wandb.ai"
+# Default to public Weave API; enterprise users can configure via Settings or WEAVE_API_BASE env var
+def get_weave_api_base() -> str:
+    """
+    Get the Weave API base URL.
+    
+    Configurable for enterprise/self-hosted Weave deployments.
+    Priority: Settings DB → WEAVE_API_BASE env var → default
+    """
+    return get_config_value("weave_api_base", "WEAVE_API_BASE", "https://trace.wandb.ai")
+
+
+# Keep static value for backwards compatibility with imports, but prefer function
+WEAVE_API_BASE = get_weave_api_base()
 
 # LLM Configuration
 CATEGORIZATION_MODEL = os.getenv("CATEGORIZATION_MODEL", "gpt-4o-mini")

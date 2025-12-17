@@ -44,7 +44,7 @@ DEFAULT_SETTINGS = {
         "description": "LLM provider (openai, anthropic, google, etc.)"
     },
     "llm_model": {
-        "value": "gpt-4o-mini",
+        "value": "gpt-5",
         "is_secret": False,
         "description": "Model name for synthetic data generation and AI suggestions"
     },
@@ -74,6 +74,11 @@ DEFAULT_SETTINGS = {
         "value": "",
         "is_secret": False,
         "description": "Weave project name where your agent logs traces (e.g., 'customer-support-agent')"
+    },
+    "weave_api_base": {
+        "value": "https://trace.wandb.ai",
+        "is_secret": False,
+        "description": "Weave API base URL (default: https://trace.wandb.ai, change for enterprise/self-hosted)"
     },
     
     # Internal Settings (not exposed in Settings UI)
@@ -269,6 +274,7 @@ def get_settings_grouped() -> List[SettingsGroup]:
                 all_settings.get("weave_api_key", SettingValue(key="weave_api_key", value="", is_secret=True)),
                 all_settings.get("weave_entity", SettingValue(key="weave_entity", value="")),
                 all_settings.get("weave_project", SettingValue(key="weave_project", value="")),
+                all_settings.get("weave_api_base", SettingValue(key="weave_api_base", value="https://trace.wandb.ai")),
             ]
         ),
     ]

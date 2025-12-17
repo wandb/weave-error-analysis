@@ -6,8 +6,11 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
 
+from logger import get_logger
 from services.weave_client import weave_client
 from utils import truncate_dict
+
+logger = get_logger("traces_api")
 
 router = APIRouter(prefix="/api", tags=["traces"])
 
@@ -50,9 +53,7 @@ async def get_traces(
         }
 
     except Exception as e:
-        print(f"Error fetching traces: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Error fetching traces: {e}", exc_info=True)
         return {
             "traces": [],
             "total_count": 0,
@@ -92,9 +93,7 @@ async def get_trace_detail(trace_id: str):
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error fetching trace detail: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"Error fetching trace detail: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 

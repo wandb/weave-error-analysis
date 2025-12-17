@@ -805,5 +805,11 @@ def get_db_stats() -> dict:
     return stats
 
 
-# Initialize database on import
-init_db()
+def ensure_initialized():
+    """
+    Ensure the database is initialized. Call this from FastAPI lifespan
+    or before first database access.
+    
+    This is idempotent - safe to call multiple times.
+    """
+    init_db()

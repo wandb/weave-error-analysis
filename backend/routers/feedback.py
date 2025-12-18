@@ -8,46 +8,11 @@ from fastapi import APIRouter, HTTPException, Query
 
 from config import get_target_project_id, get_feedback_query_limit
 from logger import get_logger
-from models import FeedbackRequest
 from services.weave_client import weave_client
 
 logger = get_logger("feedback_api")
 
 router = APIRouter(prefix="/api", tags=["feedback"])
-
-
-@router.post("/traces/{trace_id}/feedback")
-async def add_feedback(trace_id: str, request: FeedbackRequest):
-    """Add feedback to a trace."""
-    try:
-        # Build payload based on feedback type
-        if request.feedback_type == "thumbs_up":
-            payload = {"emoji": "👍"}
-            feedback_type = "wandb.reaction.1"
-        elif request.feedback_type == "thumbs_down":
-            payload = {"emoji": "👎"}
-            feedback_type = "wandb.reaction.1"
-        elif request.feedback_type == "note":
-            payload = {"note": request.value or ""}
-            feedback_type = "wandb.note.1"
-        else:
-            payload = {"value": request.value}
-            feedback_type = request.feedback_type
-
-        result = await weave_client.create_feedback(
-            call_id=trace_id,
-            feedback_type=feedback_type,
-            payload=payload
-        )
-
-        return {
-            "status": "success",
-            "feedback_id": result.get("id"),
-            "message": "Feedback added"
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/feedback-summary")

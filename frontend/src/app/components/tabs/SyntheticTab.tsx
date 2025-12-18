@@ -698,9 +698,9 @@ export function SyntheticTab() {
   if (!selectedAgent) {
     return (
       <div className="flex items-center justify-center h-[calc(100vh-200px)]">
-        <div className="text-center" style={{ color: '#8F949E' }}>
+        <div className="text-center text-moon-450">
           <Cpu className="w-16 h-16 mx-auto mb-4 opacity-40" />
-          <h2 className="text-xl font-display mb-2" style={{ color: '#FDFDFD' }}>Select an agent to get started</h2>
+          <h2 className="text-xl font-display mb-2 text-moon-50">Select an agent to get started</h2>
           <p className="mb-4">
             {agents.length === 0 
               ? "Register an agent first to generate synthetic test data."
@@ -709,8 +709,7 @@ export function SyntheticTab() {
           </p>
           <button 
             onClick={() => setActiveTab("agents")} 
-            className="inline-flex items-center gap-2 px-6 py-3 rounded-md font-medium transition-all"
-            style={{ backgroundColor: '#FCBC32', color: '#171A1F' }}
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-md font-medium transition-all bg-gold text-moon-900"
           >
             <Cpu className="w-4 h-4" />
             {agents.length === 0 ? "REGISTER AN AGENT" : "GO TO AGENTS TAB"}
@@ -723,21 +722,17 @@ export function SyntheticTab() {
   return (
     <div className="space-y-4">
       {/* ========== TOP CONTROL BAR ========== */}
-      <div 
-        className="rounded-lg p-4 flex flex-wrap items-center gap-4"
-        style={{ backgroundColor: '#252830', border: '1px solid #333333' }}
-      >
+      <div className="rounded-lg p-4 flex flex-wrap items-center gap-4 bg-moon-800 border border-moon-700">
         {/* Agent Dropdown */}
         <div className="flex items-center gap-2">
-          <Cpu className="w-4 h-4" style={{ color: '#8F949E' }} />
+          <Cpu className="w-4 h-4 text-moon-450" />
           <select
             value={selectedAgent?.id || ""}
             onChange={(e) => {
               const agent = agents.find(a => a.id === e.target.value);
               if (agent) fetchAgentDetail(agent.id);
             }}
-            className="px-3 py-2 rounded-md text-sm min-w-[200px]"
-            style={{ backgroundColor: '#171A1F', border: '1px solid #333333', color: '#FDFDFD' }}
+            className="px-3 py-2 rounded-md text-sm min-w-[200px] bg-moon-900 border border-moon-700 text-moon-50"
           >
               {agents.map((agent) => (
               <option key={agent.id} value={agent.id}>
@@ -748,12 +743,12 @@ export function SyntheticTab() {
         </div>
 
         {/* Divider */}
-        <div className="h-8 w-px" style={{ backgroundColor: '#333333' }} />
+        <div className="h-8 w-px bg-moon-700" />
 
         {/* Quick Settings */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <Hash className="w-4 h-4" style={{ color: '#8F949E' }} />
+            <Hash className="w-4 h-4 text-moon-450" />
             <input
               type="text"
               inputMode="numeric"
@@ -779,10 +774,9 @@ export function SyntheticTab() {
                   setBatchSize(1);
                 }
               }}
-              className="w-16 px-2 py-1.5 rounded text-sm text-center"
-              style={{ backgroundColor: '#171A1F', border: '1px solid #333333', color: '#FDFDFD' }}
+              className="w-16 px-2 py-1.5 rounded text-sm text-center bg-moon-900 border border-moon-700 text-moon-50"
             />
-            <span className="text-xs" style={{ color: '#8F949E' }}>queries</span>
+            <span className="text-xs text-moon-450">queries</span>
           </div>
 
           {/* Dimension mode selector */}
@@ -790,12 +784,9 @@ export function SyntheticTab() {
             <div className="relative">
               <button
                 onClick={() => setShowDimensionSelector(!showDimensionSelector)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors"
-                style={{ 
-                  backgroundColor: showDimensionSelector ? 'rgba(16, 191, 204, 0.15)' : '#171A1F', 
-                  border: '1px solid #333333', 
-                  color: showDimensionSelector ? '#10BFCC' : '#FDFDFD' 
-                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors border border-moon-700 ${
+                  showDimensionSelector ? 'bg-teal/15 text-teal' : 'bg-moon-900 text-moon-50'
+                }`}
               >
                 <Target className="w-3.5 h-3.5" />
                 <span>
@@ -808,29 +799,22 @@ export function SyntheticTab() {
               </button>
               
               {showDimensionSelector && (
-                <div 
-                  className="absolute top-full left-0 mt-1 p-3 rounded-lg z-50 min-w-[320px]"
-                  style={{ backgroundColor: '#252830', border: '1px solid #10BFCC', boxShadow: '0 4px 20px rgba(0,0,0,0.4)' }}
-                >
+                <div className="absolute top-full left-0 mt-1 p-3 rounded-lg z-50 min-w-[320px] bg-moon-800 border border-teal shadow-lg">
                   {/* Mode Toggle */}
-                  <div className="flex gap-1 p-1 rounded-lg mb-3" style={{ backgroundColor: '#171A1F' }}>
+                  <div className="flex gap-1 p-1 rounded-lg mb-3 bg-moon-900">
                     <button
                       onClick={() => setUseDimensions(true)}
-                      className="flex-1 px-3 py-1.5 rounded text-xs font-medium transition-all"
-                      style={{ 
-                        backgroundColor: useDimensions ? '#10BFCC' : 'transparent',
-                        color: useDimensions ? '#171A1F' : '#8F949E'
-                      }}
+                      className={`flex-1 px-3 py-1.5 rounded text-xs font-medium transition-all ${
+                        useDimensions ? 'bg-teal text-moon-900' : 'bg-transparent text-moon-450'
+                      }`}
                     >
                       Use Dimensions
                     </button>
                     <button
                       onClick={() => setUseDimensions(false)}
-                      className="flex-1 px-3 py-1.5 rounded text-xs font-medium transition-all"
-                      style={{ 
-                        backgroundColor: !useDimensions ? '#FCBC32' : 'transparent',
-                        color: !useDimensions ? '#171A1F' : '#8F949E'
-                      }}
+                      className={`flex-1 px-3 py-1.5 rounded text-xs font-medium transition-all ${
+                        !useDimensions ? 'bg-gold text-moon-900' : 'bg-transparent text-moon-450'
+                      }`}
                     >
                       LLM Decides
                     </button>
@@ -840,19 +824,17 @@ export function SyntheticTab() {
                     <>
                       {/* Dimensions selection */}
                       <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-medium" style={{ color: '#10BFCC' }}>Select dimensions to use</span>
+                        <span className="text-xs font-medium text-teal">Select dimensions to use</span>
                         <div className="flex gap-1">
                           <button
                             onClick={() => setSelectedDimensionIds(new Set(dimensions.map(d => d.id)))}
-                            className="text-xs px-2 py-0.5 rounded"
-                            style={{ backgroundColor: '#333333', color: '#8F949E' }}
+                            className="text-xs px-2 py-0.5 rounded bg-moon-700 text-moon-450"
                           >
                             All
                           </button>
                           <button
                             onClick={() => setSelectedDimensionIds(new Set())}
-                            className="text-xs px-2 py-0.5 rounded"
-                            style={{ backgroundColor: '#333333', color: '#8F949E' }}
+                            className="text-xs px-2 py-0.5 rounded bg-moon-700 text-moon-450"
                           >
                             None
                           </button>
@@ -864,8 +846,9 @@ export function SyntheticTab() {
                           {dimensions.map(dim => (
                             <label 
                               key={dim.id} 
-                              className="flex items-start gap-2 cursor-pointer p-2 rounded transition-colors hover:bg-opacity-50"
-                              style={{ backgroundColor: selectedDimensionIds.has(dim.id) ? 'rgba(16, 191, 204, 0.1)' : 'transparent' }}
+                              className={`flex items-start gap-2 cursor-pointer p-2 rounded transition-colors hover:bg-opacity-50 ${
+                                selectedDimensionIds.has(dim.id) ? 'bg-teal/10' : 'bg-transparent'
+                              }`}
                             >
                               <input
                                 type="checkbox"
@@ -876,19 +859,18 @@ export function SyntheticTab() {
                                   else newSet.delete(dim.id);
                                   setSelectedDimensionIds(newSet);
                                 }}
-                                className="w-4 h-4 mt-0.5 rounded"
-                                style={{ accentColor: '#10BFCC' }}
+                                className="w-4 h-4 mt-0.5 rounded accent-teal"
                               />
                               <div className="flex-1 min-w-0">
-                                <div className="font-medium text-sm" style={{ color: '#FDFDFD' }}>{dim.name}</div>
+                                <div className="font-medium text-sm text-moon-50">{dim.name}</div>
                                 <div className="flex flex-wrap gap-1 mt-1">
                                   {dim.values?.slice(0, 4).map((val, i) => (
-                                    <span key={i} className="text-xs px-1.5 py-0.5 rounded" style={{ backgroundColor: '#333333', color: '#8F949E' }}>
+                                    <span key={i} className="text-xs px-1.5 py-0.5 rounded bg-moon-700 text-moon-450">
                                       {val}
                                     </span>
                                   ))}
                                   {dim.values?.length > 4 && (
-                                    <span className="text-xs" style={{ color: '#8F949E' }}>+{dim.values.length - 4} more</span>
+                                    <span className="text-xs text-moon-450">+{dim.values.length - 4} more</span>
                                   )}
                                 </div>
                               </div>
@@ -896,23 +878,23 @@ export function SyntheticTab() {
                           ))}
                         </div>
                       ) : (
-                        <p className="text-xs text-center py-4" style={{ color: '#8F949E' }}>
+                        <p className="text-xs text-center py-4 text-moon-450">
                           No dimensions defined. Add them in the Testing Dimensions panel or use "LLM Decides" mode.
                         </p>
                       )}
                       
                       {dimensions.length > 0 && selectedDimensionIds.size === 0 && (
-                        <p className="text-xs mt-2 text-center" style={{ color: '#FCBC32' }}>
+                        <p className="text-xs mt-2 text-center text-gold">
                           ⚠️ Select at least one dimension
                         </p>
                       )}
                     </>
                   ) : (
                     <div className="text-center py-3">
-                      <p className="text-sm mb-2" style={{ color: '#FDFDFD' }}>
+                      <p className="text-sm mb-2 text-moon-50">
                         LLM will generate test case combinations freely
                       </p>
-                      <p className="text-xs" style={{ color: '#8F949E' }}>
+                      <p className="text-xs text-moon-450">
                         The LLM will create diverse tuples based on the agent's purpose without being constrained to predefined dimension values.
                       </p>
                     </div>
@@ -952,11 +934,9 @@ export function SyntheticTab() {
             <button
               onClick={generateBatch}
               disabled={generating || selectedDimensionIds.size === 0}
-              className="flex items-center gap-2 px-6 py-2.5 rounded-md font-medium transition-all disabled:opacity-50"
-              style={{ 
-                backgroundColor: generating ? '#333333' : '#FCBC32', 
-                color: generating ? '#8F949E' : '#171A1F' 
-              }}
+              className={`flex items-center gap-2 px-6 py-2.5 rounded-md font-medium transition-all disabled:opacity-50 ${
+                generating ? 'bg-moon-700 text-moon-450' : 'bg-gold text-moon-900'
+              }`}
               title={selectedDimensionIds.size === 0 ? "Select at least one dimension" : undefined}
             >
               {generating ? (
@@ -978,11 +958,9 @@ export function SyntheticTab() {
             <button
               onClick={generateTuplesPreview}
               disabled={generatingTuples || generatingQueries}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-md font-medium transition-all disabled:opacity-50"
-              style={{ 
-                backgroundColor: generatingTuples ? '#333333' : '#10BFCC', 
-                color: generatingTuples ? '#8F949E' : '#171A1F' 
-              }}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-md font-medium transition-all disabled:opacity-50 ${
+                generatingTuples ? 'bg-moon-700 text-moon-450' : 'bg-teal text-moon-900'
+              }`}
               title="LLM will generate test case combinations for your review"
             >
               {generatingTuples ? (
@@ -1005,11 +983,7 @@ export function SyntheticTab() {
               <button
                 onClick={clearTuplesPreview}
                 disabled={generatingQueries}
-                className="flex items-center gap-2 px-3 py-2.5 rounded-md font-medium transition-all disabled:opacity-50"
-                style={{ 
-                  backgroundColor: '#333333', 
-                  color: '#8F949E' 
-                }}
+                className="flex items-center gap-2 px-3 py-2.5 rounded-md font-medium transition-all disabled:opacity-50 bg-moon-700 text-moon-450"
                 title="Clear tuples and start over"
               >
                 <Trash2 className="w-4 h-4" />
@@ -1017,11 +991,9 @@ export function SyntheticTab() {
               <button
                 onClick={generateQueriesFromTuples}
                 disabled={generatingQueries || selectedTupleIds.size === 0}
-                className="flex items-center gap-2 px-6 py-2.5 rounded-md font-medium transition-all disabled:opacity-50"
-                style={{ 
-                  backgroundColor: generatingQueries ? '#333333' : '#FCBC32', 
-                  color: generatingQueries ? '#8F949E' : '#171A1F' 
-                }}
+                className={`flex items-center gap-2 px-6 py-2.5 rounded-md font-medium transition-all disabled:opacity-50 ${
+                  generatingQueries ? 'bg-moon-700 text-moon-450' : 'bg-gold text-moon-900'
+                }`}
                 title={selectedTupleIds.size === 0 ? "Select at least one tuple" : `Generate queries from ${selectedTupleIds.size} selected tuples`}
               >
                 {generatingQueries ? (
@@ -1056,30 +1028,28 @@ export function SyntheticTab() {
           {/* LEFT: Testing Dimensions */}
           <div 
             ref={dimensionsPanelRef}
-            className="rounded-lg p-4 flex flex-col overflow-hidden"
+            className={`rounded-lg p-4 flex flex-col overflow-hidden bg-ink-900 border border-moon-700 ${
+              dimensionsCollapsed ? '' : 'resize-y'
+            }`}
             style={{ 
-              backgroundColor: '#1C1E24', 
-              border: '1px solid #333333', 
               height: dimensionsCollapsed ? 'auto' : `${syncedPanelHeight}px`,
               minHeight: dimensionsCollapsed ? 'auto' : '200px',
               maxHeight: dimensionsCollapsed ? 'auto' : '600px',
-              resize: dimensionsCollapsed ? 'none' : 'vertical',
             }}
           >
           <div className="flex items-center justify-between flex-shrink-0">
             <button
               onClick={() => setDimensionsCollapsed(!dimensionsCollapsed)}
-              className="font-display text-lg flex items-center gap-2 hover:opacity-80 transition-opacity"
-              style={{ color: '#FDFDFD' }}
+              className="font-display text-lg flex items-center gap-2 hover:opacity-80 transition-opacity text-moon-50"
             >
               {dimensionsCollapsed ? (
-                <ChevronDown className="w-4 h-4" style={{ color: '#8F949E' }} />
+                <ChevronDown className="w-4 h-4 text-moon-450" />
               ) : (
-                <ChevronUp className="w-4 h-4" style={{ color: '#8F949E' }} />
+                <ChevronUp className="w-4 h-4 text-moon-450" />
               )}
-              <Target className="w-5 h-5" style={{ color: '#FCBC32' }} />
+              <Target className="w-5 h-5 text-gold" />
               Testing dimensions
-              <span className="text-xs px-2 py-0.5 rounded ml-1" style={{ backgroundColor: '#333333', color: '#8F949E' }}>
+              <span className="text-xs px-2 py-0.5 rounded ml-1 bg-moon-700 text-moon-450">
                 {dimensions.length}
               </span>
             </button>
@@ -1091,8 +1061,7 @@ export function SyntheticTab() {
                 <button
                   onClick={() => importDimensions(selectedAgent.id)}
                   disabled={loadingDimensions}
-                  className="text-xs px-3 py-1.5 rounded transition-colors flex items-center gap-1.5"
-                  style={{ backgroundColor: '#252830', color: '#8F949E', border: '1px solid #333333' }}
+                  className="text-xs px-3 py-1.5 rounded transition-colors flex items-center gap-1.5 bg-moon-800 text-moon-450 border border-moon-700"
                 >
                   {loadingDimensions ? "..." : "Import from AGENT_INFO"}
                   <span
@@ -1100,18 +1069,17 @@ export function SyntheticTab() {
                     onMouseEnter={() => setShowImportHelp(true)}
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <HelpCircle className="w-3.5 h-3.5" style={{ color: showImportHelp ? '#FCBC32' : '#8F949E' }} />
+                    <HelpCircle className={`w-3.5 h-3.5 ${showImportHelp ? 'text-gold' : 'text-moon-450'}`} />
                   </span>
                 </button>
                 {/* Tooltip - stays visible when hovering over it */}
                 {showImportHelp && (
                   <div 
-                    className="absolute right-0 top-full mt-1 p-4 rounded-lg z-50 w-96 text-xs cursor-default"
-                    style={{ backgroundColor: '#252830', border: '1px solid #FCBC32', boxShadow: '0 4px 20px rgba(0,0,0,0.4)' }}
+                    className="absolute right-0 top-full mt-1 p-4 rounded-lg z-50 w-96 text-xs cursor-default bg-moon-800 border border-gold shadow-xl"
                     onMouseEnter={() => setShowImportHelp(true)}
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <p className="font-medium" style={{ color: '#FCBC32' }}>Expected AGENT_INFO format:</p>
+                      <p className="font-medium text-gold">Expected AGENT_INFO format:</p>
                       <button
                         onClick={() => {
                           navigator.clipboard.writeText(`## Testing Dimensions
@@ -1119,31 +1087,28 @@ export function SyntheticTab() {
 - **complexity**: simple, multi_step
 - **scenarios**: pricing_inquiry, refund`);
                         }}
-                        className="text-xs px-2 py-1 rounded flex items-center gap-1 transition-colors hover:opacity-80"
-                        style={{ backgroundColor: '#333333', color: '#8F949E' }}
+                        className="text-xs px-2 py-1 rounded flex items-center gap-1 transition-colors hover:opacity-80 bg-moon-700 text-moon-450"
                       >
                         <Copy className="w-3 h-3" />
                         Copy template
                 </button>
                     </div>
                     <pre 
-                      className="p-3 rounded text-xs overflow-x-auto mb-3 select-all"
-                      style={{ backgroundColor: '#171A1F', color: '#FDFDFD', userSelect: 'all' }}
+                      className="p-3 rounded text-xs overflow-x-auto mb-3 select-all bg-moon-900 text-moon-50"
                     >{`## Testing Dimensions
 - **personas**: first_time_user, power_user
 - **complexity**: simple, multi_step
 - **scenarios**: pricing_inquiry, refund`}</pre>
-                    <p style={{ color: '#8F949E' }}>
-                      Add a <code className="px-1 rounded" style={{ backgroundColor: '#333333' }}>## Testing Dimensions</code> section 
-                      with bullet points in the format <code className="px-1 rounded" style={{ backgroundColor: '#333333' }}>- **name**: value1, value2</code>
+                    <p className="text-moon-450">
+                      Add a <code className="px-1 rounded bg-moon-700">## Testing Dimensions</code> section 
+                      with bullet points in the format <code className="px-1 rounded bg-moon-700">- **name**: value1, value2</code>
                     </p>
                   </div>
                 )}
               </div>
               <button 
                 onClick={() => setShowAddDimension(true)} 
-                className="p-1.5 rounded transition-colors"
-                style={{ backgroundColor: '#FCBC32', color: '#171A1F' }}
+                className="p-1.5 rounded transition-colors bg-gold text-moon-900"
               >
                 <Plus className="w-4 h-4" />
               </button>
@@ -1155,39 +1120,32 @@ export function SyntheticTab() {
             <div className="mt-4 flex-1 flex flex-col overflow-hidden">
           {/* Add Dimension Form */}
             {showAddDimension && (
-            <div 
-              className="rounded-lg p-4 mb-4"
-              style={{ backgroundColor: '#252830', border: '1px solid #FCBC32' }}
-            >
-              <h4 className="text-sm font-medium mb-3" style={{ color: '#FDFDFD' }}>Add new dimension</h4>
+            <div className="rounded-lg p-4 mb-4 bg-moon-800 border border-gold">
+              <h4 className="text-sm font-medium mb-3 text-moon-50">Add new dimension</h4>
                 <input
                   type="text"
                 placeholder="Dimension name (e.g., user_mood)"
                   value={newDimensionName}
                   onChange={(e) => setNewDimensionName(e.target.value)}
-                className="w-full px-3 py-2 rounded text-sm mb-2"
-                style={{ backgroundColor: '#171A1F', border: '1px solid #333333', color: '#FDFDFD' }}
+                className="w-full px-3 py-2 rounded text-sm mb-2 bg-moon-900 border border-moon-700 text-moon-50"
                 />
                 <textarea
                 placeholder="Values (comma-separated, e.g., happy, frustrated, confused)"
                   value={newDimensionValues}
                   onChange={(e) => setNewDimensionValues(e.target.value)}
                 rows={2}
-                className="w-full px-3 py-2 rounded text-sm mb-3"
-                style={{ backgroundColor: '#171A1F', border: '1px solid #333333', color: '#FDFDFD' }}
+                className="w-full px-3 py-2 rounded text-sm mb-3 bg-moon-900 border border-moon-700 text-moon-50"
                 />
                 <div className="flex gap-2">
                 <button 
                   onClick={handleAddDimension} 
-                  className="text-xs px-4 py-2 rounded font-medium"
-                  style={{ backgroundColor: '#FCBC32', color: '#171A1F' }}
+                  className="text-xs px-4 py-2 rounded font-medium bg-gold text-moon-900"
                 >
                   ADD
                 </button>
                 <button 
                   onClick={() => { setShowAddDimension(false); setNewDimensionName(""); setNewDimensionValues(""); }} 
-                  className="text-xs px-4 py-2 rounded"
-                  style={{ backgroundColor: '#333333', color: '#8F949E' }}
+                  className="text-xs px-4 py-2 rounded bg-moon-700 text-moon-450"
                 >
                   CANCEL
                 </button>
@@ -1201,21 +1159,21 @@ export function SyntheticTab() {
               dimensions.map((dim) => (
                 <div 
                   key={dim.id} 
-                  className="rounded-lg p-3"
-                  style={{ backgroundColor: '#252830', border: '1px solid #333333' }}
+                  className="rounded-lg p-3 bg-moon-800 border border-moon-700"
                 >
                     <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <span className="font-medium text-sm" style={{ color: '#FDFDFD' }}>{dim.name}</span>
-                      <span className="text-xs px-2 py-0.5 rounded" style={{ backgroundColor: '#333333', color: '#8F949E' }}>
+                      <span className="font-medium text-sm text-moon-50">{dim.name}</span>
+                      <span className="text-xs px-2 py-0.5 rounded bg-moon-700 text-moon-450">
                         {dim.values?.length || 0}
                       </span>
                     </div>
                       <div className="flex gap-1">
                         <button
                           onClick={() => setEditingDimension(editingDimension === dim.id ? null : dim.id)}
-                        className="p-1.5 rounded transition-colors hover:bg-opacity-80"
-                        style={{ color: editingDimension === dim.id ? '#FCBC32' : '#8F949E' }}
+                        className={`p-1.5 rounded transition-colors hover:bg-opacity-80 ${
+                          editingDimension === dim.id ? 'text-gold' : 'text-moon-450'
+                        }`}
                         >
                         <Edit3 className="w-3.5 h-3.5" />
                         </button>
@@ -1231,8 +1189,7 @@ export function SyntheticTab() {
                       <textarea
                         defaultValue={dim.values.join(", ")}
                         rows={3}
-                      className="w-full px-3 py-2 rounded text-sm"
-                      style={{ backgroundColor: '#171A1F', border: '1px solid #FCBC32', color: '#FDFDFD' }}
+                      className="w-full px-3 py-2 rounded text-sm bg-moon-900 border border-gold text-moon-50"
                         onBlur={(e) => {
                           const newValues = e.target.value.split(",").map((v) => v.trim()).filter(Boolean);
                           handleSaveDimension(dim.name, newValues);
@@ -1244,8 +1201,7 @@ export function SyntheticTab() {
                         {dim.values?.map((val, j) => (
                         <span 
                           key={j} 
-                          className="text-xs px-2 py-1 rounded"
-                          style={{ backgroundColor: '#333333', color: '#FDFDFD' }}
+                          className="text-xs px-2 py-1 rounded bg-moon-700 text-moon-50"
                         >
                           {val}
                         </span>
@@ -1255,12 +1211,12 @@ export function SyntheticTab() {
                   </div>
               ))
             ) : (
-              <div className="flex-1 flex items-center justify-center" style={{ color: '#8F949E' }}>
+              <div className="flex-1 flex items-center justify-center text-moon-450">
                 <div className="text-center">
                   <Target className="w-10 h-10 mx-auto mb-3 opacity-40" />
                   <p className="text-sm mb-2">No dimensions defined yet</p>
-                  <p className="text-xs mb-3">Click "Import from AGENT_INFO" or add manually</p>
-                  <p className="text-xs" style={{ color: '#FCBC32' }}>
+                  <p className="text-xs mb-3">Click &quot;Import from AGENT_INFO&quot; or add manually</p>
+                  <p className="text-xs text-gold">
                     ⚠️ Define at least one dimension to generate queries
                   </p>
                 </div>
@@ -1274,46 +1230,41 @@ export function SyntheticTab() {
           {/* RIGHT: Generated Batches */}
           <div 
             ref={batchesPanelRef}
-            className="rounded-lg p-4 flex flex-col overflow-hidden"
+            className={`rounded-lg p-4 flex flex-col overflow-hidden bg-ink-900 border border-moon-700 ${
+              batchesCollapsed ? '' : 'resize-y'
+            }`}
             style={{ 
-              backgroundColor: '#1C1E24', 
-              border: '1px solid #333333', 
               height: batchesCollapsed ? 'auto' : `${syncedPanelHeight}px`,
               minHeight: batchesCollapsed ? 'auto' : '200px',
               maxHeight: batchesCollapsed ? 'auto' : '600px',
-              resize: batchesCollapsed ? 'none' : 'vertical',
             }}
           >
             <div className="flex items-center justify-between flex-shrink-0">
               <button
                 onClick={() => setBatchesCollapsed(!batchesCollapsed)}
-                className="font-display text-lg flex items-center gap-2 hover:opacity-80 transition-opacity"
-                style={{ color: '#FDFDFD' }}
+                className="font-display text-lg flex items-center gap-2 hover:opacity-80 transition-opacity text-moon-50"
               >
                 {batchesCollapsed ? (
-                  <ChevronDown className="w-4 h-4" style={{ color: '#8F949E' }} />
+                  <ChevronDown className="w-4 h-4 text-moon-450" />
                 ) : (
-                  <ChevronUp className="w-4 h-4" style={{ color: '#8F949E' }} />
+                  <ChevronUp className="w-4 h-4 text-moon-450" />
                 )}
-                <Zap className="w-5 h-5" style={{ color: '#FCBC32' }} />
+                <Zap className="w-5 h-5 text-gold" />
                 Generated batches
-                <span 
-                  className="text-xs px-2 py-0.5 rounded"
-                  style={{ backgroundColor: '#333333', color: '#8F949E' }}
-                >
+                <span className="text-xs px-2 py-0.5 rounded bg-moon-700 text-moon-450">
                   {syntheticBatches.length}
                 </span>
               </button>
               <div className="flex items-center gap-2">
                 {executingBatch && (
-                  <span className="text-xs flex items-center gap-1" style={{ color: '#10BFCC' }}>
+                  <span className="text-xs flex items-center gap-1 text-teal">
                     <RefreshCw className="w-3 h-3 animate-spin" />
                     Running...
                   </span>
                 )}
                 {selectedBatchIds.size > 0 && (
                   <>
-                    <label className="flex items-center gap-1.5 cursor-pointer text-xs" style={{ color: '#8F949E' }}>
+                    <label className="flex items-center gap-1.5 cursor-pointer text-xs text-moon-450">
                       <input
                         type="checkbox"
                         checked={selectedBatchIds.size === syntheticBatches.length}
@@ -1321,15 +1272,13 @@ export function SyntheticTab() {
                           if (e.target.checked) setSelectedBatchIds(new Set(syntheticBatches.map(b => b.id)));
                           else setSelectedBatchIds(new Set());
                         }}
-                        className="w-3.5 h-3.5 rounded"
-                        style={{ accentColor: '#FCBC32' }}
+                        className="w-3.5 h-3.5 rounded accent-gold"
                       />
                       All
                     </label>
                     <button
                       onClick={handleDeleteSelectedBatches}
-                      className="text-xs px-2 py-1 rounded flex items-center gap-1 text-red-400"
-                      style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)' }}
+                      className="text-xs px-2 py-1 rounded flex items-center gap-1 text-red-400 bg-red-500/10"
                     >
                       <Trash2 className="w-3 h-3" />
                       Delete {selectedBatchIds.size}
@@ -1352,23 +1301,13 @@ export function SyntheticTab() {
                   return (
                   <div
                     key={batch.id}
-                    className="rounded-lg p-3 transition-all"
-                    style={{ 
-                      backgroundColor: selectedBatchIds.has(batch.id)
-                        ? 'rgba(16, 191, 204, 0.1)'
-                        : selectedBatch?.id === batch.id 
-                          ? 'rgba(16, 191, 204, 0.1)' 
-                          : isRunning
-                          ? 'rgba(252, 188, 50, 0.05)'
-                          : '#252830',
-                      border: selectedBatchIds.has(batch.id)
-                        ? '1px solid rgba(16, 191, 204, 0.3)'
-                        : selectedBatch?.id === batch.id 
-                          ? '1px solid rgba(16, 191, 204, 0.4)' 
-                          : isRunning
-                          ? '1px solid rgba(252, 188, 50, 0.3)'
-                          : '1px solid #333333'
-                    }}
+                    className={`rounded-lg p-3 transition-all border ${
+                      selectedBatchIds.has(batch.id) || selectedBatch?.id === batch.id
+                        ? 'bg-teal/10 border-teal/30'
+                        : isRunning
+                          ? 'bg-gold/5 border-gold/30'
+                          : 'bg-moon-800 border-moon-700'
+                    }`}
                   >
                     <div className="flex items-start gap-3">
                       <input
@@ -1381,8 +1320,7 @@ export function SyntheticTab() {
                           else newSet.delete(batch.id);
                           setSelectedBatchIds(newSet);
                         }}
-                        className="w-4 h-4 mt-0.5 rounded flex-shrink-0"
-                        style={{ accentColor: '#10BFCC' }}
+                        className="w-4 h-4 mt-0.5 rounded flex-shrink-0 accent-teal"
                       />
                       <div className="flex-1">
                         <div 
@@ -1396,24 +1334,22 @@ export function SyntheticTab() {
                             }
                           }}
                         >
-                          <div className="flex items-center justify-between mb-1">
+                            <div className="flex items-center justify-between mb-1">
                             <div className="flex items-center gap-2 min-w-0">
                               <span 
-                                className="text-sm font-medium truncate"
-                                style={{ color: '#FCBC32' }}
+                                className="text-sm font-medium truncate text-gold"
                                 title={batch.name}
                               >
                                 {batch.name}
                               </span>
                               {isRunning && (
-                                <RefreshCw className="w-3 h-3 animate-spin flex-shrink-0" style={{ color: '#FCBC32' }} />
+                                <RefreshCw className="w-3 h-3 animate-spin flex-shrink-0 text-gold" />
                               )}
                             </div>
                             <div className="flex items-center gap-1 flex-shrink-0">
                               <button
                                 onClick={(e) => { e.stopPropagation(); copyBatchId(batch.id); }}
-                                className="p-1 rounded transition-colors"
-                                style={{ color: copiedBatchId === batch.id ? '#10BFCC' : '#8F949E' }}
+                                className={`p-1 rounded transition-colors ${copiedBatchId === batch.id ? 'text-teal' : 'text-moon-450'}`}
                                 title="Copy batch ID"
                               >
                                 {copiedBatchId === batch.id ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
@@ -1430,20 +1366,19 @@ export function SyntheticTab() {
                           <div className="flex items-center justify-between mb-2">
                             <div className="flex items-center gap-2">
                               <StatusBadge status={batch.status} />
-                              <span className="text-xs" style={{ color: '#8F949E' }}>{batch.query_count} queries</span>
-                            </div>
-                            <span className="text-xs" style={{ color: '#8F949E' }}>{formatRelativeTime(batch.created_at)}</span>
+                            <span className="text-xs text-moon-450">{batch.query_count} queries</span>
+                          </div>
+                            <span className="text-xs text-moon-450">{formatRelativeTime(batch.created_at)}</span>
                           </div>
                         </div>
                         
                         {/* Run Controls - based on batch status */}
-                        <div className="flex items-center gap-2 mt-2 pt-2" style={{ borderTop: '1px solid #333333' }}>
+                        <div className="flex items-center gap-2 mt-2 pt-2 border-t border-moon-700">
                           {isReady && (
                             <button
                               onClick={() => executeBatch(batch.id, batch.name, selectedAgent!.id)}
                               disabled={!!executingBatchId}
-                              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-all disabled:opacity-50"
-                              style={{ backgroundColor: '#FCBC32', color: '#171A1F' }}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-all disabled:opacity-50 bg-gold text-moon-900"
                             >
                               <Play className="w-3 h-3" />
                               Run
@@ -1452,8 +1387,7 @@ export function SyntheticTab() {
                           {isRunning && executingBatchId === batch.id && (
                             <button
                               onClick={() => stopExecution()}
-                              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-all"
-                              style={{ backgroundColor: 'rgba(239, 68, 68, 0.2)', color: '#EF4444' }}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-all bg-red-500/20 text-red-500"
                             >
                               <Square className="w-3 h-3 fill-current" />
                               Stop
@@ -1464,8 +1398,7 @@ export function SyntheticTab() {
                               <button
                                 onClick={() => resetBatch(batch.id, selectedAgent!.id, false)}
                                 disabled={!!executingBatchId}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs transition-all disabled:opacity-50"
-                                style={{ backgroundColor: '#333333', color: '#8F949E' }}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs transition-all disabled:opacity-50 bg-moon-700 text-moon-450"
                               >
                                 <RefreshCw className="w-3 h-3" />
                                 Re-run
@@ -1478,8 +1411,7 @@ export function SyntheticTab() {
                                   setFilterBatchName(batch.name);
                                   setActiveTab("threads");
                                 }}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs transition-all"
-                                style={{ color: '#10BFCC' }}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs transition-all text-teal"
                               >
                                 <ExternalLink className="w-3 h-3" />
                                 Review
@@ -1494,7 +1426,7 @@ export function SyntheticTab() {
                 })}
               </div>
             ) : (
-              <div className="flex-1 flex items-center justify-center" style={{ color: '#8F949E' }}>
+              <div className="flex-1 flex items-center justify-center text-moon-450">
                 <div className="text-center">
                   <Zap className="w-8 h-8 mx-auto mb-2 opacity-40" />
                   <p className="text-sm">No batches yet</p>
@@ -1509,45 +1441,34 @@ export function SyntheticTab() {
 
         {/* Generation Progress - below the two columns */}
         {generating && genProgress && (
-          <div 
-            className="rounded-lg p-4"
-            style={{ backgroundColor: 'rgba(252, 188, 50, 0.1)', border: '1px solid rgba(252, 188, 50, 0.3)' }}
-          >
+          <div className="rounded-lg p-4 bg-gold/10 border border-gold/30">
             <div className="flex items-center justify-between mb-2">
-              <span className="font-medium" style={{ color: '#FDFDFD' }}>
+              <span className="font-medium text-moon-50">
                 {genProgress.percent === 0 ? 'Preparing...' : 'Generating queries...'}
               </span>
               <div className="flex items-center gap-3">
-                <span className="text-sm" style={{ color: '#FCBC32' }}>{genProgress.completed} / {genProgress.total}</span>
+                <span className="text-sm text-gold">{genProgress.completed} / {genProgress.total}</span>
                 <button
                   onClick={stopGeneration}
-                  className="p-1.5 rounded transition-colors hover:bg-red-500/20"
-                  style={{ color: '#EF4444' }}
+                  className="p-1.5 rounded transition-colors hover:bg-red-500/20 text-red-500"
                   title="Stop generation"
                 >
                   <Square className="w-4 h-4 fill-current" />
                 </button>
               </div>
             </div>
-            <div className="w-full rounded-full h-2 mb-2 overflow-hidden" style={{ backgroundColor: '#333333' }}>
+            <div className="w-full rounded-full h-2 mb-2 overflow-hidden bg-moon-700">
               {genProgress.percent === 0 ? (
-                <div 
-                  className="h-2 rounded-full"
-                  style={{ 
-                    width: '30%', 
-                    backgroundColor: '#FCBC32',
-                    animation: 'indeterminate 1.5s ease-in-out infinite'
-                  }}
-                />
+                <div className="h-2 rounded-full w-[30%] bg-gold animate-pulse" />
               ) : (
                 <div
-                  className="h-2 rounded-full transition-all duration-300"
-                  style={{ width: `${genProgress.percent}%`, backgroundColor: '#FCBC32' }}
+                  className="h-2 rounded-full transition-all duration-300 bg-gold"
+                  style={{ width: `${genProgress.percent}%` }}
                 />
               )}
             </div>
             {genProgress.currentQuery && (
-              <p className="text-xs truncate" style={{ color: '#8F949E' }}>
+              <p className="text-xs truncate text-moon-450">
                 {genProgress.percent === 0 ? genProgress.currentQuery : `Latest: "${genProgress.currentQuery}"`}
               </p>
             )}
@@ -1556,16 +1477,13 @@ export function SyntheticTab() {
 
         {/* ========== EXECUTION PROGRESS BAR (merged from RunsTab) ========== */}
         {executionProgress && (
-          <div 
-            className="rounded-lg p-4"
-            style={{ backgroundColor: 'rgba(16, 191, 204, 0.1)', border: '1px solid rgba(16, 191, 204, 0.3)' }}
-          >
+          <div className="rounded-lg p-4 bg-teal/10 border border-teal/30">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 {(executionProgress.status === 'running' || executionProgress.status === 'starting') && (
-                  <RefreshCw className="w-4 h-4 animate-spin" style={{ color: '#10BFCC' }} />
+                  <RefreshCw className="w-4 h-4 animate-spin text-teal" />
                 )}
-                <span className="font-medium" style={{ color: '#FDFDFD' }}>
+                <span className="font-medium text-moon-50">
                   {executionProgress.status === 'completed' 
                     ? 'Execution complete!' 
                     : executionProgress.status === 'failed'
@@ -1576,14 +1494,13 @@ export function SyntheticTab() {
                 </span>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-sm font-mono" style={{ color: '#10BFCC' }}>
+                <span className="text-sm font-mono text-teal">
                   {executionProgress.completed_queries} / {executionProgress.total_queries || '?'}
                 </span>
                 {executingBatchId && (
                   <button
                     onClick={stopExecution}
-                    className="p-1.5 rounded transition-colors hover:bg-red-500/20"
-                    style={{ color: '#EF4444' }}
+                    className="p-1.5 rounded transition-colors hover:bg-red-500/20 text-red-500"
                     title="Stop execution"
                   >
                     <Square className="w-4 h-4 fill-current" />
@@ -1592,46 +1509,36 @@ export function SyntheticTab() {
               </div>
             </div>
             
-            <div className="w-full rounded-full h-2 mb-2 overflow-hidden" style={{ backgroundColor: '#333333' }}>
+            <div className="w-full rounded-full h-2 mb-2 overflow-hidden bg-moon-700">
               {(executionProgress.status === 'starting' || executionProgress.total_queries === 0) ? (
-                <div 
-                  className="h-2 rounded-full"
-                  style={{ 
-                    width: '30%', 
-                    background: 'linear-gradient(to right, #10BFCC, #FCBC32)',
-                    animation: 'indeterminate 1.5s ease-in-out infinite'
-                  }}
-                />
+                <div className="h-2 rounded-full w-[30%] bg-gradient-to-r from-teal to-gold animate-pulse" />
               ) : (
                 <div
-                  className="h-2 rounded-full transition-all duration-300"
-                  style={{ 
-                    width: `${Math.max(executionProgress.progress_percent, 2)}%`, 
-                    background: 'linear-gradient(to right, #10BFCC, #FCBC32)' 
-                  }}
+                  className="h-2 rounded-full transition-all duration-300 bg-gradient-to-r from-teal to-gold"
+                  style={{ width: `${Math.max(executionProgress.progress_percent, 2)}%` }}
                 />
               )}
             </div>
             
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4 text-xs">
-                <div className="flex items-center gap-1" style={{ color: '#10BFCC' }}>
+                <div className="flex items-center gap-1 text-teal">
                   <CheckCircle2 className="w-3 h-3" />
                   <span>{executionProgress.success_count} success</span>
                 </div>
-                <div className="flex items-center gap-1" style={{ color: '#EF4444' }}>
+                <div className="flex items-center gap-1 text-red-500">
                   <AlertTriangle className="w-3 h-3" />
                   <span>{executionProgress.failure_count} failed</span>
                 </div>
                 {executionProgress.estimated_remaining_seconds && executionProgress.status === 'running' && (
-                  <div className="flex items-center gap-1" style={{ color: '#8F949E' }}>
+                  <div className="flex items-center gap-1 text-moon-450">
                     <Clock className="w-3 h-3" />
                     <span>~{executionProgress.estimated_remaining_seconds}s remaining</span>
                   </div>
                 )}
               </div>
               {executionProgress.current_query_text && executionProgress.status === 'running' && (
-                <p className="text-xs truncate max-w-md" style={{ color: '#8F949E' }}>
+                <p className="text-xs truncate max-w-md text-moon-450">
                   &quot;{executionProgress.current_query_text}&quot;
                 </p>
               )}
@@ -1641,26 +1548,20 @@ export function SyntheticTab() {
 
         {/* TUPLES PREVIEW (shown when tuples are generated for review) */}
         {previewTuples.length > 0 && (
-          <div 
-            className="rounded-lg p-4 mb-4"
-            style={{ 
-              backgroundColor: '#1C1E24', 
-              border: '2px solid #10BFCC',
-            }}
-          >
+          <div className="rounded-lg p-4 mb-4 bg-ink-900 border-2 border-teal">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="font-display text-lg flex items-center gap-2" style={{ color: '#FDFDFD' }}>
-                <Target className="w-5 h-5" style={{ color: '#10BFCC' }} />
+              <h2 className="font-display text-lg flex items-center gap-2 text-moon-50">
+                <Target className="w-5 h-5 text-teal" />
                 Tuples Preview
-                <span className="text-xs px-2 py-0.5 rounded ml-1" style={{ backgroundColor: '#10BFCC', color: '#171A1F' }}>
+                <span className="text-xs px-2 py-0.5 rounded ml-1 bg-teal text-moon-900">
                   Step 1: Review
                 </span>
-                <span className="text-xs px-2 py-0.5 rounded ml-1" style={{ backgroundColor: '#333333', color: '#8F949E' }}>
+                <span className="text-xs px-2 py-0.5 rounded ml-1 bg-moon-700 text-moon-450">
                   {selectedTupleIds.size}/{previewTuples.length} selected
                 </span>
               </h2>
               <div className="flex items-center gap-2">
-                <label className="flex items-center gap-1.5 cursor-pointer text-xs" style={{ color: '#8F949E' }}>
+                <label className="flex items-center gap-1.5 cursor-pointer text-xs text-moon-450">
                   <input
                     type="checkbox"
                     checked={selectedTupleIds.size === previewTuples.length}
@@ -1668,15 +1569,14 @@ export function SyntheticTab() {
                       if (e.target.checked) setSelectedTupleIds(new Set(previewTuples.map(t => t.id)));
                       else setSelectedTupleIds(new Set());
                     }}
-                    className="w-3.5 h-3.5 rounded"
-                    style={{ accentColor: '#10BFCC' }}
+                    className="w-3.5 h-3.5 rounded accent-teal"
                   />
                   Select all
                 </label>
               </div>
             </div>
             
-            <p className="text-xs mb-3" style={{ color: '#8F949E' }}>
+            <p className="text-xs mb-3 text-moon-450">
               Review the generated test case combinations below. Uncheck any you want to exclude, then click &quot;GENERATE QUERIES&quot; to create the batch.
             </p>
             
@@ -1689,12 +1589,13 @@ export function SyntheticTab() {
                 return (
                   <div
                     key={tuple.id}
-                    className="flex items-center gap-3 p-2 rounded transition-colors"
-                    style={{ 
-                      backgroundColor: isEditing ? 'rgba(252, 188, 50, 0.1)' : isSelected ? 'rgba(16, 191, 204, 0.1)' : '#171A1F',
-                      border: `1px solid ${isEditing ? '#FCBC32' : isSelected ? '#10BFCC' : '#333333'}`,
-                      opacity: isSelected || isEditing ? 1 : 0.6
-                    }}
+                    className={`flex items-center gap-3 p-2 rounded transition-colors border ${
+                      isEditing 
+                        ? 'bg-gold/10 border-gold' 
+                        : isSelected 
+                          ? 'bg-teal/10 border-teal' 
+                          : 'bg-moon-900 border-moon-700'
+                    } ${isSelected || isEditing ? 'opacity-100' : 'opacity-60'}`}
                   >
                     <input
                       type="checkbox"
@@ -1705,10 +1606,9 @@ export function SyntheticTab() {
                         else newSet.delete(tuple.id);
                         setSelectedTupleIds(newSet);
                       }}
-                      className="w-4 h-4 rounded flex-shrink-0"
-                      style={{ accentColor: '#10BFCC' }}
+                      className="w-4 h-4 rounded flex-shrink-0 accent-teal"
                     />
-                    <span className="text-xs flex-shrink-0" style={{ color: '#8F949E', minWidth: '40px' }}>
+                    <span className="text-xs flex-shrink-0 text-moon-450 min-w-[40px]">
                       #{idx + 1}
                     </span>
                     
@@ -1717,17 +1617,12 @@ export function SyntheticTab() {
                       <div className="flex flex-wrap gap-2 flex-1">
                         {tags.map(([key, value]) => (
                           <div key={key} className="flex items-center gap-1">
-                            <span className="text-xs" style={{ color: '#8F949E' }}>{key}:</span>
+                            <span className="text-xs text-moon-450">{key}:</span>
                             <input
                               type="text"
                               value={value}
                               onChange={(e) => updateTupleValue(tuple.id, key, e.target.value)}
-                              className="text-xs px-2 py-0.5 rounded w-32"
-                              style={{ 
-                                backgroundColor: '#171A1F', 
-                                border: '1px solid #FCBC32', 
-                                color: '#FDFDFD' 
-                              }}
+                              className="text-xs px-2 py-0.5 rounded w-32 bg-moon-900 border border-gold text-moon-50"
                             />
                           </div>
                         ))}
@@ -1738,8 +1633,7 @@ export function SyntheticTab() {
                         {tags.map(([key, value]) => (
                           <span
                             key={key}
-                            className="text-xs px-2 py-0.5 rounded"
-                            style={{ backgroundColor: '#333333', color: '#10BFCC' }}
+                            className="text-xs px-2 py-0.5 rounded bg-moon-700 text-teal"
                             title={`${key}: ${value}`}
                           >
                             {value}
@@ -1751,16 +1645,13 @@ export function SyntheticTab() {
                     {/* Edit/Done button */}
                     <button
                       onClick={() => setEditingTupleId(isEditing ? null : tuple.id)}
-                      className="p-1 rounded transition-colors flex-shrink-0"
-                      style={{ 
-                        backgroundColor: isEditing ? 'rgba(16, 191, 204, 0.2)' : 'transparent',
-                      }}
+                      className={`p-1 rounded transition-colors flex-shrink-0 ${isEditing ? 'bg-teal/20' : 'bg-transparent'}`}
                       title={isEditing ? "Done editing" : "Edit tuple"}
                     >
                       {isEditing ? (
-                        <Check className="w-3.5 h-3.5" style={{ color: '#10BFCC' }} />
+                        <Check className="w-3.5 h-3.5 text-teal" />
                       ) : (
-                        <Edit3 className="w-3.5 h-3.5" style={{ color: '#8F949E' }} />
+                        <Edit3 className="w-3.5 h-3.5 text-moon-450" />
                       )}
                     </button>
                     
@@ -1777,18 +1668,15 @@ export function SyntheticTab() {
             </div>
             
             {genProgress && generatingQueries && (
-              <div className="mt-3 pt-3 border-t" style={{ borderColor: '#333333' }}>
+              <div className="mt-3 pt-3 border-t border-moon-700">
                 <div className="flex items-center justify-between text-xs mb-1">
-                  <span style={{ color: '#8F949E' }}>Generating queries...</span>
-                  <span style={{ color: '#10BFCC' }}>{genProgress.completed}/{genProgress.total}</span>
+                  <span className="text-moon-450">Generating queries...</span>
+                  <span className="text-teal">{genProgress.completed}/{genProgress.total}</span>
                 </div>
-                <div className="h-1.5 rounded-full" style={{ backgroundColor: '#333333' }}>
+                <div className="h-1.5 rounded-full bg-moon-700">
                   <div 
-                    className="h-full rounded-full transition-all"
-                    style={{ 
-                      width: `${genProgress.percent}%`, 
-                      backgroundColor: '#10BFCC' 
-                    }}
+                    className="h-full rounded-full transition-all bg-teal"
+                    style={{ width: `${genProgress.percent}%` }}
                   />
                 </div>
               </div>
@@ -1798,25 +1686,23 @@ export function SyntheticTab() {
 
         {/* BOTTOM: Batch Data Preview (full width) */}
         <div 
-          className="rounded-lg p-4 flex flex-col flex-1"
+          className="rounded-lg p-4 flex flex-col flex-1 bg-ink-900 border border-moon-700"
           style={{ 
-            backgroundColor: '#1C1E24', 
-            border: '1px solid #333333', 
             minHeight: '400px',
             maxHeight: dimensionsCollapsed && batchesCollapsed ? '70vh' : '500px'
           }}
         >
           <div className="flex items-center justify-between mb-3 flex-shrink-0">
-            <h2 className="font-display text-lg flex items-center gap-2" style={{ color: '#FDFDFD' }}>
-              <Eye className="w-5 h-5" style={{ color: '#10BFCC' }} />
+            <h2 className="font-display text-lg flex items-center gap-2 text-moon-50">
+              <Eye className="w-5 h-5 text-teal" />
               Batch data preview
               {selectedBatch && (
-                <span className="text-xs px-2 py-0.5 rounded ml-1" style={{ backgroundColor: '#333333', color: '#8F949E' }}>
+                <span className="text-xs px-2 py-0.5 rounded ml-1 bg-moon-700 text-moon-450">
                   {selectedBatch.queries?.length || 0} items
                 </span>
               )}
               {executingBatchId && selectedBatch?.id === executingBatchId && (
-                <RefreshCw className="w-4 h-4 animate-spin ml-2" style={{ color: '#10BFCC' }} />
+                <RefreshCw className="w-4 h-4 animate-spin ml-2 text-teal" />
               )}
             </h2>
             <div className="flex items-center gap-3">
@@ -1825,8 +1711,7 @@ export function SyntheticTab() {
                selectedBatch.queries.some(q => q.response_text || q.execution_status === 'success') && (
                 <button
                   onClick={viewInThreads}
-                  className="flex items-center gap-2 text-sm transition-all hover:opacity-80"
-                  style={{ color: '#10BFCC' }}
+                  className="flex items-center gap-2 text-sm transition-all hover:opacity-80 text-teal"
                 >
                   <ExternalLink className="w-4 h-4" />
                   View in Threads
@@ -1835,7 +1720,7 @@ export function SyntheticTab() {
             {/* Actions bar - shows Select All when 1+ selected */}
             {selectedBatch && selectedBatch.queries && selectedBatch.queries.length > 0 && selectedQueryIds.size > 0 && (
               <div className="flex items-center gap-2">
-                <label className="flex items-center gap-1.5 cursor-pointer text-xs" style={{ color: '#8F949E' }}>
+                <label className="flex items-center gap-1.5 cursor-pointer text-xs text-moon-450">
                   <input
                     type="checkbox"
                     checked={selectedQueryIds.size === selectedBatch.queries.length}
@@ -1843,27 +1728,23 @@ export function SyntheticTab() {
                       if (e.target.checked) setSelectedQueryIds(new Set(selectedBatch.queries.map((q) => q.id)));
                       else setSelectedQueryIds(new Set());
                     }}
-                    className="w-3.5 h-3.5 rounded"
-                    style={{ accentColor: '#FCBC32' }}
+                    className="w-3.5 h-3.5 rounded accent-gold"
                   />
                   Select all
                 </label>
-                <div className="w-px h-4" style={{ backgroundColor: '#333333' }} />
+                <div className="w-px h-4 bg-moon-700" />
                 <button
                   onClick={copySelectedQueries}
-                  className="text-xs px-2 py-1 rounded flex items-center gap-1 transition-colors"
-                  style={{ 
-                    backgroundColor: copiedAllSelected ? 'rgba(16, 191, 204, 0.15)' : 'rgba(16, 191, 204, 0.1)', 
-                    color: '#10BFCC' 
-                  }}
+                  className={`text-xs px-2 py-1 rounded flex items-center gap-1 transition-colors text-teal ${
+                    copiedAllSelected ? 'bg-teal/15' : 'bg-teal/10'
+                  }`}
                 >
                   {copiedAllSelected ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
                   {copiedAllSelected ? 'Copied!' : `Copy ${selectedQueryIds.size}`}
                 </button>
                 <button
                   onClick={handleDeleteSelectedQueries}
-                  className="text-xs px-2 py-1 rounded flex items-center gap-1 text-red-400"
-                  style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)' }}
+                  className="text-xs px-2 py-1 rounded flex items-center gap-1 text-red-400 bg-red-500/10"
                 >
                   <Trash2 className="w-3 h-3" />
                   Delete {selectedQueryIds.size}
@@ -1890,14 +1771,12 @@ export function SyntheticTab() {
                 return (
                 <div
                   key={query.id}
-                  className="border-b transition-colors"
-                  style={{ borderColor: '#333333' }}
+                  className="border-b transition-colors border-moon-700"
                 >
                   {/* Collapsed Row Header - Always visible */}
                   <button
                     onClick={toggleExpanded}
-                    className="w-full grid gap-4 px-4 py-3 text-left transition-colors hover:bg-white/5 items-center"
-                    style={{ gridTemplateColumns: '24px 60px 80px 1fr auto' }}
+                    className="w-full grid gap-4 px-4 py-3 text-left transition-colors hover:bg-white/5 items-center grid-cols-[24px_60px_80px_1fr_auto]"
                   >
                     {/* Checkbox */}
                     <input
@@ -1911,22 +1790,18 @@ export function SyntheticTab() {
                         else newSet.delete(query.id);
                         setSelectedQueryIds(newSet);
                       }}
-                      className="w-4 h-4 rounded"
-                      style={{ accentColor: '#FCBC32' }}
+                      className="w-4 h-4 rounded accent-gold"
                     />
                     
                     {/* Index */}
-                    <span 
-                      className="text-xs font-mono px-2 py-1 rounded text-center"
-                      style={{ backgroundColor: '#333333', color: '#8F949E' }}
-                    >
+                    <span className="text-xs font-mono px-2 py-1 rounded text-center bg-moon-700 text-moon-450">
                       {idx + 1}/{selectedBatch.queries.length}
                     </span>
                     
                     {/* Status */}
                     <div className="flex items-center gap-1">
                       {query.execution_status === "running" && (
-                        <RefreshCw className="w-3 h-3 animate-spin" style={{ color: '#FCBC32' }} />
+                        <RefreshCw className="w-3 h-3 animate-spin text-gold" />
                       )}
                       <StatusBadge status={query.execution_status || 'pending'} />
                     </div>
@@ -1934,13 +1809,9 @@ export function SyntheticTab() {
                     {/* Query Preview */}
                     <div className="min-w-0 flex items-center gap-2">
                       <ChevronDown 
-                        className={`w-4 h-4 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} 
-                        style={{ color: '#8F949E' }} 
+                        className={`w-4 h-4 flex-shrink-0 transition-transform text-moon-450 ${isExpanded ? 'rotate-180' : ''}`}
                       />
-                      <span 
-                        className="text-sm truncate"
-                        style={{ color: '#FDFDFD' }}
-                      >
+                      <span className="text-sm truncate text-moon-50">
                         {query.query_text.slice(0, 100)}{query.query_text.length > 100 ? "..." : ""}
                       </span>
                     </div>
@@ -1950,24 +1821,20 @@ export function SyntheticTab() {
                       {tags.slice(0, 3).map(([key, val]) => (
                         <span 
                           key={key} 
-                          className="text-xs px-2 py-0.5 rounded"
-                          style={{ backgroundColor: 'rgba(16, 191, 204, 0.15)', color: '#10BFCC' }}
+                          className="text-xs px-2 py-0.5 rounded bg-teal/15 text-teal"
                         >
                           {val}
                         </span>
                       ))}
                       {tags.length > 3 && (
-                        <span className="text-xs" style={{ color: '#8F949E' }}>+{tags.length - 3}</span>
+                        <span className="text-xs text-moon-450">+{tags.length - 3}</span>
                       )}
                     </div>
                   </button>
 
                   {/* Expanded Content */}
                   {isExpanded && (
-                    <div 
-                      className="px-4 pb-4 space-y-4"
-                      style={{ backgroundColor: 'rgba(23, 26, 31, 0.5)' }}
-                    >
+                    <div className="px-4 pb-4 space-y-4 bg-moon-900/50">
                       {/* Full Query */}
                       {editingQueryId === query.id ? (
                         <div className="space-y-2">
@@ -1976,8 +1843,7 @@ export function SyntheticTab() {
                             id={`textarea-${query.id}`}
                             rows={4}
                             autoFocus
-                            className="w-full px-3 py-2 rounded text-sm"
-                            style={{ backgroundColor: '#171A1F', border: '1px solid #FCBC32', color: '#FDFDFD' }}
+                            className="w-full px-3 py-2 rounded text-sm bg-moon-900 border border-gold text-moon-50"
                           />
                           <div className="flex gap-2">
                             <button
@@ -1985,15 +1851,13 @@ export function SyntheticTab() {
                                 const textarea = document.getElementById(`textarea-${query.id}`) as HTMLTextAreaElement;
                                 handleUpdateQuery(query.id, textarea?.value || query.query_text);
                               }}
-                              className="text-xs px-3 py-1.5 rounded font-medium"
-                              style={{ backgroundColor: '#FCBC32', color: '#171A1F' }}
+                              className="text-xs px-3 py-1.5 rounded font-medium bg-gold text-moon-900"
                             >
                               SAVE
                             </button>
                             <button 
                               onClick={() => setEditingQueryId(null)} 
-                              className="text-xs px-3 py-1.5 rounded"
-                              style={{ backgroundColor: '#333333', color: '#8F949E' }}
+                              className="text-xs px-3 py-1.5 rounded bg-moon-700 text-moon-450"
                             >
                               CANCEL
                             </button>
@@ -2001,37 +1865,29 @@ export function SyntheticTab() {
                         </div>
                       ) : (
                         <div 
-                          className={`p-4 rounded-lg ${!isExecuted ? 'cursor-pointer group' : ''}`}
-                          style={{ backgroundColor: '#171A1F', border: '1px solid #333333' }}
+                          className={`p-4 rounded-lg bg-moon-900 border border-moon-700 ${!isExecuted ? 'cursor-pointer group' : ''}`}
                           onClick={() => !isExecuted && setEditingQueryId(query.id)}
                         >
                           <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-2">
-                              <div 
-                                className="w-6 h-6 rounded flex items-center justify-center"
-                                style={{ backgroundColor: '#333333' }}
-                              >
-                                <span className="text-xs" style={{ color: '#FDFDFD' }}>Q</span>
+                              <div className="w-6 h-6 rounded flex items-center justify-center bg-moon-700">
+                                <span className="text-xs text-moon-50">Q</span>
                               </div>
-                              <span className="text-xs font-medium uppercase tracking-wider" style={{ color: '#8F949E' }}>User Query</span>
+                              <span className="text-xs font-medium uppercase tracking-wider text-moon-450">User Query</span>
                             </div>
                             <button
                               onClick={(e) => { e.stopPropagation(); copyQueryText(query.id, query.query_text); }}
-                              className="p-1.5 rounded transition-colors hover:bg-white/10"
-                              style={{ color: copiedQueryId === query.id ? '#10BFCC' : '#8F949E' }}
+                              className={`p-1.5 rounded transition-colors hover:bg-white/10 ${copiedQueryId === query.id ? 'text-teal' : 'text-moon-450'}`}
                               title="Copy query text"
                             >
                               {copiedQueryId === query.id ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
                             </button>
                           </div>
-                          <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: '#FDFDFD' }}>
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap text-moon-50">
                             {query.query_text}
                           </p>
                           {!isExecuted && (
-                            <span 
-                              className="text-xs opacity-0 group-hover:opacity-100 transition-opacity mt-2 inline-block"
-                              style={{ color: '#8F949E' }}
-                            >
+                            <span className="text-xs opacity-0 group-hover:opacity-100 transition-opacity mt-2 inline-block text-moon-450">
                               Click to edit
                             </span>
                           )}
@@ -2051,22 +1907,18 @@ export function SyntheticTab() {
                               await fetchSessionDetail(query.session_id);
                             }
                           }}
-                          className="flex items-center justify-center gap-3 py-2 px-4 rounded-lg transition-all hover:bg-white/5 group/metrics"
-                          style={{ 
-                            backgroundColor: 'rgba(252, 188, 50, 0.05)', 
-                            border: '1px dashed rgba(252, 188, 50, 0.3)' 
-                          }}
+                          className="flex items-center justify-center gap-3 py-2 px-4 rounded-lg transition-all hover:bg-white/5 group/metrics bg-gold/5 border border-dashed border-gold/30"
                         >
                           <div className="flex items-center gap-2">
-                            <Zap className="w-3.5 h-3.5" style={{ color: '#FCBC32' }} />
-                            <span className="text-xs" style={{ color: '#FCBC32' }}>
+                            <Zap className="w-3.5 h-3.5 text-gold" />
+                            <span className="text-xs text-gold">
                               {query.call_count} calls
                             </span>
                           </div>
                           {query.total_latency_ms && (
                             <>
-                              <span style={{ color: '#333' }}>•</span>
-                              <span className="text-xs" style={{ color: '#8F949E' }}>
+                              <span className="text-moon-700">•</span>
+                              <span className="text-xs text-moon-450">
                                 {query.total_latency_ms >= 1000 
                                   ? `${(query.total_latency_ms / 1000).toFixed(1)}s`
                                   : `${Math.round(query.total_latency_ms)}ms`
@@ -2074,10 +1926,7 @@ export function SyntheticTab() {
                               </span>
                             </>
                           )}
-                          <span 
-                            className="text-xs opacity-0 group-hover/metrics:opacity-100 transition-opacity flex items-center gap-1"
-                            style={{ color: '#10BFCC' }}
-                          >
+                          <span className="text-xs opacity-0 group-hover/metrics:opacity-100 transition-opacity flex items-center gap-1 text-teal">
                             View details <ExternalLink className="w-3 h-3" />
                           </span>
                         </button>
@@ -2085,20 +1934,14 @@ export function SyntheticTab() {
 
                       {/* Full Response */}
                       {query.response_text && (
-                        <div 
-                          className="p-4 rounded-lg"
-                          style={{ backgroundColor: '#171A1F', border: '1px solid rgba(16, 191, 204, 0.3)' }}
-                        >
+                        <div className="p-4 rounded-lg bg-moon-900 border border-teal/30">
                           <div className="flex items-center gap-2 mb-3">
-                            <div 
-                              className="w-6 h-6 rounded flex items-center justify-center"
-                              style={{ backgroundColor: 'rgba(16, 191, 204, 0.2)' }}
-                            >
-                              <Bot className="w-3.5 h-3.5" style={{ color: '#10BFCC' }} />
+                            <div className="w-6 h-6 rounded flex items-center justify-center bg-teal/20">
+                              <Bot className="w-3.5 h-3.5 text-teal" />
                             </div>
-                            <span className="text-xs font-medium uppercase tracking-wider" style={{ color: '#10BFCC' }}>Agent Response</span>
+                            <span className="text-xs font-medium uppercase tracking-wider text-teal">Agent Response</span>
                           </div>
-                          <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: '#FDFDFD' }}>
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap text-moon-50">
                             {query.response_text}
                           </p>
                         </div>
@@ -2106,20 +1949,14 @@ export function SyntheticTab() {
 
                       {/* Error Message */}
                       {query.error_message && (
-                        <div 
-                          className="p-4 rounded-lg"
-                          style={{ backgroundColor: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)' }}
-                        >
+                        <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/30">
                           <div className="flex items-center gap-2 mb-3">
-                            <div 
-                              className="w-6 h-6 rounded flex items-center justify-center"
-                              style={{ backgroundColor: 'rgba(239, 68, 68, 0.2)' }}
-                            >
-                              <AlertTriangle className="w-3.5 h-3.5" style={{ color: '#EF4444' }} />
+                            <div className="w-6 h-6 rounded flex items-center justify-center bg-red-500/20">
+                              <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
                             </div>
-                            <span className="text-xs font-medium uppercase tracking-wider" style={{ color: '#EF4444' }}>Error</span>
+                            <span className="text-xs font-medium uppercase tracking-wider text-red-500">Error</span>
                           </div>
-                          <p className="text-sm leading-relaxed" style={{ color: '#FCA5A5' }}>
+                          <p className="text-sm leading-relaxed text-red-300">
                             {query.error_message}
                           </p>
                         </div>
@@ -2128,15 +1965,14 @@ export function SyntheticTab() {
                       {/* All Tags */}
                       {tags.length > 0 && (
                         <div className="flex items-center gap-2 flex-wrap pt-2">
-                          <span className="text-xs uppercase tracking-wider" style={{ color: '#8F949E' }}>Tags:</span>
+                          <span className="text-xs uppercase tracking-wider text-moon-450">Tags:</span>
                           {tags.map(([key, val]) => (
                             <span 
                               key={key} 
-                              className="text-xs px-2 py-1 rounded flex items-center gap-1"
-                              style={{ backgroundColor: 'rgba(16, 191, 204, 0.15)', color: '#10BFCC' }}
+                              className="text-xs px-2 py-1 rounded flex items-center gap-1 bg-teal/15 text-teal"
                             >
                               <Tag className="w-3 h-3 opacity-50" />
-                              <span style={{ color: '#8F949E' }}>{key}:</span> {val}
+                              <span className="text-moon-450">{key}:</span> {val}
                             </span>
                           ))}
                         </div>
@@ -2148,11 +1984,11 @@ export function SyntheticTab() {
               })}
             </div>
           ) : (
-            <div className="flex-1 flex items-center justify-center" style={{ color: '#8F949E' }}>
+            <div className="flex-1 flex items-center justify-center text-moon-450">
               <div className="text-center">
                 <Eye className="w-16 h-16 mx-auto mb-4 opacity-30" />
-                <p className="text-lg mb-2" style={{ color: '#FDFDFD' }}>Select a batch to preview</p>
-                <p className="text-sm">Choose a batch from the "Generated batches" section above to review and edit its data.</p>
+                <p className="text-lg mb-2 text-moon-50">Select a batch to preview</p>
+                <p className="text-sm">Choose a batch from the &quot;Generated batches&quot; section above to review and edit its data.</p>
               </div>
             </div>
           )}

@@ -30,6 +30,40 @@ import { createLogger } from "./logger";
 const API_BASE = "/api";
 const logger = createLogger("API");
 
+// =============================================================================
+// API Error Handling
+// =============================================================================
+
+/**
+ * Custom error class for API errors with status code context
+ */
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+    public readonly endpoint?: string
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+/**
+ * Wrapper for fetch that consistently handles errors.
+ * Throws ApiError for non-ok responses instead of silently returning.
+ */
+async function apiCall<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(url, options);
+  
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({ detail: "Request failed" }));
+    const message = errorBody.detail || errorBody.message || `HTTP ${response.status}`;
+    throw new ApiError(response.status, message, url);
+  }
+  
+  return response.json();
+}
+
 /**
  * Get the direct backend URL for SSE streaming endpoints.
  * SSE requires direct backend access to avoid Next.js proxy buffering.
@@ -54,8 +88,7 @@ export function getBackendUrl(): string {
 // ============================================================================
 
 export async function fetchFeedbackSummary(): Promise<FeedbackSummary> {
-  const response = await fetch(`${API_BASE}/feedback-summary`);
-  return response.json();
+  return apiCall(`${API_BASE}/feedback-summary`);
 }
 
 // Note: fetchAnnotationProgress was removed - use session stats or batch review progress instead
@@ -65,20 +98,15 @@ export async function fetchFeedbackSummary(): Promise<FeedbackSummary> {
 // ============================================================================
 
 export async function fetchAgents(): Promise<Agent[]> {
-  const response = await fetch(`${API_BASE}/agents`);
-  return response.json();
+  return apiCall(`${API_BASE}/agents`);
 }
 
 export async function fetchAgentDetail(agentId: string): Promise<AgentDetail> {
-  const response = await fetch(`${API_BASE}/agents/${agentId}`);
-  return response.json();
+  return apiCall(`${API_BASE}/agents/${agentId}`);
 }
 
 export async function testAgentConnection(agentId: string): Promise<ConnectionTestResult> {
-  const response = await fetch(`${API_BASE}/agents/${agentId}/test-connection`, {
-    method: "POST",
-  });
-  return response.json();
+  return apiCall(`${API_BASE}/agents/${agentId}/test-connection`, { method: "POST" });
 }
 
 export async function createAgent(
@@ -216,8 +244,7 @@ export async function resetDatabase(
 // ============================================================================
 
 export async function fetchTaxonomy(): Promise<Taxonomy> {
-  const response = await fetch(`${API_BASE}/taxonomy`);
-  return response.json();
+  return apiCall(`${API_BASE}/taxonomy`);
 }
 
 export async function syncNotesFromWeave(): Promise<{ synced: number }> {
@@ -453,8 +480,7 @@ export async function batchApplyCategories(
 // ============================================================================
 
 export async function fetchDimensions(agentId: string): Promise<Dimension[]> {
-  const response = await fetch(`${API_BASE}/agents/${agentId}/dimensions`);
-  return response.json();
+  return apiCall(`${API_BASE}/agents/${agentId}/dimensions`);
 }
 
 export async function importDimensions(

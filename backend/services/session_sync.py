@@ -10,6 +10,7 @@ Key Principles:
 - Sync happens in background (asyncio.create_task)
 - Auto-triggers after batch execution completes
 - Supports incremental sync (only new sessions since last sync)
+- Caches conversation data during sync to avoid Weave API calls on detail view
 
 Sync Triggers:
 1. After batch execution completes (auto)
@@ -18,6 +19,7 @@ Sync Triggers:
 """
 
 import asyncio
+import json
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List, Set, Tuple
@@ -27,6 +29,7 @@ from enum import Enum
 from config import get_sync_query_limit
 from database import get_db, now_iso, generate_id
 from services.weave_client import weave_client
+from services.conversation import extract_conversation
 from logger import get_logger, log_event, generate_correlation_id
 
 logger = get_logger("session_sync")
@@ -120,6 +123,8 @@ class SessionMetrics:
     started_at: Optional[str] = None
     ended_at: Optional[str] = None
     root_trace_id: Optional[str] = None
+    # Cached conversation (extracted during sync to avoid Weave API calls)
+    conversation_json: Optional[str] = None
 
 
 @dataclass
@@ -676,6 +681,15 @@ class SessionSyncService:
             if len(errors) > 3:
                 metrics.error_summary += f" (+{len(errors) - 3} more)"
         
+        # Extract and cache conversation
+        # This avoids fetching from Weave API when viewing session details
+        try:
+            conversation = extract_conversation(calls)
+            if conversation:
+                metrics.conversation_json = json.dumps(conversation)
+        except Exception as e:
+            logger.warning(f"Failed to extract conversation: {e}")
+        
         return metrics
     
     # =========================================================================
@@ -944,6 +958,7 @@ class SessionSyncService:
                         "synced",
                         s["is_reviewed"],
                         s["reviewed_at"],
+                        m.conversation_json,  # Cached conversation
                         now,
                         now
                     ))
@@ -959,8 +974,9 @@ class SessionSyncService:
                         started_at, ended_at,
                         last_synced_at, sync_status,
                         is_reviewed, reviewed_at,
+                        conversation_json,
                         created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, insert_data)
             
             # Batch update existing sessions
@@ -988,6 +1004,7 @@ class SessionSyncService:
                         now,
                         s["is_reviewed"],
                         s["reviewed_at"],
+                        m.conversation_json,  # Update cached conversation
                         now,
                         s["session_id"]
                     ))
@@ -1014,6 +1031,7 @@ class SessionSyncService:
                         sync_status = 'synced',
                         is_reviewed = CASE WHEN is_reviewed THEN is_reviewed ELSE ? END,
                         reviewed_at = CASE WHEN reviewed_at IS NOT NULL THEN reviewed_at ELSE ? END,
+                        conversation_json = COALESCE(?, conversation_json),
                         updated_at = ?
                     WHERE id = ?
                 """, update_data)

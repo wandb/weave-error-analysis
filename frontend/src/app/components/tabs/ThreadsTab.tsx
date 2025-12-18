@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Search,
   MessageCircle,
@@ -37,7 +37,7 @@ import {
   BarChart2,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
-import { formatRelativeTime } from "../../utils/formatters";
+import { formatRelativeTime, formatTokens, formatCost, formatLatency } from "../../utils/formatters";
 import { ORGANIC_FILTER, ORGANIC_DISPLAY_NAME } from "../../constants";
 import { ConversationMessage } from "../ConversationMessage";
 import { Panel, PanelHeader, Badge, ProgressBar, LoadingCards, NoThreadsFound, SelectPrompt, DualRangeSlider } from "../ui";
@@ -140,24 +140,7 @@ interface ThreadCardProps {
   onClick: () => void;
 }
 
-function ThreadCard({ session, selected, onClick }: ThreadCardProps) {
-  const formatTokens = (tokens: number) => {
-    if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M`;
-    if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}K`;
-    return tokens.toString();
-  };
-
-  const formatCost = (cost: number) => {
-    if (cost >= 1) return `$${cost.toFixed(2)}`;
-    if (cost >= 0.01) return `$${cost.toFixed(3)}`;
-    return `$${cost.toFixed(4)}`;
-  };
-
-  const formatLatency = (ms: number) => {
-    if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
-    return `${Math.round(ms)}ms`;
-  };
-
+const ThreadCard = React.memo(function ThreadCard({ session, selected, onClick }: ThreadCardProps) {
   return (
     <button
       onClick={onClick}
@@ -232,7 +215,7 @@ function ThreadCard({ session, selected, onClick }: ThreadCardProps) {
       </div>
     </button>
   );
-}
+});
 
 // =============================================================================
 // Filter Pill Component
@@ -280,7 +263,7 @@ interface SuggestionCardProps {
   isLoading?: boolean;
 }
 
-function SuggestionCard({ suggestion, onAccept, onSkip, onReject, isLoading }: SuggestionCardProps) {
+const SuggestionCard = React.memo(function SuggestionCard({ suggestion, onAccept, onSkip, onReject, isLoading }: SuggestionCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editedText, setEditedText] = useState(suggestion.suggested_note || "");
   const [actionLoading, setActionLoading] = useState<"accept" | "skip" | "reject" | null>(null);
@@ -457,7 +440,7 @@ function SuggestionCard({ suggestion, onAccept, onSkip, onReject, isLoading }: S
       </div>
     </div>
   );
-}
+});
 
 // =============================================================================
 // Main Threads Tab

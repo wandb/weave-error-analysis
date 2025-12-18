@@ -54,21 +54,6 @@ async def get_prompts_by_feature(feature: str):
     return {"prompts": [p.model_dump() for p in prompts]}
 
 
-@router.get("/status")
-async def get_prompt_status():
-    """
-    Get the status of the prompt management system.
-    
-    Returns Weave connection status and project info.
-    """
-    return {
-        "initialized": prompt_manager._initialized,
-        "weave_enabled": prompt_manager.is_weave_enabled(),
-        "weave_project_url": prompt_manager.get_weave_project_url(),
-        "prompt_count": len(prompt_manager.get_all_prompts()),
-    }
-
-
 @router.get("/{prompt_id}")
 async def get_prompt(prompt_id: str):
     """Get a specific prompt by ID."""

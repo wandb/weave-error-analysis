@@ -26,7 +26,6 @@ setup_logging()
 logger = get_logger("main")
 
 from routers import (
-    traces_router,
     feedback_router,
     taxonomy_router,
     agents_router,
@@ -254,7 +253,6 @@ app.add_middleware(
 )
 
 # Register routers
-app.include_router(traces_router)
 app.include_router(feedback_router)
 app.include_router(taxonomy_router)
 app.include_router(agents_router)
@@ -264,6 +262,10 @@ app.include_router(sessions_router)  # Local-first session management (replaces 
 app.include_router(suggestions_router)  # AI suggestion service for trace quality
 app.include_router(prompts_router)  # Prompt management
 
+
+# =============================================================================
+# Core Endpoints
+# =============================================================================
 
 @app.get("/")
 async def root():
@@ -277,16 +279,32 @@ async def root():
     }
 
 
-@app.get("/api/db-stats")
+# =============================================================================
+# Internal/Maintenance Endpoints
+# These endpoints are for debugging and maintenance. They are not exposed in
+# the frontend UI but can be called directly for troubleshooting.
+# =============================================================================
+
+@app.get("/api/db-stats", include_in_schema=False)
 async def db_stats():
-    """Get database statistics for monitoring."""
+    """
+    INTERNAL: Get database statistics for monitoring.
+    
+    Returns table sizes, row counts, and SQLite stats.
+    Useful for debugging performance issues or data growth.
+    """
     from database import get_db_stats, optimize_db
     return get_db_stats()
 
 
-@app.post("/api/db-optimize")
+@app.post("/api/db-optimize", include_in_schema=False)
 async def db_optimize():
-    """Trigger database optimization (analyze tables)."""
+    """
+    INTERNAL: Trigger database optimization.
+    
+    Runs ANALYZE on SQLite tables to update query planner statistics.
+    Call this after large data imports or when queries seem slow.
+    """
     from database import optimize_db
     optimize_db()
     return {"status": "optimized"}

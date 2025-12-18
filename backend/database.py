@@ -562,6 +562,10 @@ def init_db():
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
                     
+                    -- Cached conversation data (JSON array of messages)
+                    -- Stored during sync to avoid re-fetching from Weave on every detail view
+                    conversation_json TEXT,
+                    
                     -- Foreign Keys (soft - batch/query may not exist)
                     FOREIGN KEY (batch_id) REFERENCES synthetic_batches(id) ON DELETE SET NULL,
                     FOREIGN KEY (query_id) REFERENCES synthetic_queries(id) ON DELETE SET NULL
@@ -627,6 +631,12 @@ def init_db():
             cursor.execute("""
                 INSERT OR IGNORE INTO sync_status (id, status) VALUES ('sessions', 'idle')
             """)
+            
+            # Migration: Add conversation_json column if it doesn't exist
+            cursor.execute("PRAGMA table_info(sessions)")
+            session_columns = [col[1] for col in cursor.fetchall()]
+            if "conversation_json" not in session_columns:
+                cursor.execute("ALTER TABLE sessions ADD COLUMN conversation_json TEXT")
             
             # =====================================================================
             # Sessions Indexes (optimized for common query patterns)

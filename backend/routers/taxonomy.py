@@ -10,7 +10,7 @@ Provides:
 
 from typing import Optional, List
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from services.taxonomy import taxonomy_service
@@ -76,20 +76,6 @@ async def get_taxonomy():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/saturation")
-async def get_saturation_stats(window_size: int = Query(20, ge=5, le=100)):
-    """
-    Get saturation tracking statistics.
-    
-    Saturation indicates whether we're still discovering new failure patterns
-    or if most notes fit existing categories.
-    """
-    try:
-        return taxonomy_service.get_saturation_stats(window_size)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.get("/saturation-history")
 async def get_saturation_history():
     """
@@ -132,25 +118,6 @@ async def get_saturation_by_batch():
 # ============================================================================
 # Failure Mode CRUD Endpoints
 # ============================================================================
-
-@router.get("/failure-modes")
-async def get_failure_modes():
-    """Get all failure modes."""
-    try:
-        modes = taxonomy_service.get_all_failure_modes()
-        return {"failure_modes": [m.to_dict() for m in modes]}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/failure-modes/{mode_id}")
-async def get_failure_mode(mode_id: str):
-    """Get a single failure mode by ID."""
-    mode = taxonomy_service.get_failure_mode(mode_id)
-    if not mode:
-        raise HTTPException(status_code=404, detail="Failure mode not found")
-    return mode.to_dict()
-
 
 @router.post("/failure-modes")
 async def create_failure_mode(request: CreateFailureModeRequest):
@@ -236,19 +203,6 @@ async def merge_failure_modes(request: MergeFailureModesRequest):
 # Note Management Endpoints
 # ============================================================================
 
-@router.get("/notes")
-async def get_notes(uncategorized_only: bool = Query(False)):
-    """Get notes, optionally filtering to uncategorized only."""
-    try:
-        if uncategorized_only:
-            notes = taxonomy_service.get_uncategorized_notes()
-        else:
-            notes = taxonomy_service.get_all_notes()
-        return {"notes": [n.to_dict() for n in notes]}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 @router.post("/notes/sync")
 async def sync_notes_from_weave():
     """
@@ -304,30 +258,6 @@ async def assign_note(request: AssignNoteRequest):
     if not success:
         raise HTTPException(status_code=404, detail="Note or failure mode not found")
     return {"status": "assigned", "note_id": request.note_id, "failure_mode_id": request.failure_mode_id}
-
-
-@router.post("/notes/{note_id}/unassign")
-async def unassign_note(note_id: str):
-    """Remove a note from its failure mode (move to uncategorized)."""
-    success = taxonomy_service.unassign_note(note_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Note not found")
-    return {"status": "unassigned", "note_id": note_id}
-
-
-@router.get("/notes/{note_id}/session")
-async def get_note_session(note_id: str):
-    """
-    Get the session info associated with a note.
-    
-    Returns session details if the note came from a session note,
-    or null if it's a Weave feedback note.
-    """
-    try:
-        session_info = taxonomy_service.get_note_session(note_id)
-        return {"session": session_info}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================================================
@@ -432,18 +362,4 @@ async def batch_apply_categories(request: BatchApplyRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/suggest-improvements")
-async def suggest_taxonomy_improvements():
-    """
-    Analyze the current taxonomy and suggest improvements.
-    
-    Looks for:
-    - Categories that could be merged (too similar)
-    - Categories that might need splitting (too broad)
-    - Naming improvements
-    """
-    try:
-        return await taxonomy_service.suggest_taxonomy_improvements()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 

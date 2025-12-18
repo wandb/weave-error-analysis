@@ -78,21 +78,6 @@ class ConnectionTestResult(BaseModel):
     error: Optional[str] = None
 
 
-class RunAgentRequest(BaseModel):
-    """Request to run a query against an agent."""
-    message: str = Field(..., description="The message to send to the agent")
-    thread_id: Optional[str] = Field(None, description="Optional thread ID for conversation continuity")
-    context: Optional[dict] = Field(None, description="Optional context to pass to the agent")
-
-
-class AgentInfoValidationResult(BaseModel):
-    """Result of validating AGENT_INFO content."""
-    valid: bool
-    parsed: Optional[dict] = None
-    warnings: List[str] = []
-    errors: List[str] = []
-
-
 # =============================================================================
 # API Endpoints
 # =============================================================================
@@ -226,14 +211,151 @@ async def get_agent_info_template(
     return {"template": template}
 
 
-@router.post("/agents/validate-info", response_model=AgentInfoValidationResult)
-async def validate_agent_info_endpoint(content: str = Query(..., description="AGENT_INFO.md content")):
-    """
-    Validate AGENT_INFO.md content without creating an agent.
-    """
-    result = validate_agent_info(content)
-    return AgentInfoValidationResult(**result)
+# =============================================================================
+# Example Agent Management (static routes - must come before /{agent_id})
+# =============================================================================
+# The example agent (TaskFlow Support) is started on-demand from the UI.
+# This allows users to configure their API key in Settings first.
 
+import subprocess
+import sys
+from pathlib import Path
+from services.settings import get_setting
+
+# Global reference to example agent process
+_example_agent_process: Optional[subprocess.Popen] = None
+AGENT_DIR = Path(__file__).parent.parent.parent / "agent"
+
+
+class ExampleAgentStartRequest(BaseModel):
+    """Request to start the example agent."""
+    port: int = Field(default=9000, description="Port to run the agent on")
+
+
+class ExampleAgentStatusResponse(BaseModel):
+    """Status of the example agent."""
+    running: bool
+    port: Optional[int] = None
+    pid: Optional[int] = None
+    exit_code: Optional[int] = None
+    requires_api_key: bool = False
+
+
+@router.post("/agents/example/start")
+async def start_example_agent(request: ExampleAgentStartRequest = ExampleAgentStartRequest()):
+    """
+    Start the example TaskFlow Support agent.
+    
+    Requires LLM API key to be configured in Settings.
+    The agent fetches the API key from the backend settings.
+    """
+    global _example_agent_process
+    
+    port = request.port
+    
+    # Check if already running
+    if _example_agent_process is not None and _example_agent_process.poll() is None:
+        return {"status": "already_running", "port": port, "pid": _example_agent_process.pid}
+    
+    # Check if LLM API key is configured
+    api_key = get_setting("llm_api_key")
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail="LLM API key not configured. Go to Settings to add your OpenAI API key."
+        )
+    
+    # Start the agent with the API key from settings
+    import os
+    env = os.environ.copy()
+    env["OPENAI_API_KEY"] = api_key
+    env["PYTHONPATH"] = str(AGENT_DIR)
+    
+    # Also set Weave credentials if configured (for trace logging)
+    weave_api_key = get_setting("weave_api_key")
+    weave_entity = get_setting("weave_entity")
+    if weave_api_key:
+        env["WANDB_API_KEY"] = weave_api_key
+    if weave_entity:
+        env["WANDB_ENTITY"] = weave_entity
+    env["WEAVE_PROJECT"] = "error-analysis-demo"  # Example agent's fixed project
+    
+    try:
+        _example_agent_process = subprocess.Popen(
+            [sys.executable, "-m", "uvicorn", "agent_server:app",
+             "--host", "0.0.0.0", "--port", str(port)],
+            cwd=AGENT_DIR,
+            env=env,
+        )
+        
+        return {
+            "status": "started",
+            "port": port,
+            "pid": _example_agent_process.pid
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to start agent: {str(e)}")
+
+
+@router.post("/agents/example/stop")
+async def stop_example_agent():
+    """Stop the example agent if running."""
+    global _example_agent_process
+    
+    if _example_agent_process is None:
+        return {"status": "not_running"}
+    
+    if _example_agent_process.poll() is None:
+        _example_agent_process.terminate()
+        try:
+            _example_agent_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            _example_agent_process.kill()
+    
+    exit_code = _example_agent_process.returncode
+    _example_agent_process = None
+    return {"status": "stopped", "exit_code": exit_code}
+
+
+@router.get("/agents/example/status", response_model=ExampleAgentStatusResponse)
+async def get_example_agent_status():
+    """
+    Check if the example agent is running.
+    
+    Also indicates if an API key is required to start the agent.
+    """
+    global _example_agent_process
+    
+    # Check if API key is configured
+    api_key = get_setting("llm_api_key")
+    requires_api_key = not bool(api_key)
+    
+    if _example_agent_process is None:
+        return ExampleAgentStatusResponse(
+            running=False,
+            requires_api_key=requires_api_key
+        )
+    
+    if _example_agent_process.poll() is None:
+        return ExampleAgentStatusResponse(
+            running=True,
+            port=9000,
+            pid=_example_agent_process.pid,
+            requires_api_key=False
+        )
+    else:
+        exit_code = _example_agent_process.returncode
+        _example_agent_process = None
+        return ExampleAgentStatusResponse(
+            running=False,
+            exit_code=exit_code,
+            requires_api_key=requires_api_key
+        )
+
+
+# =============================================================================
+# Dynamic /{agent_id} routes (must come after static routes)
+# =============================================================================
 
 @router.get("/agents/{agent_id}/stats", response_model=AgentStats)
 async def get_agent_stats(agent_id: str):
@@ -586,256 +708,4 @@ async def test_agent_connection(agent_id: str):
         error=health.get("error")
     )
 
-
-@router.get("/agents/{agent_id}/agent-info")
-async def get_agent_remote_info(agent_id: str):
-    """
-    Fetch AGENT_INFO.md from the agent's endpoint.
-    
-    This retrieves the agent's self-description including purpose,
-    capabilities, testing dimensions, and system prompts.
-    """
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT endpoint_url FROM agents WHERE id = ?", (agent_id,))
-        row = cursor.fetchone()
-        
-        if not row:
-            raise HTTPException(status_code=404, detail="Agent not found")
-        
-        endpoint_url = row["endpoint_url"]
-    
-    # Use AgentClient to fetch agent info
-    client = AgentClient(endpoint_url)
-    
-    try:
-        agent_info = await client.get_agent_info()
-        return agent_info
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Failed to fetch agent info: {str(e)}")
-
-
-# =============================================================================
-# Agent Execution Endpoints (Simple HTTP)
-# =============================================================================
-# Note: Dimension management endpoints are in routers/synthetic.py
-
-@router.post("/agents/{agent_id}/run")
-async def run_agent(agent_id: str, request: RunAgentRequest):
-    """
-    Run a query against an agent using simple HTTP.
-    
-    Returns a JSON response with the agent's reply.
-    This replaces the previous SSE streaming endpoint with a simpler
-    request/response model.
-    """
-    # Get agent from database
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
-        row = cursor.fetchone()
-    
-    if not row:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    
-    endpoint_url = row["endpoint_url"]
-    client = AgentClient(endpoint_url)
-    
-    try:
-        result = await client.query(
-            query=request.message,
-            thread_id=request.thread_id
-        )
-        
-        return {
-            "success": result.error is None,
-            "response": result.response,
-            "thread_id": result.thread_id,
-            "error": result.error
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get("/agents/{agent_id}/status")
-async def get_agent_status(agent_id: str):
-    """
-    Get the current status of an agent including connection health.
-    
-    Performs a live health check and returns current status.
-    """
-    # Get agent from database
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
-        row = cursor.fetchone()
-    
-    if not row:
-        raise HTTPException(status_code=404, detail="Agent not found")
-    
-    # Perform health check
-    client = AgentClient(row["endpoint_url"])
-    health = await client.health_check()
-    
-    # Update status in database
-    new_status = "connected" if health["healthy"] else "disconnected"
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE agents 
-            SET connection_status = ?, last_connection_test = ?
-            WHERE id = ?
-        """, (new_status, now_iso(), agent_id))
-    
-    return {
-        "agent_id": agent_id,
-        "name": row["name"],
-        "endpoint_url": row["endpoint_url"],
-        "connection_status": new_status,
-        "health_check": health,
-        "last_updated": now_iso()
-    }
-
-
-# =============================================================================
-# Example Agent Management
-# =============================================================================
-# The example agent (TaskFlow Support) is started on-demand from the UI.
-# This allows users to configure their API key in Settings first.
-
-import subprocess
-import sys
-from pathlib import Path
-from services.settings import get_setting
-
-# Global reference to example agent process
-_example_agent_process: Optional[subprocess.Popen] = None
-AGENT_DIR = Path(__file__).parent.parent.parent / "agent"
-
-
-class ExampleAgentStartRequest(BaseModel):
-    """Request to start the example agent."""
-    port: int = Field(default=9000, description="Port to run the agent on")
-
-
-class ExampleAgentStatusResponse(BaseModel):
-    """Status of the example agent."""
-    running: bool
-    port: Optional[int] = None
-    pid: Optional[int] = None
-    exit_code: Optional[int] = None
-    requires_api_key: bool = False
-
-
-@router.post("/agents/example/start")
-async def start_example_agent(request: ExampleAgentStartRequest = ExampleAgentStartRequest()):
-    """
-    Start the example TaskFlow Support agent.
-    
-    Requires LLM API key to be configured in Settings.
-    The agent fetches the API key from the backend settings.
-    """
-    global _example_agent_process
-    
-    port = request.port
-    
-    # Check if already running
-    if _example_agent_process is not None and _example_agent_process.poll() is None:
-        return {"status": "already_running", "port": port, "pid": _example_agent_process.pid}
-    
-    # Check if LLM API key is configured
-    api_key = get_setting("llm_api_key")
-    if not api_key:
-        raise HTTPException(
-            status_code=400,
-            detail="LLM API key not configured. Go to Settings to add your OpenAI API key."
-        )
-    
-    # Start the agent with the API key from settings
-    import os
-    env = os.environ.copy()
-    env["OPENAI_API_KEY"] = api_key
-    env["PYTHONPATH"] = str(AGENT_DIR)
-    
-    # Also set Weave credentials if configured (for trace logging)
-    weave_api_key = get_setting("weave_api_key")
-    weave_entity = get_setting("weave_entity")
-    if weave_api_key:
-        env["WANDB_API_KEY"] = weave_api_key
-    if weave_entity:
-        env["WANDB_ENTITY"] = weave_entity
-    env["WEAVE_PROJECT"] = "error-analysis-demo"  # Example agent's fixed project
-    
-    try:
-        _example_agent_process = subprocess.Popen(
-            [sys.executable, "-m", "uvicorn", "agent_server:app",
-             "--host", "0.0.0.0", "--port", str(port)],
-            cwd=AGENT_DIR,
-            env=env,
-        )
-        
-        return {
-            "status": "started",
-            "port": port,
-            "pid": _example_agent_process.pid
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to start agent: {str(e)}")
-
-
-@router.post("/agents/example/stop")
-async def stop_example_agent():
-    """Stop the example agent if running."""
-    global _example_agent_process
-    
-    if _example_agent_process is None:
-        return {"status": "not_running"}
-    
-    if _example_agent_process.poll() is None:
-        _example_agent_process.terminate()
-        try:
-            _example_agent_process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            _example_agent_process.kill()
-    
-    exit_code = _example_agent_process.returncode
-    _example_agent_process = None
-    return {"status": "stopped", "exit_code": exit_code}
-
-
-@router.get("/agents/example/status", response_model=ExampleAgentStatusResponse)
-async def get_example_agent_status():
-    """
-    Check if the example agent is running.
-    
-    Also indicates if an API key is required to start the agent.
-    """
-    global _example_agent_process
-    
-    # Check if API key is configured
-    api_key = get_setting("llm_api_key")
-    requires_api_key = not bool(api_key)
-    
-    if _example_agent_process is None:
-        return ExampleAgentStatusResponse(
-            running=False,
-            requires_api_key=requires_api_key
-        )
-    
-    if _example_agent_process.poll() is None:
-        return ExampleAgentStatusResponse(
-            running=True,
-            port=9000,
-            pid=_example_agent_process.pid,
-            requires_api_key=False
-        )
-    else:
-        exit_code = _example_agent_process.returncode
-        _example_agent_process = None
-        return ExampleAgentStatusResponse(
-            running=False,
-            exit_code=exit_code,
-            requires_api_key=requires_api_key
-        )
 

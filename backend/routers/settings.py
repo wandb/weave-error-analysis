@@ -12,11 +12,9 @@ from services.settings import (
     get_setting,
     set_setting,
     delete_setting,
-    get_all_settings,
     get_settings_grouped,
     check_llm_configured,
     check_weave_configured,
-    SettingValue,
     SettingsGroup,
 )
 
@@ -33,11 +31,6 @@ class BulkUpdateRequest(BaseModel):
     settings: Dict[str, str]
 
 
-class SettingsResponse(BaseModel):
-    """Response containing all settings."""
-    settings: Dict[str, SettingValue]
-
-
 class SettingsGroupedResponse(BaseModel):
     """Response containing settings grouped by category."""
     groups: List[SettingsGroup]
@@ -52,17 +45,6 @@ class ConfigStatusResponse(BaseModel):
 # ============================================================================
 # Read Settings
 # ============================================================================
-
-@router.get("", response_model=SettingsResponse)
-async def get_settings():
-    """
-    Get all settings.
-    
-    Secret values are masked (e.g., API keys show as "••••••••xxxx").
-    """
-    settings = get_all_settings(include_secrets=False)
-    return {"settings": settings}
-
 
 @router.get("/grouped", response_model=SettingsGroupedResponse)
 async def get_settings_by_group():
@@ -86,21 +68,6 @@ async def get_config_status():
         "llm": check_llm_configured(),
         "weave": check_weave_configured(),
     }
-
-
-@router.get("/{key}")
-async def get_single_setting(key: str):
-    """
-    Get a single setting value.
-    
-    Secret values are masked in the response.
-    """
-    all_settings = get_all_settings(include_secrets=False)
-    
-    if key not in all_settings:
-        raise HTTPException(status_code=404, detail=f"Setting '{key}' not found")
-    
-    return all_settings[key]
 
 
 # ============================================================================
@@ -236,13 +203,18 @@ async def test_weave_connection():
         }
 
 
-@router.get("/llm-api-key")
+@router.get("/llm-api-key", include_in_schema=False)
 async def get_llm_api_key():
     """
-    Get the LLM API key for internal use (e.g., example agent).
+    INTERNAL: Get the LLM API key for internal use.
     
-    This endpoint is for local use only - the example agent calls this
-    to get the API key configured in settings.
+    This endpoint is marked include_in_schema=False and is not part of the public API.
+    It's used internally by:
+    - The Example Agent to share the configured LLM API key
+    - Programmatic access from other internal services
+    
+    Security note: This should only be called locally. In production deployments,
+    consider restricting access via network policies or removing this endpoint.
     
     Uses get_setting which properly decodes base64-encoded secrets.
     """

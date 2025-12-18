@@ -234,147 +234,10 @@ def _session_to_summary(row: dict) -> SessionSummary:
 
 
 # =============================================================================
-# Session Detail Endpoint (Local metadata + Weave conversation)
+# Static Routes (MUST be defined BEFORE dynamic /{session_id} routes)
 # =============================================================================
 
-@router.get("/{session_id}", response_model=SessionDetail)
-async def get_session_detail(session_id: str):
-    """
-    Get detailed information about a session.
-    
-    Returns:
-    - Session metadata from LOCAL DB (fast)
-    - Conversation from Weave API (may have latency)
-    - Local notes attached to session
-    """
-    try:
-        # Get session from repository
-        session = session_repository.get_session_by_id(session_id)
-        if not session:
-            raise NotFoundError("Session", session_id)
-        
-        # Get notes
-        notes_data = session_repository.list_notes(session_id)
-        notes = [
-            SessionNote(
-                id=n["id"],
-                session_id=n["session_id"],
-                call_id=n.get("call_id"),
-                content=n["content"],
-                note_type=n.get("note_type", "observation"),
-                weave_feedback_id=n.get("weave_feedback_id"),
-                synced_to_weave=bool(n.get("synced_to_weave")),
-                created_at=n["created_at"],
-                updated_at=n["updated_at"],
-                created_by=n.get("created_by"),
-            )
-            for n in notes_data
-        ]
-        
-        # Fetch conversation from Weave (this may have latency)
-        conversation = await _fetch_conversation(session_id)
-        
-        return SessionDetail(
-            id=session["id"],
-            weave_session_id=session.get("weave_session_id"),
-            weave_url=session.get("weave_url"),
-            batch_id=session.get("batch_id"),
-            batch_name=session.get("batch_name"),
-            query_text=session.get("query_text"),
-            turn_count=session.get("turn_count") or 0,
-            call_count=session.get("call_count") or 0,
-            total_latency_ms=session.get("total_latency_ms") or 0.0,
-            total_input_tokens=session.get("total_input_tokens") or 0,
-            total_output_tokens=session.get("total_output_tokens") or 0,
-            total_tokens=session.get("total_tokens") or 0,
-            estimated_cost_usd=session.get("estimated_cost_usd") or 0.0,
-            primary_model=session.get("primary_model"),
-            has_error=bool(session.get("has_error")),
-            error_summary=session.get("error_summary"),
-            is_reviewed=bool(session.get("is_reviewed")),
-            reviewed_at=session.get("reviewed_at"),
-            started_at=session.get("started_at"),
-            ended_at=session.get("ended_at"),
-            conversation=conversation,
-            notes=notes,
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting session detail: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-async def _fetch_conversation(session_id: str) -> List[ConversationMessage]:
-    """
-    Fetch conversation from Weave API for a session.
-    
-    Queries all calls from Weave, filters by session ID, and processes
-    them using the conversation parsing logic in services/conversation.py.
-    """
-    try:
-        # Fetch recent calls (descending to get newest first)
-        # Then we'll sort them back to ascending order for conversation display
-        all_calls = await weave_client.query_calls(
-            limit=get_sync_query_limit(),
-            sort_field="started_at",
-            sort_direction="desc"
-        )
-        
-        # Build root-to-thread map
-        root_to_thread = {}
-        for call in all_calls:
-            call_thread_id = call.get("thread_id")
-            trace_id = call.get("trace_id")
-            if call_thread_id and trace_id:
-                if trace_id not in root_to_thread:
-                    root_to_thread[trace_id] = call_thread_id
-        
-        # Filter calls that belong to this session
-        session_calls = []
-        for call in all_calls:
-            trace_id = call.get("trace_id")
-            call_session_id = (
-                call.get("thread_id") or
-                root_to_thread.get(trace_id) or
-                call.get("summary", {}).get("session_id") or
-                trace_id
-            )
-            if call_session_id == session_id:
-                session_calls.append(call)
-        
-        # Sort by started_at
-        session_calls.sort(key=lambda c: c.get("started_at", ""))
-        
-        # Process into conversation format
-        raw_conversation = process_thread_calls(session_calls)
-        
-        # Convert to ConversationMessage models
-        conversation = []
-        for msg in raw_conversation:
-            conversation.append(ConversationMessage(
-                type=msg.get("type", "unknown"),
-                content=msg.get("content"),
-                call_id=msg.get("call_id"),
-                timestamp=msg.get("timestamp"),
-                tool_name=msg.get("tool_name"),
-                tool_input=msg.get("tool_input"),
-                tool_output=msg.get("tool_output"),
-                tool_result=msg.get("tool_result"),
-            ))
-        
-        return conversation
-        
-    except Exception as e:
-        logger.error(f"Error fetching conversation for {session_id}: {e}")
-        # Return empty conversation on error - don't fail the whole request
-        return []
-
-
-# =============================================================================
-# Session Stats Endpoint (NEW)
-# =============================================================================
+# --- Session Stats ---
 
 @router.get("/stats/summary")
 async def get_session_stats(
@@ -405,9 +268,7 @@ async def get_session_stats(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# =============================================================================
-# Filter Options Endpoints (NEW)
-# =============================================================================
+# --- Filter Options ---
 
 @router.get("/options/models")
 async def get_model_options():
@@ -458,9 +319,7 @@ async def get_filter_ranges():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# =============================================================================
-# Sync Status & Trigger Endpoints
-# =============================================================================
+# --- Sync Status & Trigger ---
 
 @router.get("/sync-status", response_model=SyncStatusResponse)
 async def get_sync_status():
@@ -530,8 +389,209 @@ async def trigger_sync(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# --- Batch Review Progress (static path: /batches/{batch_id}) ---
+
+@router.get("/batches/{batch_id}/review-progress", response_model=BatchReviewProgress)
+async def get_batch_review_progress(batch_id: str):
+    """
+    Get review progress for a specific batch.
+    
+    Returns batch-scoped metrics instead of global review progress.
+    """
+    try:
+        progress = session_repository.get_batch_review_progress(batch_id)
+        
+        if not progress:
+            raise NotFoundError("Batch")
+        
+        return BatchReviewProgress(
+            batch_id=progress["batch_id"],
+            batch_name=progress["batch_name"],
+            total_sessions=progress["total_sessions"],
+            reviewed_sessions=progress["reviewed_sessions"],
+            unreviewed_sessions=progress["unreviewed_sessions"],
+            progress_percent=progress["progress_percent"],
+            recent_reviews_24h=progress["recent_reviews_24h"],
+            last_review_at=progress.get("last_review_at"),
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # =============================================================================
-# Session Review Endpoints
+# Dynamic Routes (/{session_id} - MUST come after static routes)
+# =============================================================================
+
+# --- Session Detail ---
+
+@router.get("/{session_id}", response_model=SessionDetail)
+async def get_session_detail(session_id: str):
+    """
+    Get detailed information about a session.
+    
+    Returns:
+    - Session metadata from LOCAL DB (fast)
+    - Conversation from Weave API (may have latency)
+    - Local notes attached to session
+    """
+    try:
+        # Get session from repository
+        session = session_repository.get_session_by_id(session_id)
+        if not session:
+            raise NotFoundError("Session", session_id)
+        
+        # Get notes
+        notes_data = session_repository.list_notes(session_id)
+        notes = [
+            SessionNote(
+                id=n["id"],
+                session_id=n["session_id"],
+                call_id=n.get("call_id"),
+                content=n["content"],
+                note_type=n.get("note_type", "observation"),
+                weave_feedback_id=n.get("weave_feedback_id"),
+                synced_to_weave=bool(n.get("synced_to_weave")),
+                created_at=n["created_at"],
+                updated_at=n["updated_at"],
+                created_by=n.get("created_by"),
+            )
+            for n in notes_data
+        ]
+        
+        # Get conversation (cached if available, otherwise from Weave API)
+        cached_conversation = session.get("conversation_json")
+        conversation = await _fetch_conversation(session_id, cached_conversation)
+        
+        return SessionDetail(
+            id=session["id"],
+            weave_session_id=session.get("weave_session_id"),
+            weave_url=session.get("weave_url"),
+            batch_id=session.get("batch_id"),
+            batch_name=session.get("batch_name"),
+            query_text=session.get("query_text"),
+            turn_count=session.get("turn_count") or 0,
+            call_count=session.get("call_count") or 0,
+            total_latency_ms=session.get("total_latency_ms") or 0.0,
+            total_input_tokens=session.get("total_input_tokens") or 0,
+            total_output_tokens=session.get("total_output_tokens") or 0,
+            total_tokens=session.get("total_tokens") or 0,
+            estimated_cost_usd=session.get("estimated_cost_usd") or 0.0,
+            primary_model=session.get("primary_model"),
+            has_error=bool(session.get("has_error")),
+            error_summary=session.get("error_summary"),
+            is_reviewed=bool(session.get("is_reviewed")),
+            reviewed_at=session.get("reviewed_at"),
+            started_at=session.get("started_at"),
+            ended_at=session.get("ended_at"),
+            conversation=conversation,
+            notes=notes,
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting session detail: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+async def _fetch_conversation(session_id: str, cached_json: str | None = None) -> List[ConversationMessage]:
+    """
+    Get conversation for a session.
+    
+    First checks for cached conversation data (stored during sync).
+    Falls back to Weave API only if cache is missing.
+    
+    This optimization avoids expensive Weave API calls when viewing session details,
+    since conversation data is extracted and cached during sync.
+    """
+    # Try cached conversation first (stored during sync)
+    if cached_json:
+        try:
+            import json
+            raw_conversation = json.loads(cached_json)
+            conversation = []
+            for msg in raw_conversation:
+                conversation.append(ConversationMessage(
+                    type=msg.get("type", "unknown"),
+                    content=msg.get("content"),
+                    call_id=msg.get("call_id"),
+                    timestamp=msg.get("timestamp"),
+                    tool_name=msg.get("tool_name"),
+                    tool_input=msg.get("tool_input"),
+                    tool_output=msg.get("tool_output"),
+                    tool_result=msg.get("tool_result"),
+                ))
+            logger.debug(f"Using cached conversation for {session_id}: {len(conversation)} messages")
+            return conversation
+        except Exception as e:
+            logger.warning(f"Failed to parse cached conversation for {session_id}: {e}")
+    
+    # Fallback: Fetch from Weave API (for sessions synced before caching was added)
+    logger.debug(f"Fetching conversation from Weave for {session_id} (no cache)")
+    try:
+        # Fetch recent calls (descending to get newest first)
+        # Then we'll sort them back to ascending order for conversation display
+        all_calls = await weave_client.query_calls(
+            limit=get_sync_query_limit(),
+            sort_field="started_at",
+            sort_direction="desc"
+        )
+        
+        # Build root-to-thread map
+        root_to_thread = {}
+        for call in all_calls:
+            call_thread_id = call.get("thread_id")
+            trace_id = call.get("trace_id")
+            if call_thread_id and trace_id:
+                if trace_id not in root_to_thread:
+                    root_to_thread[trace_id] = call_thread_id
+        
+        # Filter calls that belong to this session
+        session_calls = []
+        for call in all_calls:
+            trace_id = call.get("trace_id")
+            call_session_id = (
+                call.get("thread_id") or
+                root_to_thread.get(trace_id) or
+                call.get("summary", {}).get("session_id") or
+                trace_id
+            )
+            if call_session_id == session_id:
+                session_calls.append(call)
+        
+        # Sort by started_at
+        session_calls.sort(key=lambda c: c.get("started_at", ""))
+        
+        # Process into conversation format
+        raw_conversation = process_thread_calls(session_calls)
+        
+        # Convert to ConversationMessage models
+        conversation = []
+        for msg in raw_conversation:
+            conversation.append(ConversationMessage(
+                type=msg.get("type", "unknown"),
+                content=msg.get("content"),
+                call_id=msg.get("call_id"),
+                timestamp=msg.get("timestamp"),
+                tool_name=msg.get("tool_name"),
+                tool_input=msg.get("tool_input"),
+                tool_output=msg.get("tool_output"),
+                tool_result=msg.get("tool_result"),
+            ))
+        
+        return conversation
+        
+    except Exception as e:
+        logger.error(f"Error fetching conversation for {session_id}: {e}")
+        # Return empty conversation on error - don't fail the whole request
+        return []
+
+
+# =============================================================================
+# Session Review Endpoints (dynamic routes)
 # =============================================================================
 
 @router.post("/{session_id}/mark-reviewed")
@@ -681,40 +741,6 @@ async def delete_session_note(session_id: str, note_id: str):
             raise NotFoundError("Note")
         
         return {"status": "success", "note_id": note_id}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# =============================================================================
-# Batch Review Progress Endpoint
-# =============================================================================
-
-@router.get("/batches/{batch_id}/review-progress", response_model=BatchReviewProgress)
-async def get_batch_review_progress(batch_id: str):
-    """
-    Get review progress for a specific batch.
-    
-    Returns batch-scoped metrics instead of global review progress.
-    """
-    try:
-        progress = session_repository.get_batch_review_progress(batch_id)
-        
-        if not progress:
-            raise NotFoundError("Batch")
-        
-        return BatchReviewProgress(
-            batch_id=progress["batch_id"],
-            batch_name=progress["batch_name"],
-            total_sessions=progress["total_sessions"],
-            reviewed_sessions=progress["reviewed_sessions"],
-            unreviewed_sessions=progress["unreviewed_sessions"],
-            progress_percent=progress["progress_percent"],
-            recent_reviews_24h=progress["recent_reviews_24h"],
-            last_review_at=progress.get("last_review_at"),
-        )
         
     except HTTPException:
         raise

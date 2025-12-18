@@ -164,3 +164,36 @@ export function calculateDistributionPercent(noteCount: number, totalNotes: numb
   return Math.round((noteCount / totalNotes) * 100);
 }
 
+// =============================================================================
+// Numeric Formatting (for metrics display)
+// =============================================================================
+
+/**
+ * Format token count with K/M suffixes
+ * e.g., 1500 -> "1.5K", 1500000 -> "1.5M"
+ */
+export function formatTokens(tokens: number): string {
+  if (tokens >= 1000000) return `${(tokens / 1000000).toFixed(1)}M`;
+  if (tokens >= 1000) return `${(tokens / 1000).toFixed(1)}K`;
+  return tokens.toString();
+}
+
+/**
+ * Format cost in USD with appropriate precision
+ * e.g., 0.0012 -> "$0.0012", 1.50 -> "$1.50"
+ */
+export function formatCost(cost: number): string {
+  if (cost >= 1) return `$${cost.toFixed(2)}`;
+  if (cost >= 0.01) return `$${cost.toFixed(3)}`;
+  return `$${cost.toFixed(4)}`;
+}
+
+/**
+ * Format latency in ms or seconds
+ * e.g., 500 -> "500ms", 1500 -> "1.5s"
+ */
+export function formatLatency(ms: number): string {
+  if (ms >= 1000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.round(ms)}ms`;
+}
+

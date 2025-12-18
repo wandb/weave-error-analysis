@@ -377,193 +377,8 @@ async def import_dimensions_from_agent(agent_id: str):
 
 
 # =============================================================================
-# Tuple Generation Endpoints
-# =============================================================================
-
-@router.post("/synthetic/tuples")
-async def generate_tuples(request: TupleGenerateRequest) -> List[TupleResponse]:
-    """
-    Generate dimension tuples for synthetic data using LLM.
-    
-    Uses LLM-guided generation to create realistic test case combinations.
-    """
-    from services.synthetic import SyntheticGenerator, merge_dimensions
-    
-    agent_info = await get_agent_info_for_generation(request.agent_id)
-    
-    # Merge with custom dimensions if provided
-    if request.custom_dimensions:
-        agent_info.testing_dimensions = merge_dimensions(
-            agent_info.testing_dimensions,
-            request.custom_dimensions
-        )
-    
-    if not agent_info.testing_dimensions:
-        raise HTTPException(
-            status_code=400, 
-            detail="No testing dimensions defined. Import from AGENT_INFO or add custom dimensions."
-        )
-    
-    generator = SyntheticGenerator(agent_info)
-    
-    # Use configured default if count not specified
-    count = request.count if request.count is not None else get_default_batch_size()
-    
-    tuples = await generator.generate_tuples_llm_guided(
-        n=count,
-        focus_areas=request.focus_areas
-    )
-    
-    return [
-        TupleResponse(id=t.id, values=t.values)
-        for t in tuples
-    ]
-
-
-# =============================================================================
-# Query Generation Endpoints
-# =============================================================================
-
-@router.post("/synthetic/queries")
-async def generate_queries(request: QueryGenerateRequest) -> List[QueryResponse]:
-    """
-    Generate natural language queries from dimension tuples.
-    
-    This uses LLM to convert dimension tuples into realistic user messages.
-    """
-    from services.synthetic import SyntheticGenerator, DimensionTuple
-    
-    agent_info = await get_agent_info_for_generation(request.agent_id)
-    generator = SyntheticGenerator(agent_info)
-    
-    # Convert request tuples to DimensionTuple objects
-    tuples = [
-        DimensionTuple(
-            id=f"tuple_{uuid.uuid4().hex[:12]}",
-            values=t,
-            created_at=now_iso()
-        )
-        for t in request.tuples
-    ]
-    
-    # Generate queries
-    queries = await generator.generate_queries_from_tuples(tuples)
-    
-    return [
-        QueryResponse(
-            id=q.id,
-            tuple_values=q.dimension_values,
-            query_text=q.query_text
-        )
-        for q in queries
-    ]
-
-
-@router.post("/synthetic/query-single")
-async def generate_single_query(agent_id: str, tuple_values: Dict[str, str]) -> QueryResponse:
-    """Generate a single query from a dimension tuple."""
-    from services.synthetic import SyntheticGenerator, DimensionTuple
-    
-    agent_info = await get_agent_info_for_generation(agent_id)
-    generator = SyntheticGenerator(agent_info)
-    
-    dt = DimensionTuple(
-        id=f"tuple_{uuid.uuid4().hex[:12]}",
-        values=tuple_values,
-        created_at=now_iso()
-    )
-    
-    query_text = await generator.tuple_to_query(dt)
-    
-    return QueryResponse(
-        id=f"query_{uuid.uuid4().hex[:12]}",
-        tuple_values=tuple_values,
-        query_text=query_text
-    )
-
-
-# =============================================================================
 # Batch Management Endpoints
 # =============================================================================
-
-@router.post("/synthetic/batches")
-async def create_batch(request: BatchCreateRequest) -> BatchResponse:
-    """
-    Create a new synthetic query batch.
-    
-    This generates tuples and queries in one operation using LLM, saving them to the database.
-    """
-    from services.synthetic import SyntheticGenerator
-    
-    agent_info = await get_agent_info_for_generation(request.agent_id)
-    
-    if not agent_info.testing_dimensions:
-        raise HTTPException(
-            status_code=400,
-            detail="No testing dimensions defined. Import from AGENT_INFO first."
-        )
-    
-    generator = SyntheticGenerator(agent_info)
-    
-    # Use configured default if count not specified
-    count = request.count if request.count is not None else get_default_batch_size()
-    
-    # Generate batch
-    batch = await generator.generate_batch(
-        n=count,
-        name=request.name,
-        focus_areas=request.focus_areas
-    )
-    batch.agent_id = request.agent_id
-    
-    # Save to database
-    with get_db() as conn:
-        cursor = conn.cursor()
-        
-        # Save batch
-        cursor.execute("""
-            INSERT INTO synthetic_batches (id, agent_id, name, status, query_count, generation_strategy, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (
-            batch.id,
-            batch.agent_id,
-            batch.name,
-            batch.status,
-            batch.query_count,
-            "llm_guided",
-            batch.created_at
-        ))
-        
-        # Save queries
-        for query in batch.queries:
-            cursor.execute("""
-                INSERT INTO synthetic_queries (id, batch_id, dimension_tuple, query_text, execution_status)
-                VALUES (?, ?, ?, ?, ?)
-            """, (
-                query.id,
-                batch.id,
-                json.dumps(query.dimension_values),
-                query.query_text,
-                "pending"
-            ))
-    
-    return BatchResponse(
-        id=batch.id,
-        agent_id=batch.agent_id,
-        name=batch.name,
-        status=batch.status,
-        query_count=batch.query_count,
-        created_at=batch.created_at,
-        queries=[
-            QueryResponse(
-                id=q.id,
-                tuple_values=q.dimension_values,
-                query_text=q.query_text
-            )
-            for q in batch.queries
-        ]
-    )
-
 
 @router.post("/synthetic/batches/generate-stream")
 async def create_batch_streaming(request: BatchCreateRequest):
@@ -916,53 +731,6 @@ async def delete_batch(batch_id: str):
     return {"status": "deleted", "batch_id": batch_id}
 
 
-@router.post("/synthetic/batches/{batch_id}/regenerate-query/{query_id}")
-async def regenerate_query(batch_id: str, query_id: str) -> QueryResponse:
-    """Regenerate a single query in a batch."""
-    from services.synthetic import SyntheticGenerator, DimensionTuple
-    
-    with get_db() as conn:
-        cursor = conn.cursor()
-        
-        # Get the query
-        cursor.execute("""
-            SELECT sq.*, sb.agent_id 
-            FROM synthetic_queries sq
-            JOIN synthetic_batches sb ON sq.batch_id = sb.id
-            WHERE sq.id = ? AND sq.batch_id = ?
-        """, (query_id, batch_id))
-        row = cursor.fetchone()
-        
-        if not row:
-            raise HTTPException(status_code=404, detail="Query not found")
-    
-    # Regenerate
-    agent_info = await get_agent_info_for_generation(row["agent_id"])
-    generator = SyntheticGenerator(agent_info)
-    
-    tuple_values = json.loads(row["dimension_tuple"]) if row["dimension_tuple"] else {}
-    dt = DimensionTuple(
-        id=f"tuple_{uuid.uuid4().hex[:12]}",
-        values=tuple_values,
-        created_at=now_iso()
-    )
-    
-    new_query_text = await generator.tuple_to_query(dt)
-    
-    # Update in database
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            UPDATE synthetic_queries SET query_text = ? WHERE id = ?
-        """, (new_query_text, query_id))
-    
-    return QueryResponse(
-        id=query_id,
-        tuple_values=tuple_values,
-        query_text=new_query_text
-    )
-
-
 class UpdateQueryRequest(BaseModel):
     query_text: str
 
@@ -980,34 +748,6 @@ async def update_query(query_id: str, request: UpdateQueryRequest):
             raise HTTPException(status_code=404, detail="Query not found")
     
     return {"status": "updated", "query_id": query_id, "query_text": request.query_text}
-
-
-@router.delete("/synthetic/queries/{query_id}")
-async def delete_query(query_id: str):
-    """Delete a single query from a batch."""
-    with get_db() as conn:
-        cursor = conn.cursor()
-        
-        # Get batch_id first to update count
-        cursor.execute("SELECT batch_id FROM synthetic_queries WHERE id = ?", (query_id,))
-        row = cursor.fetchone()
-        
-        if not row:
-            raise HTTPException(status_code=404, detail="Query not found")
-        
-        batch_id = row["batch_id"]
-        
-        # Delete the query
-        cursor.execute("DELETE FROM synthetic_queries WHERE id = ?", (query_id,))
-        
-        # Update the batch query count (decrement by 1 instead of recounting)
-        cursor.execute("""
-            UPDATE synthetic_batches 
-            SET query_count = query_count - 1
-            WHERE id = ?
-        """, (batch_id,))
-    
-    return {"status": "deleted", "query_id": query_id, "batch_id": batch_id}
 
 
 class BulkDeleteRequest(BaseModel):
@@ -1057,8 +797,6 @@ from fastapi.responses import StreamingResponse
 from services.batch_executor import (
     BatchExecutor,
     execute_batch,
-    get_batch_execution_status,
-    get_batch_traces,
     reset_batch_queries
 )
 
@@ -1145,30 +883,6 @@ async def execute_synthetic_batch(batch_id: str, request: ExecuteBatchRequest = 
     )
 
 
-@router.get("/synthetic/batches/{batch_id}/status")
-async def get_batch_status(batch_id: str):
-    """
-    Get the current execution status of a batch.
-    
-    Returns detailed status including per-query results.
-    """
-    try:
-        return get_batch_execution_status(batch_id)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-
-
-@router.get("/synthetic/batches/{batch_id}/traces")
-async def get_batch_traces_endpoint(batch_id: str):
-    """
-    Get all traces linked to a batch.
-    
-    Returns queries that have been executed with their trace IDs.
-    """
-    traces = get_batch_traces(batch_id)
-    return {"batch_id": batch_id, "traces": traces, "count": len(traces)}
-
-
 @router.post("/synthetic/batches/{batch_id}/reset")
 async def reset_batch(batch_id: str, only_failed: bool = False):
     """
@@ -1193,48 +907,4 @@ async def reset_batch(batch_id: str, only_failed: bool = False):
     }
 
 
-@router.post("/synthetic/batches/{batch_id}/execute-sync")
-async def execute_synthetic_batch_sync(batch_id: str, request: ExecuteBatchRequest = None):
-    """
-    Execute a batch synchronously (non-streaming).
-    
-    Returns final status when execution is complete.
-    Useful for programmatic access or testing.
-    """
-    if request is None:
-        request = ExecuteBatchRequest()
-    
-    # Get batch and agent info
-    with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT sb.*, a.endpoint_url
-            FROM synthetic_batches sb
-            JOIN agents a ON sb.agent_id = a.id
-            WHERE sb.id = ?
-        """, (batch_id,))
-        row = cursor.fetchone()
-        
-        if not row:
-            raise HTTPException(status_code=404, detail="Batch not found")
-        
-        batch_data = dict(row)
-    
-    agent_endpoint = batch_data["endpoint_url"]
-    
-    # Execute and collect final result
-    final_progress = None
-    async for progress in execute_batch(
-        agent_endpoint=agent_endpoint,
-        batch_id=batch_id,
-        timeout_per_query=request.timeout_per_query,
-        max_concurrent=request.max_concurrent,
-        batch_info=batch_data  # Pass pre-fetched data to avoid redundant query
-    ):
-        final_progress = progress
-    
-    if final_progress:
-        return final_progress.model_dump()
-    else:
-        raise HTTPException(status_code=500, detail="Execution produced no results")
 

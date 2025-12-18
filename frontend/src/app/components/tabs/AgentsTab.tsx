@@ -33,7 +33,7 @@ import {
   Settings,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
-import { Panel, Badge, NoAgentsRegistered, SelectPrompt } from "../ui";
+import { Panel, Badge, NoAgentsRegistered, SelectPrompt, ConfirmDialog } from "../ui";
 import type { AgentStats } from "../../types";
 import * as api from "../../lib/api";
 
@@ -76,6 +76,10 @@ export function AgentsTab() {
   const [playgroundRunning, setPlaygroundRunning] = useState(false);
   const [playgroundResponse, setPlaygroundResponse] = useState("");
   const [playgroundError, setPlaygroundError] = useState<string | null>(null);
+
+  // Delete confirmation dialog state
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deletingAgent, setDeletingAgent] = useState(false);
 
   const resetAgentForm = () => {
     setShowAgentForm(false);
@@ -135,8 +139,13 @@ export function AgentsTab() {
 
   const handleDeleteAgent = async () => {
     if (!selectedAgent) return;
-    if (!confirm("Are you sure you want to delete this agent?")) return;
-    await deleteAgent(selectedAgent.id);
+    setDeletingAgent(true);
+    try {
+      await deleteAgent(selectedAgent.id);
+      setDeleteConfirmOpen(false);
+    } finally {
+      setDeletingAgent(false);
+    }
   };
 
   const resetPlayground = () => {
@@ -329,7 +338,7 @@ export function AgentsTab() {
               setNewAgentInfo(selectedAgent.agent_info_raw);
               setShowAgentForm(true);
             }}
-            onDelete={handleDeleteAgent}
+            onDelete={() => setDeleteConfirmOpen(true)}
             onClose={() => setSelectedAgent(null)}
             onPlaygroundMessageChange={setPlaygroundMessage}
             onRunQuery={runAgentQuery}
@@ -356,6 +365,18 @@ export function AgentsTab() {
           )}
         </Panel>
       )}
+
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        open={deleteConfirmOpen}
+        onConfirm={handleDeleteAgent}
+        onCancel={() => setDeleteConfirmOpen(false)}
+        title="Delete Agent?"
+        message={`Are you sure you want to delete "${selectedAgent?.name || "this agent"}"? This action cannot be undone.`}
+        confirmText="Delete"
+        variant="danger"
+        loading={deletingAgent}
+      />
     </div>
   );
 }

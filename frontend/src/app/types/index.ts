@@ -166,17 +166,41 @@ export interface Agent {
   testing_dimensions_count: number;
 }
 
+/**
+ * Represents a tool/capability that an agent can use.
+ * Defined in the AGENT_INFO file and parsed by the backend.
+ */
+export interface AgentTool {
+  name: string;
+  purpose: string;
+  inputs: string;
+  outputs: string;
+}
+
+/**
+ * Represents a testing dimension for synthetic data generation.
+ * Each dimension has named values that can be combined into tuples.
+ */
+export interface TestingDimension {
+  name: string;
+  values: string[];
+  descriptions: Record<string, string> | null;
+}
+
+/**
+ * User-defined content from AGENT_INFO file.
+ * Structure varies based on what the user defines, so we keep this flexible.
+ * Common fields include: name, description, purpose, capabilities, etc.
+ */
+export type AgentInfoParsed = Record<string, unknown> | null;
+
 export interface AgentDetail extends Agent {
   agent_info_raw: string;
-  agent_info_parsed: Record<string, unknown> | null;
+  agent_info_parsed: AgentInfoParsed;
   limitations: string[];
   success_criteria: string[];
-  tools: Array<{ name: string; purpose: string; inputs: string; outputs: string }>;
-  testing_dimensions: Array<{
-    name: string;
-    values: string[];
-    descriptions: Record<string, string> | null;
-  }>;
+  tools: AgentTool[];
+  testing_dimensions: TestingDimension[];
 }
 
 export interface AgentStats {

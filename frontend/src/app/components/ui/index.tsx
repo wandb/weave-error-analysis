@@ -1,6 +1,6 @@
 "use client";
 
-import { ReactNode } from "react";
+import { ReactNode, useState, useCallback } from "react";
 import {
   RefreshCw,
   AlertTriangle,
@@ -9,23 +9,37 @@ import {
   ChevronRight,
   Check,
   Copy,
+  Loader2,
+  AlertCircle,
 } from "lucide-react";
 
 // Re-export standalone components
 export { DualRangeSlider } from "./DualRangeSlider";
 
 // ============================================================================
-// Loading States
+// Loading States - Standardized patterns for consistent UX
 // ============================================================================
 
+/**
+ * Shimmer - Animated placeholder for skeleton loading
+ */
 export function Shimmer({ className = "" }: { className?: string }) {
   return <div className={`shimmer rounded-md ${className}`} />;
 }
 
-export function LoadingSpinner({ size = 4 }: { size?: number }) {
-  return <RefreshCw className={`w-${size} h-${size} animate-spin text-gold`} />;
+/**
+ * LoadingSpinner - Consistent spinning indicator
+ * Use for inline loading states and button loading
+ */
+export function LoadingSpinner({ size = 4, className = "" }: { size?: number; className?: string }) {
+  const sizeClass = size === 3 ? "w-3 h-3" : size === 5 ? "w-5 h-5" : size === 6 ? "w-6 h-6" : "w-4 h-4";
+  return <Loader2 className={`${sizeClass} animate-spin text-gold ${className}`} />;
 }
 
+/**
+ * LoadingCards - Skeleton cards for list loading
+ * Use for initial page/list loads
+ */
 export function LoadingCards({ count = 3 }: { count?: number }) {
   return (
     <div className="space-y-2">
@@ -34,6 +48,91 @@ export function LoadingCards({ count = 3 }: { count?: number }) {
       ))}
     </div>
   );
+}
+
+/**
+ * LoadingState - Standardized loading wrapper
+ * 
+ * Usage patterns:
+ * - variant="skeleton": Initial page load - shows shimmer placeholders
+ * - variant="spinner": Refresh/fetch - shows inline spinner with optional message
+ * - variant="overlay": Action in progress - shows overlay on existing content
+ */
+interface LoadingStateProps {
+  loading: boolean;
+  children: ReactNode;
+  variant?: "skeleton" | "spinner" | "overlay";
+  skeletonCount?: number;
+  skeletonHeight?: string;
+  message?: string;
+  className?: string;
+}
+
+export function LoadingState({
+  loading,
+  children,
+  variant = "skeleton",
+  skeletonCount = 3,
+  skeletonHeight = "h-20",
+  message,
+  className = "",
+}: LoadingStateProps) {
+  if (!loading) return <>{children}</>;
+
+  switch (variant) {
+    case "skeleton":
+      return (
+        <div className={`space-y-2 ${className}`}>
+          {[...Array(skeletonCount)].map((_, i) => (
+            <Shimmer key={i} className={skeletonHeight} />
+          ))}
+        </div>
+      );
+
+    case "spinner":
+      return (
+        <div className={`flex items-center justify-center py-8 text-moon-450 ${className}`}>
+          <LoadingSpinner size={5} className="mr-2" />
+          <span>{message || "Loading..."}</span>
+        </div>
+      );
+
+    case "overlay":
+      return (
+        <div className={`relative ${className}`}>
+          {children}
+          <div className="absolute inset-0 bg-moon-900/60 flex items-center justify-center rounded-lg backdrop-blur-sm">
+            <div className="flex items-center gap-2 text-moon-50">
+              <LoadingSpinner size={5} />
+              {message && <span className="text-sm">{message}</span>}
+            </div>
+          </div>
+        </div>
+      );
+
+    default:
+      return <>{children}</>;
+  }
+}
+
+/**
+ * InlineLoading - Compact loading indicator for headers and inline use
+ */
+export function InlineLoading({ message = "Loading..." }: { message?: string }) {
+  return (
+    <span className="flex items-center gap-1.5 text-xs text-moon-450">
+      <LoadingSpinner size={3} />
+      {message}
+    </span>
+  );
+}
+
+/**
+ * ButtonLoading - Loading state for buttons
+ * Replaces button content while maintaining button dimensions
+ */
+export function ButtonLoading({ size = 4 }: { size?: number }) {
+  return <LoadingSpinner size={size} />;
 }
 
 // ============================================================================
@@ -450,5 +549,161 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps) {
       </div>
     </div>
   );
+}
+
+// ============================================================================
+// ConfirmDialog - Styled replacement for window.confirm()
+// ============================================================================
+
+type ConfirmVariant = "danger" | "warning" | "info";
+
+interface ConfirmDialogProps {
+  open: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+  title: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  variant?: ConfirmVariant;
+  loading?: boolean;
+}
+
+const variantStyles: Record<ConfirmVariant, { icon: ReactNode; buttonClass: string }> = {
+  danger: {
+    icon: <AlertCircle className="w-6 h-6 text-red-400" />,
+    buttonClass: "bg-red-500 hover:bg-red-600 text-white",
+  },
+  warning: {
+    icon: <AlertTriangle className="w-6 h-6 text-gold" />,
+    buttonClass: "bg-gold hover:bg-gold/90 text-moon-900",
+  },
+  info: {
+    icon: <AlertCircle className="w-6 h-6 text-teal" />,
+    buttonClass: "btn-primary",
+  },
+};
+
+export function ConfirmDialog({
+  open,
+  onConfirm,
+  onCancel,
+  title,
+  message,
+  confirmText = "Confirm",
+  cancelText = "Cancel",
+  variant = "danger",
+  loading = false,
+}: ConfirmDialogProps) {
+  if (!open) return null;
+
+  const { icon, buttonClass } = variantStyles[variant];
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm">
+      <div className="bg-moon-800 rounded-lg border border-moon-700 p-6 w-full max-w-sm shadow-xl">
+        <div className="flex items-start gap-4">
+          <div className="flex-shrink-0 mt-0.5">{icon}</div>
+          <div className="flex-1 min-w-0">
+            <h3 className="font-display text-lg text-moon-50 mb-2">{title}</h3>
+            <p className="text-sm text-moon-450">{message}</p>
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-3 mt-6">
+          <button
+            onClick={onCancel}
+            disabled={loading}
+            className="btn-ghost px-4 py-2 text-sm disabled:opacity-50"
+          >
+            {cancelText}
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            className={`px-4 py-2 text-sm rounded-md font-medium transition-colors flex items-center gap-2 disabled:opacity-50 ${buttonClass}`}
+          >
+            {loading && <LoadingSpinner size={3} />}
+            {confirmText}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// useConfirm Hook - Easy-to-use confirmation dialog
+// ============================================================================
+
+interface UseConfirmOptions {
+  title: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  variant?: ConfirmVariant;
+}
+
+interface UseConfirmReturn {
+  confirm: () => Promise<boolean>;
+  ConfirmDialogComponent: () => ReactNode;
+}
+
+/**
+ * useConfirm - Hook for easy confirmation dialogs
+ * 
+ * Usage:
+ * ```tsx
+ * const { confirm, ConfirmDialogComponent } = useConfirm({
+ *   title: "Delete Item?",
+ *   message: "This action cannot be undone.",
+ *   variant: "danger",
+ * });
+ * 
+ * const handleDelete = async () => {
+ *   if (await confirm()) {
+ *     // User confirmed - proceed with delete
+ *   }
+ * };
+ * 
+ * return (
+ *   <>
+ *     <button onClick={handleDelete}>Delete</button>
+ *     <ConfirmDialogComponent />
+ *   </>
+ * );
+ * ```
+ */
+export function useConfirm(options: UseConfirmOptions): UseConfirmReturn {
+  const [state, setState] = useState<{
+    open: boolean;
+    resolve: ((value: boolean) => void) | null;
+  }>({ open: false, resolve: null });
+
+  const confirm = useCallback(() => {
+    return new Promise<boolean>((resolve) => {
+      setState({ open: true, resolve });
+    });
+  }, []);
+
+  const handleConfirm = useCallback(() => {
+    state.resolve?.(true);
+    setState({ open: false, resolve: null });
+  }, [state.resolve]);
+
+  const handleCancel = useCallback(() => {
+    state.resolve?.(false);
+    setState({ open: false, resolve: null });
+  }, [state.resolve]);
+
+  const ConfirmDialogComponent = useCallback(() => (
+    <ConfirmDialog
+      open={state.open}
+      onConfirm={handleConfirm}
+      onCancel={handleCancel}
+      {...options}
+    />
+  ), [state.open, handleConfirm, handleCancel, options]);
+
+  return { confirm, ConfirmDialogComponent };
 }
 

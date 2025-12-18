@@ -20,7 +20,7 @@ import {
   Square,
   ExternalLink,
 } from "lucide-react";
-import { StatusBadge } from "../../ui";
+import { StatusBadge, ConfirmDialog } from "../../ui";
 import { formatRelativeTime } from "../../../utils/formatters";
 import type { SyntheticBatch, BatchDetail } from "../../../types";
 
@@ -241,6 +241,7 @@ export const BatchesPanel = memo(function BatchesPanel({
     new Set()
   );
   const [copiedBatchId, setCopiedBatchId] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const copyBatchId = (batchId: string) => {
     navigator.clipboard.writeText(batchId);
@@ -249,18 +250,11 @@ export const BatchesPanel = memo(function BatchesPanel({
   };
 
   const handleDeleteSelectedBatches = async () => {
-    if (selectedBatchIds.size === 0) return;
-    if (
-      !confirm(
-        `Delete ${selectedBatchIds.size} selected batches and all their queries?`
-      )
-    )
-      return;
-
-    for (const batchId of selectedBatchIds) {
+    Array.from(selectedBatchIds).forEach((batchId) => {
       onDeleteBatch(batchId);
-    }
+    });
     setSelectedBatchIds(new Set());
+    setShowDeleteConfirm(false);
   };
 
   return (
@@ -314,7 +308,7 @@ export const BatchesPanel = memo(function BatchesPanel({
                 All
               </label>
               <button
-                onClick={handleDeleteSelectedBatches}
+                onClick={() => setShowDeleteConfirm(true)}
                 className="text-xs px-2 py-1 rounded flex items-center gap-1 text-red-400 bg-red-500/10"
               >
                 <Trash2 className="w-3 h-3" />
@@ -366,6 +360,17 @@ export const BatchesPanel = memo(function BatchesPanel({
           )}
         </div>
       )}
+      
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        onConfirm={handleDeleteSelectedBatches}
+        onCancel={() => setShowDeleteConfirm(false)}
+        title="Delete Selected Batches?"
+        message={`Are you sure you want to delete ${selectedBatchIds.size} selected batches and all their queries? This action cannot be undone.`}
+        confirmText="Delete"
+        variant="danger"
+      />
     </div>
   );
 });

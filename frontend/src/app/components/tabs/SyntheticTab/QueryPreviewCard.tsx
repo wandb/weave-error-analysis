@@ -55,6 +55,7 @@ export const QueryPreviewCard = memo(function QueryPreviewCard({
   onViewInThreads,
 }: QueryPreviewCardProps) {
   const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState(query.query_text); // Controlled input for editing
   const [copiedQueryId, setCopiedQueryId] = useState(false);
 
   const isExecuted =
@@ -135,8 +136,8 @@ export const QueryPreviewCard = memo(function QueryPreviewCard({
           {isEditing ? (
             <div className="space-y-2">
               <textarea
-                defaultValue={query.query_text}
-                id={`textarea-${query.id}`}
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
                 rows={4}
                 autoFocus
                 className="w-full px-3 py-2 rounded text-sm bg-moon-900 border border-gold text-moon-50"
@@ -144,10 +145,7 @@ export const QueryPreviewCard = memo(function QueryPreviewCard({
               <div className="flex gap-2">
                 <button
                   onClick={() => {
-                    const textarea = document.getElementById(
-                      `textarea-${query.id}`
-                    ) as HTMLTextAreaElement;
-                    onEdit(textarea?.value || query.query_text);
+                    onEdit(editText);
                     setIsEditing(false);
                   }}
                   className="text-xs px-3 py-1.5 rounded font-medium bg-gold text-moon-900"
@@ -155,7 +153,10 @@ export const QueryPreviewCard = memo(function QueryPreviewCard({
                   SAVE
                 </button>
                 <button
-                  onClick={() => setIsEditing(false)}
+                  onClick={() => {
+                    setEditText(query.query_text); // Reset to original on cancel
+                    setIsEditing(false);
+                  }}
                   className="text-xs px-3 py-1.5 rounded bg-moon-700 text-moon-450"
                 >
                   CANCEL

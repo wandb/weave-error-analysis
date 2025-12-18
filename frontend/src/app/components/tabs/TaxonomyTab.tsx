@@ -38,7 +38,7 @@ import {
   getStatusIcon,
   calculateDistributionPercent,
 } from "../../utils/formatters";
-import { Panel, PanelHeader, Badge, ProgressBar, Modal, StatusBadge } from "../ui";
+import { Panel, PanelHeader, Badge, ProgressBar, Modal, StatusBadge, ConfirmDialog } from "../ui";
 import { EditPromptButton } from "../PromptEditDrawer";
 import { BatchSaturationCharts } from "../BatchSaturationCharts";
 import type { TaxonomyNote, AISuggestion, FailureMode, FailureModeStatus } from "../../types";
@@ -79,6 +79,9 @@ export function TaxonomyTab() {
   const [newModeSeverity, setNewModeSeverity] = useState("medium");
   const [copiedTaxonomy, setCopiedTaxonomy] = useState(false);
   const [copiedModeId, setCopiedModeId] = useState<string | null>(null);
+  
+  // Delete confirmation state
+  const [deletingModeId, setDeletingModeId] = useState<string | null>(null);
 
   // Status filter
   const [statusFilter, setStatusFilter] = useState<FailureModeStatus | "all">("all");
@@ -504,11 +507,7 @@ export function TaxonomyTab() {
                     saving={saving}
                     onToggle={() => toggleModeExpanded(mode.id)}
                     onCopy={() => copySingleModeToClipboard(mode)}
-                    onDelete={() => {
-                      if (confirm("Delete this failure mode? Notes will be moved to uncategorized.")) {
-                        deleteFailureMode(mode.id);
-                      }
-                    }}
+                    onDelete={() => setDeletingModeId(mode.id)}
                     onStatusChange={(status) => handleStatusUpdate(mode.id, status)}
                     onStartEdit={() => startEditing(mode)}
                     onCancelEdit={cancelEditing}
@@ -926,6 +925,22 @@ export function TaxonomyTab() {
           </div>
         </div>
       )}
+      
+      {/* Delete Failure Mode Confirmation Dialog */}
+      <ConfirmDialog
+        open={!!deletingModeId}
+        onConfirm={() => {
+          if (deletingModeId) {
+            deleteFailureMode(deletingModeId);
+            setDeletingModeId(null);
+          }
+        }}
+        onCancel={() => setDeletingModeId(null)}
+        title="Delete Failure Mode?"
+        message="Are you sure you want to delete this failure mode? Notes will be moved to uncategorized. This action cannot be undone."
+        confirmText="Delete"
+        variant="danger"
+      />
     </div>
   );
 }

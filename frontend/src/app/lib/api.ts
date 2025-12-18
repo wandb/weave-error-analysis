@@ -14,6 +14,7 @@ import type {
   TestConnectionResult,
   SessionDetail,
   SessionListResponse,
+  SessionStats,
   SyncStatus,
   BatchReviewProgress,
   SessionFilters,
@@ -48,6 +49,141 @@ export class ApiError extends Error {
   }
 }
 
+// =============================================================================
+// Request Deduplication & Caching
+// =============================================================================
+
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+  expiresAt: number;
+}
+
+interface PendingRequest<T> {
+  promise: Promise<T>;
+  abortController: AbortController;
+}
+
+/**
+ * Request cache for GET requests.
+ * - Deduplicates concurrent identical requests
+ * - Caches responses for a configurable TTL
+ * - Supports manual cache invalidation
+ */
+class RequestCache {
+  private cache = new Map<string, CacheEntry<unknown>>();
+  private pending = new Map<string, PendingRequest<unknown>>();
+  private defaultTTL = 5000; // 5 seconds default cache
+
+  /**
+   * Get or fetch data with deduplication and caching
+   */
+  async getOrFetch<T>(
+    key: string,
+    fetcher: (signal: AbortSignal) => Promise<T>,
+    options: { ttl?: number; skipCache?: boolean } = {}
+  ): Promise<T> {
+    const { ttl = this.defaultTTL, skipCache = false } = options;
+
+    // Check cache first (unless skipped)
+    if (!skipCache) {
+      const cached = this.cache.get(key) as CacheEntry<T> | undefined;
+      if (cached && Date.now() < cached.expiresAt) {
+        logger.debug("cache.hit", { key });
+        return cached.data;
+      }
+    }
+
+    // Check for pending request (deduplication)
+    const pendingRequest = this.pending.get(key) as PendingRequest<T> | undefined;
+    if (pendingRequest) {
+      logger.debug("request.deduplicated", { key });
+      return pendingRequest.promise;
+    }
+
+    // Create new request with AbortController
+    const abortController = new AbortController();
+    const promise = fetcher(abortController.signal)
+      .then((data) => {
+        // Cache successful response
+        this.cache.set(key, {
+          data,
+          timestamp: Date.now(),
+          expiresAt: Date.now() + ttl,
+        });
+        return data;
+      })
+      .finally(() => {
+        // Remove from pending
+        this.pending.delete(key);
+      });
+
+    this.pending.set(key, { promise, abortController });
+    return promise;
+  }
+
+  /**
+   * Invalidate cache entries matching a pattern
+   */
+  invalidate(pattern?: string | RegExp): void {
+    if (!pattern) {
+      this.cache.clear();
+      logger.debug("cache.cleared");
+      return;
+    }
+
+    const regex = typeof pattern === "string" ? new RegExp(pattern) : pattern;
+    const keysToDelete: string[] = [];
+    this.cache.forEach((_, key) => {
+      if (regex.test(key)) {
+        keysToDelete.push(key);
+      }
+    });
+    keysToDelete.forEach((key) => this.cache.delete(key));
+    logger.debug("cache.invalidated", { pattern: pattern.toString() });
+  }
+
+  /**
+   * Cancel pending requests matching a pattern
+   */
+  cancelPending(pattern?: string | RegExp): void {
+    if (!pattern) {
+      this.pending.forEach(({ abortController }) => {
+        abortController.abort();
+      });
+      this.pending.clear();
+      return;
+    }
+
+    const regex = typeof pattern === "string" ? new RegExp(pattern) : pattern;
+    const keysToDelete: string[] = [];
+    this.pending.forEach(({ abortController }, key) => {
+      if (regex.test(key)) {
+        abortController.abort();
+        keysToDelete.push(key);
+      }
+    });
+    keysToDelete.forEach((key) => this.pending.delete(key));
+  }
+
+  /**
+   * Get cache statistics for debugging
+   */
+  getStats(): { cacheSize: number; pendingCount: number } {
+    return {
+      cacheSize: this.cache.size,
+      pendingCount: this.pending.size,
+    };
+  }
+}
+
+// Global cache instance
+export const requestCache = new RequestCache();
+
+// =============================================================================
+// API Call Wrapper with Deduplication
+// =============================================================================
+
 /**
  * Wrapper for fetch that consistently handles errors.
  * Throws ApiError for non-ok responses instead of silently returning.
@@ -62,6 +198,49 @@ async function apiCall<T>(url: string, options?: RequestInit): Promise<T> {
   }
   
   return response.json();
+}
+
+/**
+ * Cached GET request with deduplication.
+ * Use this for read-only endpoints that can be cached.
+ * 
+ * @param url - API endpoint
+ * @param options - Cache options (ttl in ms, skipCache to bypass)
+ */
+async function cachedGet<T>(
+  url: string,
+  options: { ttl?: number; skipCache?: boolean } = {}
+): Promise<T> {
+  return requestCache.getOrFetch<T>(
+    url,
+    async (signal) => {
+      const response = await fetch(url, { signal });
+      
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({ detail: "Request failed" }));
+        const message = errorBody.detail || errorBody.message || `HTTP ${response.status}`;
+        throw new ApiError(response.status, message, url);
+      }
+      
+      return response.json();
+    },
+    options
+  );
+}
+
+/**
+ * Invalidate cache for specific patterns after mutations.
+ * Call after POST/PUT/DELETE operations that affect cached data.
+ */
+export function invalidateCache(pattern?: string | RegExp): void {
+  requestCache.invalidate(pattern);
+}
+
+/**
+ * Cancel pending requests when component unmounts or user navigates away.
+ */
+export function cancelPendingRequests(pattern?: string | RegExp): void {
+  requestCache.cancelPending(pattern);
 }
 
 /**
@@ -84,11 +263,21 @@ export function getBackendUrl(): string {
 }
 
 // ============================================================================
+// Cache TTL Constants
+// ============================================================================
+
+const CACHE_TTL = {
+  SHORT: 5_000,      // 5 seconds - for frequently changing data
+  MEDIUM: 30_000,    // 30 seconds - for moderately stable data
+  LONG: 60_000,      // 1 minute - for stable reference data
+} as const;
+
+// ============================================================================
 // Feedback API (used by header stats)
 // ============================================================================
 
 export async function fetchFeedbackSummary(): Promise<FeedbackSummary> {
-  return apiCall(`${API_BASE}/feedback-summary`);
+  return cachedGet(`${API_BASE}/feedback-summary`, { ttl: CACHE_TTL.SHORT });
 }
 
 // Note: fetchAnnotationProgress was removed - use session stats or batch review progress instead
@@ -98,11 +287,11 @@ export async function fetchFeedbackSummary(): Promise<FeedbackSummary> {
 // ============================================================================
 
 export async function fetchAgents(): Promise<Agent[]> {
-  return apiCall(`${API_BASE}/agents`);
+  return cachedGet(`${API_BASE}/agents`, { ttl: CACHE_TTL.MEDIUM });
 }
 
 export async function fetchAgentDetail(agentId: string): Promise<AgentDetail> {
-  return apiCall(`${API_BASE}/agents/${agentId}`);
+  return cachedGet(`${API_BASE}/agents/${agentId}`, { ttl: CACHE_TTL.SHORT });
 }
 
 export async function testAgentConnection(agentId: string): Promise<ConnectionTestResult> {
@@ -114,7 +303,7 @@ export async function createAgent(
   endpointUrl: string,
   agentInfoContent: string
 ): Promise<Agent> {
-  return apiCall(`${API_BASE}/agents`, {
+  const result = await apiCall<Agent>(`${API_BASE}/agents`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -123,21 +312,26 @@ export async function createAgent(
       agent_info_content: agentInfoContent,
     }),
   });
+  invalidateCache(/\/agents/);
+  return result;
 }
 
 export async function updateAgent(
   agentId: string,
   updates: { name?: string; endpoint_url?: string; agent_info_content?: string }
 ): Promise<Agent> {
-  return apiCall(`${API_BASE}/agents/${agentId}`, {
+  const result = await apiCall<Agent>(`${API_BASE}/agents/${agentId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(updates),
   });
+  invalidateCache(/\/agents/);
+  return result;
 }
 
 export async function deleteAgent(agentId: string): Promise<void> {
   await apiCall(`${API_BASE}/agents/${agentId}`, { method: "DELETE" });
+  invalidateCache(/\/agents/);
 }
 
 export async function getAgentInfoTemplate(name: string = "My Agent"): Promise<string> {
@@ -213,7 +407,7 @@ export async function resetDatabase(
 // ============================================================================
 
 export async function fetchTaxonomy(): Promise<Taxonomy> {
-  return apiCall(`${API_BASE}/taxonomy`);
+  return cachedGet(`${API_BASE}/taxonomy`, { ttl: CACHE_TTL.SHORT });
 }
 
 export async function syncNotesFromWeave(): Promise<{ synced: number }> {
@@ -304,7 +498,7 @@ export async function createFailureMode(
   severity: string,
   suggestedFix?: string
 ): Promise<{ id: string }> {
-  return apiCall(`${API_BASE}/taxonomy/failure-modes`, {
+  const result = await apiCall<{ id: string }>(`${API_BASE}/taxonomy/failure-modes`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -314,10 +508,13 @@ export async function createFailureMode(
       suggested_fix: suggestedFix,
     }),
   });
+  invalidateCache(/\/taxonomy/);
+  return result;
 }
 
 export async function deleteFailureMode(modeId: string): Promise<void> {
   await apiCall(`${API_BASE}/taxonomy/failure-modes/${modeId}`, { method: "DELETE" });
+  invalidateCache(/\/taxonomy/);
 }
 
 export async function updateFailureMode(
@@ -330,22 +527,26 @@ export async function updateFailureMode(
     status?: FailureModeStatus;
   }
 ): Promise<FailureMode> {
-  return apiCall(`${API_BASE}/taxonomy/failure-modes/${modeId}`, {
+  const result = await apiCall<FailureMode>(`${API_BASE}/taxonomy/failure-modes/${modeId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(updates),
   });
+  invalidateCache(/\/taxonomy/);
+  return result;
 }
 
 export async function updateFailureModeStatus(
   modeId: string,
   status: FailureModeStatus
 ): Promise<FailureMode> {
-  return apiCall(`${API_BASE}/taxonomy/failure-modes/${modeId}/status`, {
+  const result = await apiCall<FailureMode>(`${API_BASE}/taxonomy/failure-modes/${modeId}/status`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status }),
   });
+  invalidateCache(/\/taxonomy/);
+  return result;
 }
 
 export async function mergeFailureModes(
@@ -354,7 +555,7 @@ export async function mergeFailureModes(
   newName?: string,
   newDescription?: string
 ): Promise<FailureMode> {
-  return apiCall(`${API_BASE}/taxonomy/failure-modes/merge`, {
+  const result = await apiCall<FailureMode>(`${API_BASE}/taxonomy/failure-modes/merge`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -364,6 +565,8 @@ export async function mergeFailureModes(
       new_description: newDescription,
     }),
   });
+  invalidateCache(/\/taxonomy/);
+  return result;
 }
 
 // Batch Categorization API
@@ -424,7 +627,7 @@ export async function batchApplyCategories(
 // ============================================================================
 
 export async function fetchDimensions(agentId: string): Promise<Dimension[]> {
-  return apiCall(`${API_BASE}/agents/${agentId}/dimensions`);
+  return cachedGet(`${API_BASE}/agents/${agentId}/dimensions`, { ttl: CACHE_TTL.MEDIUM });
 }
 
 export async function importDimensions(
@@ -445,24 +648,28 @@ export async function saveDimension(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, values }),
   });
+  invalidateCache(new RegExp(`/agents/${agentId}/dimensions`));
 }
 
 export async function deleteDimension(agentId: string, dimName: string): Promise<void> {
   await apiCall(`${API_BASE}/agents/${agentId}/dimensions/${dimName}`, {
     method: "DELETE",
   });
+  invalidateCache(new RegExp(`/agents/${agentId}/dimensions`));
 }
 
 export async function fetchBatches(agentId: string): Promise<SyntheticBatch[]> {
-  return apiCall(`${API_BASE}/synthetic/batches?agent_id=${agentId}`);
+  return cachedGet(`${API_BASE}/synthetic/batches?agent_id=${agentId}`, { ttl: CACHE_TTL.SHORT });
 }
 
 export async function fetchBatchDetail(batchId: string): Promise<BatchDetail> {
-  return apiCall(`${API_BASE}/synthetic/batches/${batchId}`);
+  return cachedGet(`${API_BASE}/synthetic/batches/${batchId}`, { ttl: CACHE_TTL.SHORT });
 }
 
 export async function deleteBatch(batchId: string): Promise<void> {
   await apiCall(`${API_BASE}/synthetic/batches/${batchId}`, { method: "DELETE" });
+  invalidateCache(/\/synthetic\/batches/);
+  invalidateCache(/\/sessions/);
 }
 
 export async function resetBatch(batchId: string, onlyFailed: boolean = false): Promise<void> {
@@ -542,12 +749,12 @@ export async function* streamSSE(
 // ============================================================================
 
 export async function fetchSettingsGrouped(): Promise<SettingsGroup[]> {
-  const data = await apiCall<{ groups: SettingsGroup[] }>(`${API_BASE}/settings/grouped`);
+  const data = await cachedGet<{ groups: SettingsGroup[] }>(`${API_BASE}/settings/grouped`, { ttl: CACHE_TTL.LONG });
   return data.groups;
 }
 
 export async function fetchConfigStatus(): Promise<ConfigStatus> {
-  return apiCall(`${API_BASE}/settings/status`);
+  return cachedGet(`${API_BASE}/settings/status`, { ttl: CACHE_TTL.MEDIUM });
 }
 
 export async function updateSetting(key: string, value: string): Promise<void> {
@@ -559,6 +766,7 @@ export async function updateSetting(key: string, value: string): Promise<void> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value }),
     });
+    invalidateCache(/\/settings/);
     logger.info("setting.update_complete", { key });
   } catch (error) {
     logger.error("setting.update_failed", { key, error: error instanceof Error ? error.message : "Unknown error" });
@@ -572,10 +780,12 @@ export async function bulkUpdateSettings(settings: Record<string, string>): Prom
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ settings }),
   });
+  invalidateCache(/\/settings/);
 }
 
 export async function resetSetting(key: string): Promise<void> {
   await apiCall(`${API_BASE}/settings/${key}`, { method: "DELETE" });
+  invalidateCache(/\/settings/);
 }
 
 export async function testLLMConnection(): Promise<TestConnectionResult> {
@@ -588,7 +798,6 @@ export async function testLLMConnection(): Promise<TestConnectionResult> {
   logger.info("llm.test_complete", { 
     success: result.success, 
     model: result.model,
-    latency_ms: result.latency_ms 
   });
   
   return result;
@@ -672,10 +881,14 @@ export async function markSessionReviewed(sessionId: string, notes?: string): Pr
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ notes }),
   });
+  invalidateCache(new RegExp(`/sessions/${sessionId}`));
+  invalidateCache(/\/sessions\?/); // Invalidate list queries
 }
 
 export async function unmarkSessionReviewed(sessionId: string): Promise<void> {
   await apiCall(`${API_BASE}/sessions/${sessionId}/mark-reviewed`, { method: "DELETE" });
+  invalidateCache(new RegExp(`/sessions/${sessionId}`));
+  invalidateCache(/\/sessions\?/);
 }
 
 export async function fetchSessionNotes(sessionId: string): Promise<SessionDetail["notes"]> {
@@ -704,15 +917,15 @@ export async function fetchBatchReviewProgress(batchId: string): Promise<BatchRe
 }
 
 export async function fetchModelOptions(): Promise<{ models: string[] }> {
-  return apiCall(`${API_BASE}/sessions/options/models`);
+  return cachedGet(`${API_BASE}/sessions/options/models`, { ttl: CACHE_TTL.LONG });
 }
 
 export async function fetchBatchOptions(): Promise<{ batches: { id: string; name: string }[] }> {
-  return apiCall(`${API_BASE}/sessions/options/batches`);
+  return cachedGet(`${API_BASE}/sessions/options/batches`, { ttl: CACHE_TTL.MEDIUM });
 }
 
 export async function fetchFilterRanges(): Promise<FilterRanges> {
-  return apiCall(`${API_BASE}/sessions/options/filter-ranges`);
+  return cachedGet(`${API_BASE}/sessions/options/filter-ranges`, { ttl: CACHE_TTL.MEDIUM });
 }
 
 // ============================================================================
@@ -857,15 +1070,15 @@ import type {
 } from "../types";
 
 export async function fetchPrompts(): Promise<PromptsListResponse> {
-  return apiCall(`${API_BASE}/prompts`);
+  return cachedGet(`${API_BASE}/prompts`, { ttl: CACHE_TTL.LONG });
 }
 
 export async function fetchPromptsByFeature(feature: string): Promise<{ prompts: PromptConfig[] }> {
-  return apiCall(`${API_BASE}/prompts/by-feature/${feature}`);
+  return cachedGet(`${API_BASE}/prompts/by-feature/${feature}`, { ttl: CACHE_TTL.LONG });
 }
 
 export async function fetchPrompt(promptId: string): Promise<PromptConfig> {
-  return apiCall(`${API_BASE}/prompts/${promptId}`);
+  return cachedGet(`${API_BASE}/prompts/${promptId}`, { ttl: CACHE_TTL.MEDIUM });
 }
 
 export async function updatePrompt(
@@ -882,15 +1095,19 @@ export async function updatePrompt(
   if (llmModel !== undefined) body.llm_model = llmModel;
   if (llmTemperature !== undefined) body.llm_temperature = llmTemperature;
   
-  return apiCall(`${API_BASE}/prompts/${promptId}`, {
+  const result = await apiCall<PromptConfig>(`${API_BASE}/prompts/${promptId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  invalidateCache(/\/prompts/);
+  return result;
 }
 
 export async function resetPrompt(promptId: string): Promise<PromptConfig> {
-  return apiCall(`${API_BASE}/prompts/${promptId}/reset`, { method: "POST" });
+  const result = await apiCall<PromptConfig>(`${API_BASE}/prompts/${promptId}/reset`, { method: "POST" });
+  invalidateCache(/\/prompts/);
+  return result;
 }
 
 export async function fetchPromptVersions(promptId: string): Promise<PromptVersionsResponse> {

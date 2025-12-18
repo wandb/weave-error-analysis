@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import type { Dimension } from "../../../types";
 import * as api from "../../../lib/api";
+import { ConfirmDialog } from "../../ui";
 
 // ============================================================================
 // Types
@@ -56,6 +57,9 @@ export const DimensionsPanel = memo(function DimensionsPanel({
   const [newDimensionValues, setNewDimensionValues] = useState("");
   const [showAddDimension, setShowAddDimension] = useState(false);
   const [showImportHelp, setShowImportHelp] = useState(false);
+  
+  // Delete confirmation state
+  const [deletingDimension, setDeletingDimension] = useState<string | null>(null);
 
   // ========== HANDLERS ==========
 
@@ -82,12 +86,13 @@ export const DimensionsPanel = memo(function DimensionsPanel({
   };
 
   const handleDeleteDimension = async (dimName: string) => {
-    if (!confirm(`Delete dimension "${dimName}"?`)) return;
     try {
       await api.deleteDimension(agentId, dimName);
       await onDimensionsChanged(agentId);
     } catch (error) {
       console.error("Error deleting dimension:", error);
+    } finally {
+      setDeletingDimension(null);
     }
   };
 
@@ -270,7 +275,7 @@ export const DimensionsPanel = memo(function DimensionsPanel({
                         <Edit3 className="w-3.5 h-3.5" />
                       </button>
                       <button
-                        onClick={() => handleDeleteDimension(dim.name)}
+                        onClick={() => setDeletingDimension(dim.name)}
                         className="p-1.5 rounded transition-colors text-red-400 hover:text-red-300"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
@@ -322,6 +327,17 @@ export const DimensionsPanel = memo(function DimensionsPanel({
           </div>
         </div>
       )}
+      
+      {/* Delete Confirmation Dialog */}
+      <ConfirmDialog
+        open={!!deletingDimension}
+        onConfirm={() => deletingDimension && handleDeleteDimension(deletingDimension)}
+        onCancel={() => setDeletingDimension(null)}
+        title="Delete Dimension?"
+        message={`Are you sure you want to delete the dimension "${deletingDimension}"? This action cannot be undone.`}
+        confirmText="Delete"
+        variant="danger"
+      />
     </div>
   );
 });

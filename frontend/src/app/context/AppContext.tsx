@@ -30,6 +30,7 @@ import {
   useState,
   useCallback,
   useEffect,
+  useRef,
   ReactNode,
 } from "react";
 import type {
@@ -515,6 +516,9 @@ function AgentProviderWithSynthetic({ children }: { children: ReactNode }) {
 
 /**
  * Handles tab-based data loading effects
+ * 
+ * Uses refs to track "has fetched" state instead of checking array lengths,
+ * avoiding stale closure issues with useEffect dependencies.
  */
 function TabEffects({ children }: { children: ReactNode }) {
   const core = useContext(CoreAppContext);
@@ -522,6 +526,9 @@ function TabEffects({ children }: { children: ReactNode }) {
   const taxonomy = useTaxonomy();
   const agent = useAgent();
   const synthetic = useSynthetic();
+  
+  // Track which agent's synthetic data has been fetched (prevents stale dependency on array length)
+  const fetchedAgentIdRef = useRef<string | null>(null);
   
   // Load data when switching tabs
   useEffect(() => {
@@ -534,12 +541,23 @@ function TabEffects({ children }: { children: ReactNode }) {
     } else if (core.activeTab === "taxonomy") {
       taxonomy.fetchTaxonomy();
     } else if (core.activeTab === "synthetic" && agent.selectedAgent) {
-      // Load dimensions and batches if not already loaded
-      if (synthetic.dimensions.length === 0 || synthetic.syntheticBatches.length === 0) {
+      // Only fetch if we haven't already fetched for this agent
+      const needsFetch = fetchedAgentIdRef.current !== agent.selectedAgent.id;
+      if (needsFetch) {
+        fetchedAgentIdRef.current = agent.selectedAgent.id;
         synthetic.loadAgentData(agent.selectedAgent.id);
       }
     }
-  }, [core?.activeTab, agent.selectedAgent?.id]);
+  }, [
+    core?.activeTab,
+    agent.selectedAgent?.id,
+    session.fetchSessions,
+    session.refreshSyncStatus,
+    session.fetchFilterRanges,
+    taxonomy.fetchTaxonomy,
+    synthetic.loadAgentData,
+    agent.selectedAgent,
+  ]);
   
   return <>{children}</>;
 }

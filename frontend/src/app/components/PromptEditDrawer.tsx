@@ -17,7 +17,7 @@ import {
   ChevronUp,
   Cpu,
 } from "lucide-react";
-import { Badge, LoadingSpinner } from "./ui";
+import { Badge, LoadingSpinner, ConfirmDialog } from "./ui";
 import * as api from "../lib/api";
 import type { PromptConfig, PromptVersionsResponse, PromptVersion } from "../types";
 
@@ -71,6 +71,11 @@ export function PromptEditDrawer({
 
   // Variable insertion helpers
   const [copiedVar, setCopiedVar] = useState<string | null>(null);
+
+  // Confirmation dialogs state
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
+  const [pendingSwitchVersion, setPendingSwitchVersion] = useState<PromptVersion | null>(null);
 
   // Load prompt data when drawer opens
   useEffect(() => {
@@ -196,10 +201,8 @@ export function PromptEditDrawer({
     }
   };
 
-  const handleReset = async () => {
-    if (!confirm("Reset this prompt to its default version? Your changes will be lost.")) {
-      return;
-    }
+  const handleResetConfirmed = async () => {
+    setShowResetConfirm(false);
     setSaving(true);
     setError(null);
     try {
@@ -223,6 +226,10 @@ export function PromptEditDrawer({
       setSaving(false);
     }
   };
+  
+  const handleReset = () => {
+    setShowResetConfirm(true);
+  };
 
   const handleCopyVariable = async (variable: string) => {
     const varText = `{${variable}}`;
@@ -235,13 +242,8 @@ export function PromptEditDrawer({
     }
   };
 
-  const handleSwitchVersion = async (version: PromptVersion) => {
-    if (isPromptDirty) {
-      if (!confirm("You have unsaved changes. Switching versions will discard them. Continue?")) {
-        return;
-      }
-    }
-    
+  const handleSwitchVersionConfirmed = async (version: PromptVersion) => {
+    setPendingSwitchVersion(null);
     setSwitchingVersion(true);
     setError(null);
     try {
@@ -266,14 +268,17 @@ export function PromptEditDrawer({
       setSwitchingVersion(false);
     }
   };
-
-  const handleClose = async () => {
-    // Only confirm if there are unsaved PROMPT changes (not LLM config)
+  
+  const handleSwitchVersion = (version: PromptVersion) => {
     if (isPromptDirty) {
-      if (!confirm("You have unsaved prompt changes. Discard them?")) {
-        return;
-      }
+      setPendingSwitchVersion(version);
+    } else {
+      handleSwitchVersionConfirmed(version);
     }
+  };
+
+  const handleCloseConfirmed = async () => {
+    setShowDiscardConfirm(false);
     
     // Save LLM config silently if it changed (no version creation)
     if (isLlmConfigDirty) {
@@ -281,6 +286,15 @@ export function PromptEditDrawer({
     }
     
     onClose();
+  };
+  
+  const handleClose = () => {
+    // Only confirm if there are unsaved PROMPT changes (not LLM config)
+    if (isPromptDirty) {
+      setShowDiscardConfirm(true);
+    } else {
+      handleCloseConfirmed();
+    }
   };
 
   // Handle escape key
@@ -517,6 +531,39 @@ export function PromptEditDrawer({
           }
         }
       `}</style>
+      
+      {/* Reset Confirmation Dialog */}
+      <ConfirmDialog
+        open={showResetConfirm}
+        onConfirm={handleResetConfirmed}
+        onCancel={() => setShowResetConfirm(false)}
+        title="Reset Prompt?"
+        message="Reset this prompt to its default version? Your changes will be lost."
+        confirmText="Reset"
+        variant="warning"
+      />
+      
+      {/* Discard Changes Confirmation Dialog */}
+      <ConfirmDialog
+        open={showDiscardConfirm}
+        onConfirm={handleCloseConfirmed}
+        onCancel={() => setShowDiscardConfirm(false)}
+        title="Discard Changes?"
+        message="You have unsaved prompt changes. Discard them?"
+        confirmText="Discard"
+        variant="warning"
+      />
+      
+      {/* Switch Version Confirmation Dialog */}
+      <ConfirmDialog
+        open={!!pendingSwitchVersion}
+        onConfirm={() => pendingSwitchVersion && handleSwitchVersionConfirmed(pendingSwitchVersion)}
+        onCancel={() => setPendingSwitchVersion(null)}
+        title="Switch Version?"
+        message="You have unsaved changes. Switching versions will discard them. Continue?"
+        confirmText="Switch"
+        variant="warning"
+      />
     </>
   );
 }

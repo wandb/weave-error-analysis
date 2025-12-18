@@ -114,7 +114,7 @@ export async function createAgent(
   endpointUrl: string,
   agentInfoContent: string
 ): Promise<Agent> {
-  const response = await fetch(`${API_BASE}/agents`, {
+  return apiCall(`${API_BASE}/agents`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -123,49 +123,30 @@ export async function createAgent(
       agent_info_content: agentInfoContent,
     }),
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to create agent");
-  }
-
-  return response.json();
 }
 
 export async function updateAgent(
   agentId: string,
   updates: { name?: string; endpoint_url?: string; agent_info_content?: string }
 ): Promise<Agent> {
-  const response = await fetch(`${API_BASE}/agents/${agentId}`, {
+  return apiCall(`${API_BASE}/agents/${agentId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(updates),
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to update agent");
-  }
-
-  return response.json();
 }
 
 export async function deleteAgent(agentId: string): Promise<void> {
-  await fetch(`${API_BASE}/agents/${agentId}`, { method: "DELETE" });
+  await apiCall(`${API_BASE}/agents/${agentId}`, { method: "DELETE" });
 }
 
 export async function getAgentInfoTemplate(name: string = "My Agent"): Promise<string> {
-  const response = await fetch(`${API_BASE}/agents/template?name=${encodeURIComponent(name)}`);
-  const data = await response.json();
+  const data = await apiCall<{ template: string }>(`${API_BASE}/agents/template?name=${encodeURIComponent(name)}`);
   return data.template;
 }
 
 export async function fetchAgentStats(agentId: string): Promise<AgentStats> {
-  const response = await fetch(`${API_BASE}/agents/${agentId}/stats`);
-  if (!response.ok) {
-    throw new Error("Failed to fetch agent stats");
-  }
-  return response.json();
+  return apiCall(`${API_BASE}/agents/${agentId}/stats`);
 }
 
 // ============================================================================
@@ -187,30 +168,19 @@ export interface ExampleAgentStartResult {
 }
 
 export async function getExampleAgentStatus(): Promise<ExampleAgentStatus> {
-  const response = await fetch(`${API_BASE}/agents/example/status`);
-  return response.json();
+  return apiCall(`${API_BASE}/agents/example/status`);
 }
 
 export async function startExampleAgent(port: number = 9000): Promise<ExampleAgentStartResult> {
-  const response = await fetch(`${API_BASE}/agents/example/start`, {
+  return apiCall(`${API_BASE}/agents/example/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ port }),
   });
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to start example agent");
-  }
-  
-  return response.json();
 }
 
 export async function stopExampleAgent(): Promise<{ status: string }> {
-  const response = await fetch(`${API_BASE}/agents/example/stop`, {
-    method: "POST",
-  });
-  return response.json();
+  return apiCall(`${API_BASE}/agents/example/stop`, { method: "POST" });
 }
 
 // ============================================================================
@@ -228,7 +198,7 @@ export async function resetDatabase(
   keepSettings: boolean = true,
   keepAgents: boolean = true
 ): Promise<DatabaseResetResult> {
-  const response = await fetch(`${API_BASE}/settings/database/reset`, {
+  return apiCall(`${API_BASE}/settings/database/reset`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -236,7 +206,6 @@ export async function resetDatabase(
       keep_agents: keepAgents,
     }),
   });
-  return response.json();
 }
 
 // ============================================================================
@@ -248,17 +217,15 @@ export async function fetchTaxonomy(): Promise<Taxonomy> {
 }
 
 export async function syncNotesFromWeave(): Promise<{ synced: number }> {
-  const response = await fetch(`${API_BASE}/taxonomy/notes/sync`, { method: "POST" });
-  return response.json();
+  return apiCall(`${API_BASE}/taxonomy/notes/sync`, { method: "POST" });
 }
 
 export async function autoCategorize(): Promise<{ categorized: number }> {
-  const response = await fetch(`${API_BASE}/taxonomy/auto-categorize`, {
+  return apiCall(`${API_BASE}/taxonomy/auto-categorize`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({}),
   });
-  return response.json();
 }
 
 // Saturation History API
@@ -285,8 +252,7 @@ export interface SaturationHistory {
 }
 
 export async function fetchSaturationHistory(): Promise<SaturationHistory> {
-  const response = await fetch(`${API_BASE}/taxonomy/saturation-history`);
-  return response.json();
+  return apiCall(`${API_BASE}/taxonomy/saturation-history`);
 }
 
 // Batch Saturation API (new batch-centric charts)
@@ -313,15 +279,11 @@ export interface BatchSaturationResponse {
 }
 
 export async function fetchBatchSaturation(): Promise<BatchSaturationResponse> {
-  const response = await fetch(`${API_BASE}/taxonomy/saturation-by-batch`);
-  return response.json();
+  return apiCall(`${API_BASE}/taxonomy/saturation-by-batch`);
 }
 
 export async function suggestCategoryForNote(noteId: string): Promise<AISuggestion> {
-  const response = await fetch(`${API_BASE}/taxonomy/notes/${noteId}/suggest`, {
-    method: "POST",
-  });
-  return response.json();
+  return apiCall(`${API_BASE}/taxonomy/notes/${noteId}/suggest`, { method: "POST" });
 }
 
 export async function assignNoteToMode(
@@ -329,7 +291,7 @@ export async function assignNoteToMode(
   modeId: string,
   method: string = "manual"
 ): Promise<void> {
-  await fetch(`${API_BASE}/taxonomy/notes/assign`, {
+  await apiCall(`${API_BASE}/taxonomy/notes/assign`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ note_id: noteId, failure_mode_id: modeId, method }),
@@ -342,7 +304,7 @@ export async function createFailureMode(
   severity: string,
   suggestedFix?: string
 ): Promise<{ id: string }> {
-  const response = await fetch(`${API_BASE}/taxonomy/failure-modes`, {
+  return apiCall(`${API_BASE}/taxonomy/failure-modes`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -352,11 +314,10 @@ export async function createFailureMode(
       suggested_fix: suggestedFix,
     }),
   });
-  return response.json();
 }
 
 export async function deleteFailureMode(modeId: string): Promise<void> {
-  await fetch(`${API_BASE}/taxonomy/failure-modes/${modeId}`, { method: "DELETE" });
+  await apiCall(`${API_BASE}/taxonomy/failure-modes/${modeId}`, { method: "DELETE" });
 }
 
 export async function updateFailureMode(
@@ -369,32 +330,22 @@ export async function updateFailureMode(
     status?: FailureModeStatus;
   }
 ): Promise<FailureMode> {
-  const response = await fetch(`${API_BASE}/taxonomy/failure-modes/${modeId}`, {
+  return apiCall(`${API_BASE}/taxonomy/failure-modes/${modeId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(updates),
   });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to update failure mode");
-  }
-  return response.json();
 }
 
 export async function updateFailureModeStatus(
   modeId: string,
   status: FailureModeStatus
 ): Promise<FailureMode> {
-  const response = await fetch(`${API_BASE}/taxonomy/failure-modes/${modeId}/status`, {
+  return apiCall(`${API_BASE}/taxonomy/failure-modes/${modeId}/status`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ status }),
   });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to update status");
-  }
-  return response.json();
 }
 
 export async function mergeFailureModes(
@@ -403,7 +354,7 @@ export async function mergeFailureModes(
   newName?: string,
   newDescription?: string
 ): Promise<FailureMode> {
-  const response = await fetch(`${API_BASE}/taxonomy/failure-modes/merge`, {
+  return apiCall(`${API_BASE}/taxonomy/failure-modes/merge`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -413,11 +364,6 @@ export async function mergeFailureModes(
       new_description: newDescription,
     }),
   });
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to merge failure modes");
-  }
-  return response.json();
 }
 
 // Batch Categorization API
@@ -456,23 +402,21 @@ export interface BatchApplyResult {
 }
 
 export async function batchSuggestCategories(noteIds?: string[]): Promise<BatchSuggestResult> {
-  const response = await fetch(`${API_BASE}/taxonomy/batch-suggest`, {
+  return apiCall(`${API_BASE}/taxonomy/batch-suggest`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ note_ids: noteIds || null }),
   });
-  return response.json();
 }
 
 export async function batchApplyCategories(
   assignments: BatchApplyAssignment[]
 ): Promise<BatchApplyResult> {
-  const response = await fetch(`${API_BASE}/taxonomy/batch-apply`, {
+  return apiCall(`${API_BASE}/taxonomy/batch-apply`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ assignments }),
   });
-  return response.json();
 }
 
 // ============================================================================
@@ -486,10 +430,9 @@ export async function fetchDimensions(agentId: string): Promise<Dimension[]> {
 export async function importDimensions(
   agentId: string
 ): Promise<{ imported: number; dimensions: Dimension[] }> {
-  const response = await fetch(`${API_BASE}/agents/${agentId}/dimensions/import-from-agent`, {
+  return apiCall(`${API_BASE}/agents/${agentId}/dimensions/import-from-agent`, {
     method: "POST",
   });
-  return response.json();
 }
 
 export async function saveDimension(
@@ -497,7 +440,7 @@ export async function saveDimension(
   name: string,
   values: string[]
 ): Promise<void> {
-  await fetch(`${API_BASE}/agents/${agentId}/dimensions`, {
+  await apiCall(`${API_BASE}/agents/${agentId}/dimensions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name, values }),
@@ -505,33 +448,31 @@ export async function saveDimension(
 }
 
 export async function deleteDimension(agentId: string, dimName: string): Promise<void> {
-  await fetch(`${API_BASE}/agents/${agentId}/dimensions/${dimName}`, {
+  await apiCall(`${API_BASE}/agents/${agentId}/dimensions/${dimName}`, {
     method: "DELETE",
   });
 }
 
 export async function fetchBatches(agentId: string): Promise<SyntheticBatch[]> {
-  const response = await fetch(`${API_BASE}/synthetic/batches?agent_id=${agentId}`);
-  return response.json();
+  return apiCall(`${API_BASE}/synthetic/batches?agent_id=${agentId}`);
 }
 
 export async function fetchBatchDetail(batchId: string): Promise<BatchDetail> {
-  const response = await fetch(`${API_BASE}/synthetic/batches/${batchId}`);
-  return response.json();
+  return apiCall(`${API_BASE}/synthetic/batches/${batchId}`);
 }
 
 export async function deleteBatch(batchId: string): Promise<void> {
-  await fetch(`${API_BASE}/synthetic/batches/${batchId}`, { method: "DELETE" });
+  await apiCall(`${API_BASE}/synthetic/batches/${batchId}`, { method: "DELETE" });
 }
 
 export async function resetBatch(batchId: string, onlyFailed: boolean = false): Promise<void> {
-  await fetch(`${API_BASE}/synthetic/batches/${batchId}/reset?only_failed=${onlyFailed}`, {
+  await apiCall(`${API_BASE}/synthetic/batches/${batchId}/reset?only_failed=${onlyFailed}`, {
     method: "POST",
   });
 }
 
 export async function updateQuery(queryId: string, queryText: string): Promise<void> {
-  await fetch(`${API_BASE}/synthetic/queries/${queryId}`, {
+  await apiCall(`${API_BASE}/synthetic/queries/${queryId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query_text: queryText }),
@@ -539,7 +480,7 @@ export async function updateQuery(queryId: string, queryText: string): Promise<v
 }
 
 export async function bulkDeleteQueries(queryIds: string[]): Promise<void> {
-  await fetch(`${API_BASE}/synthetic/queries/bulk-delete`, {
+  await apiCall(`${API_BASE}/synthetic/queries/bulk-delete`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ query_ids: queryIds }),
@@ -601,58 +542,48 @@ export async function* streamSSE(
 // ============================================================================
 
 export async function fetchSettingsGrouped(): Promise<SettingsGroup[]> {
-  const response = await fetch(`${API_BASE}/settings/grouped`);
-  const data = await response.json();
+  const data = await apiCall<{ groups: SettingsGroup[] }>(`${API_BASE}/settings/grouped`);
   return data.groups;
 }
 
 export async function fetchConfigStatus(): Promise<ConfigStatus> {
-  const response = await fetch(`${API_BASE}/settings/status`);
-  return response.json();
+  return apiCall(`${API_BASE}/settings/status`);
 }
 
 export async function updateSetting(key: string, value: string): Promise<void> {
   logger.info("setting.update_start", { key });
   
-  const response = await fetch(`${API_BASE}/settings/${key}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ value }),
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    logger.error("setting.update_failed", { key, error: error.detail });
-    throw new Error(error.detail || "Failed to update setting");
+  try {
+    await apiCall(`${API_BASE}/settings/${key}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ value }),
+    });
+    logger.info("setting.update_complete", { key });
+  } catch (error) {
+    logger.error("setting.update_failed", { key, error: error instanceof Error ? error.message : "Unknown error" });
+    throw error;
   }
-  
-  logger.info("setting.update_complete", { key });
 }
 
 export async function bulkUpdateSettings(settings: Record<string, string>): Promise<void> {
-  const response = await fetch(`${API_BASE}/settings/bulk`, {
+  await apiCall(`${API_BASE}/settings/bulk`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ settings }),
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to update settings");
-  }
 }
 
 export async function resetSetting(key: string): Promise<void> {
-  await fetch(`${API_BASE}/settings/${key}`, { method: "DELETE" });
+  await apiCall(`${API_BASE}/settings/${key}`, { method: "DELETE" });
 }
 
 export async function testLLMConnection(): Promise<TestConnectionResult> {
   logger.info("llm.test_start");
   
-  const response = await fetch(`${API_BASE}/settings/test-llm`, {
+  const result = await apiCall<TestConnectionResult>(`${API_BASE}/settings/test-llm`, {
     method: "POST",
   });
-  const result = await response.json();
   
   logger.info("llm.test_complete", { 
     success: result.success, 
@@ -664,10 +595,7 @@ export async function testLLMConnection(): Promise<TestConnectionResult> {
 }
 
 export async function testWeaveConnection(): Promise<TestConnectionResult> {
-  const response = await fetch(`${API_BASE}/settings/test-weave`, {
-    method: "POST",
-  });
-  return response.json();
+  return apiCall(`${API_BASE}/settings/test-weave`, { method: "POST" });
 }
 
 // ============================================================================
@@ -712,21 +640,15 @@ export async function fetchSessions(params: FetchSessionsParams = {}): Promise<S
   if (params.random_sample != null) urlParams.append("random_sample", String(params.random_sample));
   if (params.id_prefix) urlParams.append("id_prefix", params.id_prefix);
 
-  const response = await fetch(`${API_BASE}/sessions?${urlParams}`);
-  return response.json();
+  return apiCall(`${API_BASE}/sessions?${urlParams}`);
 }
 
 export async function fetchSessionDetail(sessionId: string): Promise<SessionDetail> {
-  const response = await fetch(`${API_BASE}/sessions/${sessionId}`);
-  if (!response.ok) {
-    throw new Error("Session not found");
-  }
-  return response.json();
+  return apiCall(`${API_BASE}/sessions/${sessionId}`);
 }
 
 export async function fetchSyncStatus(): Promise<SyncStatus> {
-  const response = await fetch(`${API_BASE}/sessions/sync-status`);
-  return response.json();
+  return apiCall(`${API_BASE}/sessions/sync-status`);
 }
 
 export async function triggerSync(fullSync: boolean = false, batchId?: string): Promise<{ status: string; message: string }> {
@@ -734,22 +656,18 @@ export async function triggerSync(fullSync: boolean = false, batchId?: string): 
   if (fullSync) params.append("full_sync", "true");
   if (batchId) params.append("batch_id", batchId);
   
-  const response = await fetch(`${API_BASE}/sessions/sync?${params}`, {
-    method: "POST",
-  });
-  return response.json();
+  return apiCall(`${API_BASE}/sessions/sync?${params}`, { method: "POST" });
 }
 
 export async function fetchSessionStats(batchId?: string): Promise<SessionStats> {
   const params = new URLSearchParams();
   if (batchId) params.append("batch_id", batchId);
   
-  const response = await fetch(`${API_BASE}/sessions/stats/summary?${params}`);
-  return response.json();
+  return apiCall(`${API_BASE}/sessions/stats/summary?${params}`);
 }
 
 export async function markSessionReviewed(sessionId: string, notes?: string): Promise<void> {
-  await fetch(`${API_BASE}/sessions/${sessionId}/mark-reviewed`, {
+  await apiCall(`${API_BASE}/sessions/${sessionId}/mark-reviewed`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ notes }),
@@ -757,14 +675,11 @@ export async function markSessionReviewed(sessionId: string, notes?: string): Pr
 }
 
 export async function unmarkSessionReviewed(sessionId: string): Promise<void> {
-  await fetch(`${API_BASE}/sessions/${sessionId}/mark-reviewed`, {
-    method: "DELETE",
-  });
+  await apiCall(`${API_BASE}/sessions/${sessionId}/mark-reviewed`, { method: "DELETE" });
 }
 
 export async function fetchSessionNotes(sessionId: string): Promise<SessionDetail["notes"]> {
-  const response = await fetch(`${API_BASE}/sessions/${sessionId}/notes`);
-  return response.json();
+  return apiCall(`${API_BASE}/sessions/${sessionId}/notes`);
 }
 
 export async function createSessionNote(
@@ -773,7 +688,7 @@ export async function createSessionNote(
   noteType: string = "observation",
   callId?: string
 ): Promise<void> {
-  await fetch(`${API_BASE}/sessions/${sessionId}/notes`, {
+  await apiCall(`${API_BASE}/sessions/${sessionId}/notes`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ content, note_type: noteType, call_id: callId }),
@@ -781,29 +696,23 @@ export async function createSessionNote(
 }
 
 export async function deleteSessionNote(sessionId: string, noteId: string): Promise<void> {
-  await fetch(`${API_BASE}/sessions/${sessionId}/notes/${noteId}`, {
-    method: "DELETE",
-  });
+  await apiCall(`${API_BASE}/sessions/${sessionId}/notes/${noteId}`, { method: "DELETE" });
 }
 
 export async function fetchBatchReviewProgress(batchId: string): Promise<BatchReviewProgress> {
-  const response = await fetch(`${API_BASE}/sessions/batches/${batchId}/review-progress`);
-  return response.json();
+  return apiCall(`${API_BASE}/sessions/batches/${batchId}/review-progress`);
 }
 
 export async function fetchModelOptions(): Promise<{ models: string[] }> {
-  const response = await fetch(`${API_BASE}/sessions/options/models`);
-  return response.json();
+  return apiCall(`${API_BASE}/sessions/options/models`);
 }
 
 export async function fetchBatchOptions(): Promise<{ batches: { id: string; name: string }[] }> {
-  const response = await fetch(`${API_BASE}/sessions/options/batches`);
-  return response.json();
+  return apiCall(`${API_BASE}/sessions/options/batches`);
 }
 
 export async function fetchFilterRanges(): Promise<FilterRanges> {
-  const response = await fetch(`${API_BASE}/sessions/options/filter-ranges`);
-  return response.json();
+  return apiCall(`${API_BASE}/sessions/options/filter-ranges`);
 }
 
 // ============================================================================
@@ -814,18 +723,11 @@ export async function analyzeSession(
   sessionId: string,
   model?: string
 ): Promise<SuggestionAnalysisResponse> {
-  const response = await fetch(`${API_BASE}/suggestions/sessions/${sessionId}/analyze`, {
+  return apiCall(`${API_BASE}/suggestions/sessions/${sessionId}/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ model }),
   });
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to analyze session");
-  }
-  
-  return response.json();
 }
 
 export async function analyzeBatch(
@@ -833,28 +735,19 @@ export async function analyzeBatch(
   maxConcurrent: number = 10,
   model?: string
 ): Promise<SuggestionAnalysisResponse> {
-  const response = await fetch(`${API_BASE}/suggestions/batches/${batchId}/analyze`, {
+  return apiCall(`${API_BASE}/suggestions/batches/${batchId}/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ max_concurrent: maxConcurrent, model }),
   });
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to analyze batch");
-  }
-  
-  return response.json();
 }
 
 export async function fetchSessionSuggestions(sessionId: string): Promise<TraceSuggestion[]> {
-  const response = await fetch(`${API_BASE}/suggestions/sessions/${sessionId}`);
-  return response.json();
+  return apiCall(`${API_BASE}/suggestions/sessions/${sessionId}`);
 }
 
 export async function fetchBatchSuggestions(batchId: string): Promise<TraceSuggestion[]> {
-  const response = await fetch(`${API_BASE}/suggestions/batches/${batchId}`);
-  return response.json();
+  return apiCall(`${API_BASE}/suggestions/batches/${batchId}`);
 }
 
 export async function fetchPendingSuggestions(
@@ -865,14 +758,12 @@ export async function fetchPendingSuggestions(
   if (batchId) params.append("batch_id", batchId);
   params.append("min_confidence", String(minConfidence));
   
-  const response = await fetch(`${API_BASE}/suggestions/pending?${params}`);
-  return response.json();
+  return apiCall(`${API_BASE}/suggestions/pending?${params}`);
 }
 
 export async function fetchSuggestionStats(batchId?: string): Promise<SuggestionStats> {
   const params = batchId ? `?batch_id=${batchId}` : "";
-  const response = await fetch(`${API_BASE}/suggestions/stats${params}`);
-  return response.json();
+  return apiCall(`${API_BASE}/suggestions/stats${params}`);
 }
 
 export async function acceptSuggestion(
@@ -880,7 +771,7 @@ export async function acceptSuggestion(
   editedText?: string,
   failureModeId?: string
 ): Promise<AcceptSuggestionResult> {
-  const response = await fetch(`${API_BASE}/suggestions/${suggestionId}/accept`, {
+  return apiCall(`${API_BASE}/suggestions/${suggestionId}/accept`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ 
@@ -888,35 +779,14 @@ export async function acceptSuggestion(
       failure_mode_id: failureModeId 
     }),
   });
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to accept suggestion");
-  }
-  
-  return response.json();
 }
 
 export async function skipSuggestion(suggestionId: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/suggestions/${suggestionId}/skip`, {
-    method: "POST",
-  });
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to skip suggestion");
-  }
+  await apiCall(`${API_BASE}/suggestions/${suggestionId}/skip`, { method: "POST" });
 }
 
 export async function rejectSuggestion(suggestionId: string): Promise<void> {
-  const response = await fetch(`${API_BASE}/suggestions/${suggestionId}/reject`, {
-    method: "POST",
-  });
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to reject suggestion");
-  }
+  await apiCall(`${API_BASE}/suggestions/${suggestionId}/reject`, { method: "POST" });
 }
 
 export async function bulkAcceptSuggestions(suggestionIds: string[]): Promise<{
@@ -924,54 +794,33 @@ export async function bulkAcceptSuggestions(suggestionIds: string[]): Promise<{
   failed: number;
   notes_created: AcceptSuggestionResult[];
 }> {
-  const response = await fetch(`${API_BASE}/suggestions/bulk-accept`, {
+  return apiCall(`${API_BASE}/suggestions/bulk-accept`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ suggestion_ids: suggestionIds }),
   });
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to bulk accept suggestions");
-  }
-  
-  return response.json();
 }
 
 export async function bulkRejectSuggestions(suggestionIds: string[]): Promise<{
   rejected: number;
   failed: number;
 }> {
-  const response = await fetch(`${API_BASE}/suggestions/bulk-reject`, {
+  return apiCall(`${API_BASE}/suggestions/bulk-reject`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ suggestion_ids: suggestionIds }),
   });
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to bulk reject suggestions");
-  }
-  
-  return response.json();
 }
 
 export async function bulkSkipSuggestions(suggestionIds: string[]): Promise<{
   skipped: number;
   failed: number;
 }> {
-  const response = await fetch(`${API_BASE}/suggestions/bulk-skip`, {
+  return apiCall(`${API_BASE}/suggestions/bulk-skip`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ suggestion_ids: suggestionIds }),
   });
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to bulk skip suggestions");
-  }
-  
-  return response.json();
 }
 
 export interface SuggestionHistoryResponse {
@@ -994,8 +843,7 @@ export async function fetchSuggestionHistory(
   params.append("limit", String(limit));
   params.append("offset", String(offset));
   
-  const response = await fetch(`${API_BASE}/suggestions/history?${params}`);
-  return response.json();
+  return apiCall(`${API_BASE}/suggestions/history?${params}`);
 }
 
 // ============================================================================
@@ -1009,21 +857,15 @@ import type {
 } from "../types";
 
 export async function fetchPrompts(): Promise<PromptsListResponse> {
-  const response = await fetch(`${API_BASE}/prompts`);
-  return response.json();
+  return apiCall(`${API_BASE}/prompts`);
 }
 
 export async function fetchPromptsByFeature(feature: string): Promise<{ prompts: PromptConfig[] }> {
-  const response = await fetch(`${API_BASE}/prompts/by-feature/${feature}`);
-  return response.json();
+  return apiCall(`${API_BASE}/prompts/by-feature/${feature}`);
 }
 
 export async function fetchPrompt(promptId: string): Promise<PromptConfig> {
-  const response = await fetch(`${API_BASE}/prompts/${promptId}`);
-  if (!response.ok) {
-    throw new Error("Prompt not found");
-  }
-  return response.json();
+  return apiCall(`${API_BASE}/prompts/${promptId}`);
 }
 
 export async function updatePrompt(
@@ -1040,53 +882,26 @@ export async function updatePrompt(
   if (llmModel !== undefined) body.llm_model = llmModel;
   if (llmTemperature !== undefined) body.llm_temperature = llmTemperature;
   
-  const response = await fetch(`${API_BASE}/prompts/${promptId}`, {
+  return apiCall(`${API_BASE}/prompts/${promptId}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to update prompt");
-  }
-  
-  return response.json();
 }
 
 export async function resetPrompt(promptId: string): Promise<PromptConfig> {
-  const response = await fetch(`${API_BASE}/prompts/${promptId}/reset`, {
-    method: "POST",
-  });
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to reset prompt");
-  }
-  
-  return response.json();
+  return apiCall(`${API_BASE}/prompts/${promptId}/reset`, { method: "POST" });
 }
 
 export async function fetchPromptVersions(promptId: string): Promise<PromptVersionsResponse> {
-  const response = await fetch(`${API_BASE}/prompts/${promptId}/versions`);
-  if (!response.ok) {
-    throw new Error("Failed to fetch prompt versions");
-  }
-  return response.json();
+  return apiCall(`${API_BASE}/prompts/${promptId}/versions`);
 }
 
 export async function setPromptVersion(promptId: string, version: string): Promise<PromptConfig> {
-  const response = await fetch(`${API_BASE}/prompts/${promptId}/set-version`, {
+  return apiCall(`${API_BASE}/prompts/${promptId}/set-version`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ version }),
   });
-  
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.detail || "Failed to switch version");
-  }
-  
-  return response.json();
 }
 

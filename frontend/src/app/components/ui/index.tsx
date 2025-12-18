@@ -296,14 +296,14 @@ export function AgentListItem({
 // Badges - W&B Brand Colors
 // ============================================================================
 
-type BadgeVariant = "coral" | "teal" | "gold" | "plum" | "amber" | "default";
+// Note: "coral" currently renders same as "gold" - should get distinct color if needed
+type BadgeVariant = "coral" | "teal" | "gold" | "plum" | "default";
 
 const badgeVariants: Record<BadgeVariant, string> = {
-  coral: "bg-gold/15 text-gold",
+  coral: "bg-gold/15 text-gold",  // TODO: Define distinct coral color if needed
   teal: "bg-teal/15 text-teal",
   gold: "bg-gold/15 text-gold",
   plum: "bg-moon-450/15 text-moon-450",
-  amber: "bg-gold/15 text-gold",
   default: "bg-moon-700 text-moon-450",
 };
 

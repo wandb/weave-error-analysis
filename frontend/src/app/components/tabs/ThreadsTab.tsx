@@ -34,7 +34,6 @@ import {
   Loader2,
   Tag,
   ExternalLink,
-  BarChart2,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import { formatRelativeTime, formatTokens, formatCost, formatLatency } from "../../utils/formatters";

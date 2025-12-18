@@ -1660,7 +1660,7 @@ export function SyntheticTab() {
                       className="p-1 rounded hover:bg-red-500/20 transition-colors flex-shrink-0"
                       title="Remove this tuple"
                     >
-                      <Trash2 className="w-3.5 h-3.5" style={{ color: '#EF4444' }} />
+                      <Trash2 className="w-3.5 h-3.5 text-red-500" />
                     </button>
                   </div>
                 );

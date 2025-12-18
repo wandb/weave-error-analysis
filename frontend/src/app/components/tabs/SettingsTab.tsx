@@ -499,21 +499,25 @@ const FEATURE_CONFIG = {
     label: "Trace Analysis",
     description: "Prompts for analyzing traces and finding quality issues",
     icon: MessageSquare,
-    color: "#10BFCC",
+    textClass: "text-teal",
   },
   taxonomy: {
     label: "Taxonomy",
     description: "Prompts for categorizing and organizing failure modes",
     icon: BarChart3,
-    color: "#FCBC32",
+    textClass: "text-gold",
   },
   synthetic: {
     label: "Synthetic Data",
     description: "Prompts for generating test cases and queries",
     icon: Zap,
-    color: "#8F949E",
+    textClass: "text-moon-450",
   },
 };
+
+function getFeatureColorClass(feature: keyof typeof FEATURE_CONFIG): string {
+  return FEATURE_CONFIG[feature].textClass;
+}
 
 function PromptsSection() {
   const [promptsData, setPromptsData] = useState<PromptsListResponse | null>(null);
@@ -574,11 +578,8 @@ function PromptsSection() {
       <Panel>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <div
-              className="w-10 h-10 rounded-lg flex items-center justify-center"
-              style={{ backgroundColor: "rgba(252, 188, 50, 0.15)" }}
-            >
-              <Sparkles className="w-5 h-5" style={{ color: "#FCBC32" }} />
+            <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-gold/15">
+              <Sparkles className="w-5 h-5 text-gold" />
             </div>
             <div>
               <h3 className="font-display text-lg text-sand-100">Prompt Management</h3>
@@ -603,21 +604,18 @@ function PromptsSection() {
 
         {/* Weave Status Indicator */}
         <div
-          className="flex items-center gap-2 mb-6 px-3 py-2 rounded-lg"
-          style={{
-            backgroundColor: promptsData.weave_enabled
-              ? "rgba(16, 191, 204, 0.1)"
-              : "rgba(143, 148, 158, 0.1)",
-            border: `1px solid ${promptsData.weave_enabled ? "rgba(16, 191, 204, 0.2)" : "rgba(143, 148, 158, 0.2)"}`,
-          }}
+          className={`flex items-center gap-2 mb-6 px-3 py-2 rounded-lg border ${
+            promptsData.weave_enabled
+              ? "bg-teal/10 border-teal/20"
+              : "bg-moon-450/10 border-moon-450/20"
+          }`}
         >
           <div
-            className="w-2 h-2 rounded-full"
-            style={{
-              backgroundColor: promptsData.weave_enabled ? "#10BFCC" : "#8F949E",
-            }}
+            className={`w-2 h-2 rounded-full ${
+              promptsData.weave_enabled ? "bg-teal" : "bg-moon-450"
+            }`}
           />
-          <span className="text-xs" style={{ color: promptsData.weave_enabled ? "#10BFCC" : "#8F949E" }}>
+          <span className={`text-xs ${promptsData.weave_enabled ? "text-teal" : "text-moon-450"}`}>
             {promptsData.weave_enabled
               ? "Prompt versions are tracked in Weave"
               : "Weave versioning not connected"}
@@ -636,18 +634,11 @@ function PromptsSection() {
             return (
               <div
                 key={feature}
-                className="rounded-lg overflow-hidden"
-                style={{
-                  backgroundColor: "rgba(37, 40, 48, 0.5)",
-                  border: "1px solid #333333",
-                }}
+                className="rounded-lg overflow-hidden bg-moon-800/50 border border-moon-700"
               >
                 {/* Feature Header */}
-                <div
-                  className="flex items-center gap-3 px-4 py-3"
-                  style={{ borderBottom: "1px solid #333333" }}
-                >
-                  <Icon className="w-4 h-4" style={{ color: config.color }} />
+                <div className="flex items-center gap-3 px-4 py-3 border-b border-moon-700">
+                  <Icon className={`w-4 h-4 ${getFeatureColorClass(feature)}`} />
                   <div className="flex-1">
                     <span className="text-sm font-medium text-sand-100">{config.label}</span>
                     <span className="text-xs text-ink-400 ml-2">
@@ -662,7 +653,7 @@ function PromptsSection() {
                     <PromptListItem
                       key={prompt.id}
                       prompt={prompt}
-                      featureColor={config.color}
+                      featureTextClass={config.textClass}
                       onEdit={() => setEditingPromptId(prompt.id)}
                     />
                   ))}
@@ -686,11 +677,11 @@ function PromptsSection() {
 
 interface PromptListItemProps {
   prompt: PromptConfig;
-  featureColor: string;
+  featureTextClass: string;
   onEdit: () => void;
 }
 
-function PromptListItem({ prompt, featureColor, onEdit }: PromptListItemProps) {
+function PromptListItem({ prompt, featureTextClass, onEdit }: PromptListItemProps) {
   return (
     <button
       onClick={onEdit}
@@ -700,13 +691,7 @@ function PromptListItem({ prompt, featureColor, onEdit }: PromptListItemProps) {
         <div className="flex items-center gap-2">
           <span className="text-sm font-medium text-sand-100">{prompt.name}</span>
           {!prompt.is_default && (
-            <span
-              className="text-[10px] px-1.5 py-0.5 rounded font-medium uppercase tracking-wide"
-              style={{
-                backgroundColor: "rgba(252, 188, 50, 0.15)",
-                color: "#FCBC32",
-              }}
-            >
+            <span className="text-[10px] px-1.5 py-0.5 rounded font-medium uppercase tracking-wide bg-gold/15 text-gold">
               Customized
             </span>
           )}
@@ -714,10 +699,7 @@ function PromptListItem({ prompt, featureColor, onEdit }: PromptListItemProps) {
         <p className="text-xs text-ink-400 truncate mt-0.5">{prompt.description}</p>
       </div>
       <div className="flex items-center gap-2 ml-3">
-        <span
-          className="text-xs opacity-0 group-hover:opacity-100 transition-opacity"
-          style={{ color: featureColor }}
-        >
+        <span className={`text-xs opacity-0 group-hover:opacity-100 transition-opacity ${featureTextClass}`}>
           Edit
         </span>
         <ChevronRight className="w-4 h-4 text-ink-400 group-hover:text-sand-200 transition-colors" />

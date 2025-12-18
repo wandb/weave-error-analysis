@@ -1,44 +1,57 @@
 "use client";
 
+/**
+ * AppContext - Slim Coordinator Context
+ * 
+ * This context has been refactored from a 1009-line god object into a slim
+ * coordinator that composes domain-specific contexts:
+ * 
+ * - SessionContext: Sessions, filters, sync status
+ * - AgentContext: Agents, connection testing  
+ * - SyntheticContext: Dimensions, batches
+ * - TaxonomyContext: Failure modes, categorization
+ * 
+ * This context now only manages:
+ * - Navigation (active tab)
+ * - Setup/config status
+ * - Landing page state
+ * - Playground state
+ * - Workflow progress computation
+ * 
+ * For backwards compatibility, useApp() returns a combined interface that
+ * delegates to the child contexts. Components should gradually migrate to
+ * use the domain-specific hooks (useSession, useAgent, etc.) for better
+ * performance.
+ */
+
 import {
   createContext,
   useContext,
   useState,
   useCallback,
   useEffect,
-  useRef,
   ReactNode,
 } from "react";
 import type {
   TabType,
-  Agent,
-  AgentDetail,
-  AgentStats,
-  Taxonomy,
-  Dimension,
-  SyntheticBatch,
-  BatchDetail,
-  ExecutionProgress,
-  GenerationProgress,
-  ConnectionTestResult,
+  ConfigStatus,
   ToolCall,
   PlaygroundEvent,
-  Session,
-  SessionDetail,
-  SyncStatus,
-  BatchReviewProgress,
-  FilterRanges,
   WorkflowProgress,
-  ConfigStatus,
 } from "../types";
 import * as api from "../lib/api";
-import { ORGANIC_FILTER, SESSION_ID_PREFIX } from "../constants";
+
+// Import child contexts
+import { SessionProvider, useSession } from "./SessionContext";
+import { AgentProvider, useAgent } from "./AgentContext";
+import { SyntheticProvider, useSynthetic } from "./SyntheticContext";
+import { TaxonomyProvider, useTaxonomy } from "./TaxonomyContext";
 
 // ============================================================================
-// Context Types
+// Core App State (navigation, setup, landing, playground)
 // ============================================================================
 
-interface AppState {
+interface CoreAppState {
   // Setup State
   configStatus: ConfigStatus | null;
   needsSetup: boolean;
@@ -56,15 +69,152 @@ interface AppState {
   activeTab: TabType;
   setActiveTab: (tab: TabType) => void;
 
-  // Sessions (Local DB based)
-  sessions: Session[];
-  selectedSession: SessionDetail | null;
-  syncStatus: SyncStatus | null;
-  batchReviewProgress: BatchReviewProgress | null;
-  loadingSessions: boolean;
-  loadingSessionDetail: boolean;
+  // Playground (lightweight, kept here)
+  playgroundRunning: boolean;
+  playgroundResponse: string;
+  playgroundToolCalls: ToolCall[];
+  playgroundError: string | null;
+  playgroundEvents: PlaygroundEvent[];
+  resetPlayground: () => void;
+}
 
-  // Session Filters
+const CoreAppContext = createContext<CoreAppState | null>(null);
+
+// ============================================================================
+// Core App Provider (slim - only navigation, setup, landing, playground)
+// ============================================================================
+
+function CoreAppProvider({ children }: { children: ReactNode }) {
+  // Setup State
+  const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null);
+  const [needsSetup, setNeedsSetup] = useState<boolean>(false);
+  const [checkingSetup, setCheckingSetup] = useState<boolean>(true);
+  const [setupComplete, setSetupComplete] = useState<boolean>(false);
+  
+  // Landing Page State
+  const [showLandingPage, setShowLandingPage] = useState<boolean>(true);
+  const [isHydrated, setIsHydrated] = useState(false);
+
+  // Navigation
+  const [activeTab, setActiveTab] = useState<TabType>("agents");
+
+  // Playground state
+  const [playgroundRunning, setPlaygroundRunning] = useState(false);
+  const [playgroundResponse, setPlaygroundResponse] = useState("");
+  const [playgroundToolCalls, setPlaygroundToolCalls] = useState<ToolCall[]>([]);
+  const [playgroundError, setPlaygroundError] = useState<string | null>(null);
+  const [playgroundEvents, setPlaygroundEvents] = useState<PlaygroundEvent[]>([]);
+
+  // Config status check
+  const refreshConfigStatus = useCallback(async () => {
+    try {
+      const status = await api.fetchConfigStatus();
+      setConfigStatus(status);
+      setNeedsSetup(!status.llm.configured);
+    } catch (error) {
+      console.error("Error checking config status:", error);
+      setNeedsSetup(false);
+    } finally {
+      setCheckingSetup(false);
+    }
+  }, []);
+
+  const completeSetup = useCallback(() => {
+    setSetupComplete(true);
+    setNeedsSetup(false);
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('setupCompleted', 'true');
+    }
+  }, []);
+
+  // Check setup on mount
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const completed = sessionStorage.getItem('setupCompleted');
+      if (completed === 'true') {
+        setSetupComplete(true);
+        setNeedsSetup(false);
+        setCheckingSetup(false);
+        return;
+      }
+    }
+    refreshConfigStatus();
+  }, [refreshConfigStatus]);
+
+  // Hydrate landing page state
+  useEffect(() => {
+    const dismissed = sessionStorage.getItem('landingPageDismissed');
+    if (dismissed === 'true') {
+      setShowLandingPage(false);
+    }
+    setIsHydrated(true);
+  }, []);
+
+  const dismissLandingPage = useCallback(() => {
+    setShowLandingPage(false);
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('landingPageDismissed', 'true');
+    }
+  }, []);
+
+  const resetPlayground = useCallback(() => {
+    setPlaygroundResponse("");
+    setPlaygroundToolCalls([]);
+    setPlaygroundError(null);
+    setPlaygroundEvents([]);
+  }, []);
+
+  // Workflow progress is computed from child context state - will be computed in useApp
+  const workflowProgress: WorkflowProgress = {
+    hasAgents: false, // Will be computed in useApp from useAgent
+    hasBatches: false, // Will be computed in useApp from useSynthetic
+    hasReviewedSessions: false, // Will be computed in useApp from useSession
+    hasFailureModes: false, // Will be computed in useApp from useTaxonomy
+  };
+
+  const value: CoreAppState = {
+    configStatus,
+    needsSetup: needsSetup && !setupComplete,
+    checkingSetup,
+    completeSetup,
+    refreshConfigStatus,
+    showLandingPage,
+    setShowLandingPage,
+    workflowProgress,
+    dismissLandingPage,
+    activeTab,
+    setActiveTab,
+    playgroundRunning,
+    playgroundResponse,
+    playgroundToolCalls,
+    playgroundError,
+    playgroundEvents,
+    resetPlayground,
+  };
+
+  return (
+    <CoreAppContext.Provider value={value}>
+      {children}
+    </CoreAppContext.Provider>
+  );
+}
+
+// ============================================================================
+// Combined AppState for backwards compatibility
+// ============================================================================
+
+// Re-export the full interface that components expect from useApp()
+// This combines CoreAppState with all child context states
+interface AppState extends CoreAppState {
+  // From SessionContext
+  sessions: ReturnType<typeof useSession>['sessions'];
+  selectedSession: ReturnType<typeof useSession>['selectedSession'];
+  syncStatus: ReturnType<typeof useSession>['syncStatus'];
+  batchReviewProgress: ReturnType<typeof useSession>['batchReviewProgress'];
+  loadingSessions: ReturnType<typeof useSession>['loadingSessions'];
+  loadingSessionDetail: ReturnType<typeof useSession>['loadingSessionDetail'];
+  
+  // Session Filters (individual for backwards compatibility)
   sortBy: string;
   setSortBy: (s: string) => void;
   sortDirection: string;
@@ -97,913 +247,299 @@ interface AppState {
   setFilterModel: (s: string | null) => void;
   searchQuery: string;
   setSearchQuery: (s: string) => void;
+  filterRanges: ReturnType<typeof useSession>['filterRanges'];
+  loadingFilterRanges: ReturnType<typeof useSession>['loadingFilterRanges'];
+  fetchFilterRanges: ReturnType<typeof useSession>['fetchFilterRanges'];
   
-  // Filter ranges (data bounds for sliders)
-  filterRanges: FilterRanges | null;
-  loadingFilterRanges: boolean;
-  fetchFilterRanges: () => Promise<void>;
+  // Session actions
+  fetchSessions: ReturnType<typeof useSession>['fetchSessions'];
+  fetchSessionDetail: ReturnType<typeof useSession>['fetchSessionDetail'];
+  markSessionReviewed: ReturnType<typeof useSession>['markSessionReviewed'];
+  unmarkSessionReviewed: ReturnType<typeof useSession>['unmarkSessionReviewed'];
+  addSessionNote: ReturnType<typeof useSession>['addSessionNote'];
+  triggerSync: ReturnType<typeof useSession>['triggerSync'];
+  refreshSyncStatus: ReturnType<typeof useSession>['refreshSyncStatus'];
 
-  // Session Actions
-  fetchSessions: () => Promise<void>;
-  fetchSessionDetail: (sessionId: string) => Promise<void>;
-  markSessionReviewed: (sessionId: string) => Promise<void>;
-  unmarkSessionReviewed: (sessionId: string) => Promise<void>;
-  addSessionNote: (sessionId: string, content: string, noteType?: string) => Promise<void>;
-  triggerSync: (fullSync?: boolean) => Promise<void>;
-  refreshSyncStatus: () => Promise<SyncStatus | null>;
+  // From AgentContext
+  agents: ReturnType<typeof useAgent>['agents'];
+  selectedAgent: ReturnType<typeof useAgent>['selectedAgent'];
+  agentStats: ReturnType<typeof useAgent>['agentStats'];
+  loadingAgents: ReturnType<typeof useAgent>['loadingAgents'];
+  loadingAgentStats: ReturnType<typeof useAgent>['loadingAgentStats'];
+  connectionResult: ReturnType<typeof useAgent>['connectionResult'];
+  fetchAgents: ReturnType<typeof useAgent>['fetchAgents'];
+  fetchAgentDetail: ReturnType<typeof useAgent>['fetchAgentDetail'];
+  fetchAgentStats: ReturnType<typeof useAgent>['fetchAgentStats'];
+  selectAgentWithData: ReturnType<typeof useAgent>['selectAgentWithData'];
+  testAgentConnection: ReturnType<typeof useAgent>['testAgentConnection'];
+  createAgent: ReturnType<typeof useAgent>['createAgent'];
+  updateAgent: ReturnType<typeof useAgent>['updateAgent'];
+  deleteAgent: ReturnType<typeof useAgent>['deleteAgent'];
+  setSelectedAgent: ReturnType<typeof useAgent>['setSelectedAgent'];
 
-  // Agents
-  agents: Agent[];
-  selectedAgent: AgentDetail | null;
-  agentStats: AgentStats | null;
-  loadingAgents: boolean;
-  loadingAgentStats: boolean;
-  connectionResult: ConnectionTestResult | null;
-
-  // Agent Actions
-  fetchAgents: () => Promise<void>;
-  fetchAgentDetail: (agentId: string) => Promise<void>;
-  fetchAgentStats: (agentId: string) => Promise<void>;
-  selectAgentWithData: (agent: Agent) => Promise<void>;
-  testAgentConnection: (agentId: string) => Promise<void>;
-  createAgent: (name: string, endpoint: string, info: string) => Promise<void>;
-  updateAgent: (id: string, name: string, endpoint: string, info: string) => Promise<void>;
-  deleteAgent: (agentId: string) => Promise<void>;
-  setSelectedAgent: (agent: AgentDetail | null) => void;
-
-  // Taxonomy
-  taxonomy: Taxonomy | null;
-  loadingTaxonomy: boolean;
-  syncing: boolean;
-  categorizing: boolean;
-
-  // Taxonomy Actions
-  fetchTaxonomy: () => Promise<void>;
-  syncNotesFromWeave: () => Promise<void>;
-  autoCategorize: () => Promise<void>;
-  createFailureMode: (name: string, desc: string, severity: string) => Promise<{ id: string }>;
-  deleteFailureMode: (modeId: string) => Promise<void>;
-
-  // Synthetic Data
-  dimensions: Dimension[];
-  loadingDimensions: boolean;
-  syntheticBatches: SyntheticBatch[];
-  selectedBatch: BatchDetail | null;
+  // From SyntheticContext
+  dimensions: ReturnType<typeof useSynthetic>['dimensions'];
+  loadingDimensions: ReturnType<typeof useSynthetic>['loadingDimensions'];
+  syntheticBatches: ReturnType<typeof useSynthetic>['syntheticBatches'];
+  selectedBatch: ReturnType<typeof useSynthetic>['selectedBatch'];
+  fetchDimensions: ReturnType<typeof useSynthetic>['fetchDimensions'];
+  importDimensions: ReturnType<typeof useSynthetic>['importDimensions'];
+  fetchBatches: ReturnType<typeof useSynthetic>['fetchBatches'];
+  fetchBatchDetail: ReturnType<typeof useSynthetic>['fetchBatchDetail'];
+  setSelectedBatch: ReturnType<typeof useSynthetic>['setSelectedBatch'];
+  deleteBatch: ReturnType<typeof useSynthetic>['deleteBatch'];
+  
+  // Execution state (was in AppContext, now component-local but exposed for compatibility)
   generatingBatch: boolean;
-  generationProgress: GenerationProgress | null;
-
-  // Synthetic Actions
-  fetchDimensions: (agentId: string) => Promise<void>;
-  importDimensions: (agentId: string) => Promise<void>;
-  fetchBatches: (agentId: string) => Promise<void>;
-  fetchBatchDetail: (batchId: string) => Promise<void>;
-  setSelectedBatch: (batch: BatchDetail | null) => void;
-  deleteBatch: (batchId: string, agentId: string) => Promise<void>;
-
-  // Batch Execution
+  generationProgress: { total: number; completed: number; percent: number; currentQuery?: string } | null;
   executingBatch: boolean;
-  executionProgress: ExecutionProgress | null;
+  executionProgress: { batch_id: string; status: string; total_queries: number; completed_queries: number; success_count: number; failure_count: number; progress_percent: number } | null;
 
-  // Playground
-  playgroundRunning: boolean;
-  playgroundResponse: string;
-  playgroundToolCalls: ToolCall[];
-  playgroundError: string | null;
-  playgroundEvents: PlaygroundEvent[];
-  resetPlayground: () => void;
-}
-
-const AppContext = createContext<AppState | null>(null);
-
-export function useApp() {
-  const ctx = useContext(AppContext);
-  if (!ctx) throw new Error("useApp must be used within AppProvider");
-  return ctx;
+  // From TaxonomyContext
+  taxonomy: ReturnType<typeof useTaxonomy>['taxonomy'];
+  loadingTaxonomy: ReturnType<typeof useTaxonomy>['loadingTaxonomy'];
+  syncing: ReturnType<typeof useTaxonomy>['syncing'];
+  categorizing: ReturnType<typeof useTaxonomy>['categorizing'];
+  fetchTaxonomy: ReturnType<typeof useTaxonomy>['fetchTaxonomy'];
+  syncNotesFromWeave: ReturnType<typeof useTaxonomy>['syncNotesFromWeave'];
+  autoCategorize: ReturnType<typeof useTaxonomy>['autoCategorize'];
+  createFailureMode: ReturnType<typeof useTaxonomy>['createFailureMode'];
+  deleteFailureMode: ReturnType<typeof useTaxonomy>['deleteFailureMode'];
 }
 
 // ============================================================================
-// Provider
+// useApp - Backwards Compatible Combined Hook
 // ============================================================================
 
-export function AppProvider({ children }: { children: ReactNode }) {
-  // Setup State - check if essential configuration is done
-  const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null);
-  const [needsSetup, setNeedsSetup] = useState<boolean>(false);
-  const [checkingSetup, setCheckingSetup] = useState<boolean>(true);
-  const [setupComplete, setSetupComplete] = useState<boolean>(false);
-  
-  // Landing Page State
-  // Initialize to true to match server render, then hydrate from localStorage
-  const [showLandingPage, setShowLandingPage] = useState<boolean>(true);
-  const [isHydrated, setIsHydrated] = useState(false);
+/**
+ * Combined hook for backwards compatibility.
+ * 
+ * Components should migrate to use domain-specific hooks for better performance:
+ * - useSession() for session/thread state
+ * - useAgent() for agent state
+ * - useSynthetic() for synthetic data state
+ * - useTaxonomy() for taxonomy state
+ */
+export function useApp(): AppState {
+  const core = useContext(CoreAppContext);
+  const session = useSession();
+  const agent = useAgent();
+  const synthetic = useSynthetic();
+  const taxonomy = useTaxonomy();
 
-  // Check config status on mount to determine if setup is needed
-  const refreshConfigStatus = useCallback(async () => {
-    try {
-      const status = await api.fetchConfigStatus();
-      setConfigStatus(status);
-      // Require LLM to be configured (Weave is optional)
-      setNeedsSetup(!status.llm.configured);
-    } catch (error) {
-      console.error("Error checking config status:", error);
-      // On error, assume setup is not needed (don't block the user)
-      setNeedsSetup(false);
-    } finally {
-      setCheckingSetup(false);
-    }
-  }, []);
+  if (!core) throw new Error("useApp must be used within AppProvider");
 
-  // Mark setup as complete (called from SetupWizard)
-  const completeSetup = useCallback(() => {
-    setSetupComplete(true);
-    setNeedsSetup(false);
-    // Persist that setup was completed for this session
-    if (typeof window !== 'undefined') {
-      sessionStorage.setItem('setupCompleted', 'true');
-    }
-  }, []);
-
-  // Check setup on mount
-  useEffect(() => {
-    // Check if setup was already completed this session
-    if (typeof window !== 'undefined') {
-      const completed = sessionStorage.getItem('setupCompleted');
-      if (completed === 'true') {
-        setSetupComplete(true);
-        setNeedsSetup(false);
-        setCheckingSetup(false);
-        return;
-      }
-    }
-    refreshConfigStatus();
-  }, [refreshConfigStatus]);
-
-  // Hydrate landing page state from sessionStorage after initial render
-  // Using sessionStorage so the landing page shows once per browser session
-  useEffect(() => {
-    const dismissed = sessionStorage.getItem('landingPageDismissed');
-    if (dismissed === 'true') {
-      setShowLandingPage(false);
-    }
-    setIsHydrated(true);
-  }, []);
-
-  // Navigation
-  // Start with Agents tab - first step in the workflow
-  const [activeTab, setActiveTab] = useState<TabType>("agents");
-
-  // Sessions state (Local DB based)
-  const [sessions, setSessions] = useState<Session[]>([]);
-  const [selectedSession, setSelectedSession] = useState<SessionDetail | null>(null);
-  const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
-  const [batchReviewProgress, setBatchReviewProgress] = useState<BatchReviewProgress | null>(null);
-  const [loadingSessions, setLoadingSessions] = useState(false);
-  const [loadingSessionDetail, setLoadingSessionDetail] = useState(false);
-
-  // Session Filters
-  const [sortBy, setSortBy] = useState("started_at");
-  const [sortDirection, setSortDirection] = useState("desc");
-  const [filterMinTurns, setFilterMinTurns] = useState<number | null>(null);
-  const [filterMaxTurns, setFilterMaxTurns] = useState<number | null>(null);
-  const [filterMinTokens, setFilterMinTokens] = useState<number | null>(null);
-  const [filterMaxTokens, setFilterMaxTokens] = useState<number | null>(null);
-  const [filterMinCost, setFilterMinCost] = useState<number | null>(null);
-  const [filterMaxCost, setFilterMaxCost] = useState<number | null>(null);
-  const [filterMinLatency, setFilterMinLatency] = useState<number | null>(null);
-  const [filterMaxLatency, setFilterMaxLatency] = useState<number | null>(null);
-  const [filterReviewed, setFilterReviewed] = useState<boolean | null>(null);
-  const [filterHasError, setFilterHasError] = useState<boolean | null>(null);
-  const [filterBatchId, setFilterBatchId] = useState<string | null>(null);
-  const [filterBatchName, setFilterBatchName] = useState<string | null>(null);
-  const [filterModel, setFilterModel] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  
-  // Filter ranges (data bounds for sliders)
-  const [filterRanges, setFilterRanges] = useState<FilterRanges | null>(null);
-  const [loadingFilterRanges, setLoadingFilterRanges] = useState(false);
-
-  // Sync status polling ref with exponential backoff
-  const syncPollRef = useRef<NodeJS.Timeout | null>(null);
-  const syncPollIntervalRef = useRef<number>(1000); // Start at 1s, max 5s
-  
-  // Agent health check polling ref (30s interval)
-  const agentHealthPollRef = useRef<NodeJS.Timeout | null>(null);
-
-  // Agents state
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [selectedAgent, setSelectedAgent] = useState<AgentDetail | null>(null);
-  const [agentStats, setAgentStats] = useState<AgentStats | null>(null);
-  const [loadingAgents, setLoadingAgents] = useState(false);
-  const [loadingAgentStats, setLoadingAgentStats] = useState(false);
-  const [connectionResult, setConnectionResult] = useState<ConnectionTestResult | null>(null);
-
-  // Taxonomy state
-  const [taxonomy, setTaxonomy] = useState<Taxonomy | null>(null);
-  const [loadingTaxonomy, setLoadingTaxonomy] = useState(false);
-  const [syncing, setSyncing] = useState(false);
-  const [categorizing, setCategorizing] = useState(false);
-
-  // Synthetic state
-  const [dimensions, setDimensions] = useState<Dimension[]>([]);
-  const [loadingDimensions, setLoadingDimensions] = useState(false);
-  const [syntheticBatches, setSyntheticBatches] = useState<SyntheticBatch[]>([]);
-  const [selectedBatch, setSelectedBatch] = useState<BatchDetail | null>(null);
-  const [generatingBatch, setGeneratingBatch] = useState(false);
-  const [generationProgress, setGenerationProgress] = useState<GenerationProgress | null>(null);
-
-  // Execution state
-  const [executingBatch, setExecutingBatch] = useState(false);
-  const [executionProgress, setExecutionProgress] = useState<ExecutionProgress | null>(null);
-
-  // Playground state
-  const [playgroundRunning, setPlaygroundRunning] = useState(false);
-  const [playgroundResponse, setPlaygroundResponse] = useState("");
-  const [playgroundToolCalls, setPlaygroundToolCalls] = useState<ToolCall[]>([]);
-  const [playgroundError, setPlaygroundError] = useState<string | null>(null);
-  const [playgroundEvents, setPlaygroundEvents] = useState<PlaygroundEvent[]>([]);
-
-  // ============================================================================
-  // Workflow Progress Computation
-  // ============================================================================
-
-  // Compute workflow progress based on app state
+  // Compute workflow progress from child contexts
   const workflowProgress: WorkflowProgress = {
-    hasAgents: agents.length > 0,
-    hasBatches: syntheticBatches.some(b => b.status === 'completed'),
-    hasReviewedSessions: sessions.some(s => s.is_reviewed),
-    hasFailureModes: (taxonomy?.failure_modes?.length ?? 0) > 0,
+    hasAgents: agent.agents.length > 0,
+    hasBatches: synthetic.syntheticBatches.some(b => b.status === 'completed'),
+    hasReviewedSessions: session.sessions.some(s => s.is_reviewed),
+    hasFailureModes: (taxonomy.taxonomy?.failure_modes?.length ?? 0) > 0,
   };
 
-  // Dismiss landing page and persist to sessionStorage
-  const dismissLandingPage = useCallback(() => {
-    setShowLandingPage(false);
-    if (typeof window !== 'undefined') {
-      sessionStorage.setItem('landingPageDismissed', 'true');
-    }
-  }, []);
-
-  // ============================================================================
-  // Session Actions
-  // ============================================================================
-
-  const fetchSessionsData = useCallback(async () => {
-    setLoadingSessions(true);
-    try {
-      // Handle special organic filter (sessions without a batch)
-      const isOrganicFilter = filterBatchId === ORGANIC_FILTER;
-      
-      const data = await api.fetchSessions({
-        sort_by: sortBy,
-        direction: sortDirection,
-        min_turns: filterMinTurns,
-        max_turns: filterMaxTurns,
-        min_tokens: filterMinTokens,
-        max_tokens: filterMaxTokens,
-        min_cost: filterMinCost,
-        max_cost: filterMaxCost,
-        min_latency: filterMinLatency,
-        max_latency: filterMaxLatency,
-        is_reviewed: filterReviewed,
-        has_error: filterHasError,
-        batch_id: isOrganicFilter ? null : filterBatchId,
-        exclude_batches: isOrganicFilter ? true : undefined,
-        primary_model: filterModel,
-        id_prefix: SESSION_ID_PREFIX,  // Only show session_* threads (not random UUIDs)
-        limit: 100,
-      });
-      setSessions(data.sessions);
-      
-      // Fetch batch review progress if filtering by a specific batch (not organic)
-      if (filterBatchId && !isOrganicFilter) {
-        try {
-          const progress = await api.fetchBatchReviewProgress(filterBatchId);
-          setBatchReviewProgress(progress);
-        } catch {
-          setBatchReviewProgress(null);
-        }
+  // Build backwards-compatible filter setters
+  const setSortBy = useCallback((s: string) => session.setFilters({ sortBy: s }), [session]);
+  const setSortDirection = useCallback((s: string | ((prev: string) => string)) => {
+    if (typeof s === 'function') {
+      session.setFilters({ sortDirection: s(session.filters.sortDirection) });
       } else {
-        setBatchReviewProgress(null);
-      }
-    } catch (error) {
-      console.error("Error fetching sessions:", error);
-    } finally {
-      setLoadingSessions(false);
+      session.setFilters({ sortDirection: s });
     }
-  }, [sortBy, sortDirection, filterMinTurns, filterMaxTurns, filterMinTokens, filterMaxTokens, filterMinCost, filterMaxCost, filterMinLatency, filterMaxLatency, filterReviewed, filterHasError, filterBatchId, filterModel]);
+  }, [session]);
+  const setFilterMinTurns = useCallback((n: number | null) => session.setFilters({ minTurns: n }), [session]);
+  const setFilterMaxTurns = useCallback((n: number | null) => session.setFilters({ maxTurns: n }), [session]);
+  const setFilterMinTokens = useCallback((n: number | null) => session.setFilters({ minTokens: n }), [session]);
+  const setFilterMaxTokens = useCallback((n: number | null) => session.setFilters({ maxTokens: n }), [session]);
+  const setFilterMinCost = useCallback((n: number | null) => session.setFilters({ minCost: n }), [session]);
+  const setFilterMaxCost = useCallback((n: number | null) => session.setFilters({ maxCost: n }), [session]);
+  const setFilterMinLatency = useCallback((n: number | null) => session.setFilters({ minLatency: n }), [session]);
+  const setFilterMaxLatency = useCallback((n: number | null) => session.setFilters({ maxLatency: n }), [session]);
+  const setFilterReviewed = useCallback((b: boolean | null) => session.setFilters({ isReviewed: b }), [session]);
+  const setFilterHasError = useCallback((b: boolean | null) => session.setFilters({ hasError: b }), [session]);
+  const setFilterBatchId = useCallback((s: string | null) => session.setFilters({ batchId: s }), [session]);
+  const setFilterBatchName = useCallback((s: string | null) => session.setFilters({ batchName: s }), [session]);
+  const setFilterModel = useCallback((s: string | null) => session.setFilters({ model: s }), [session]);
+  const setSearchQuery = useCallback((s: string) => session.setFilters({ searchQuery: s }), [session]);
 
-  const fetchSessionDetailData = async (sessionId: string) => {
-    setLoadingSessionDetail(true);
-    try {
-      const data = await api.fetchSessionDetail(sessionId);
-      setSelectedSession(data);
-    } catch (error) {
-      console.error("Error fetching session detail:", error);
-    } finally {
-      setLoadingSessionDetail(false);
-    }
-  };
-
-  const markSessionReviewedAction = async (sessionId: string) => {
-    try {
-      await api.markSessionReviewed(sessionId);
-      setSelectedSession((prev) => (prev ? { ...prev, is_reviewed: true } : null));
-      setSessions((prev) =>
-        prev.map((s) => (s.id === sessionId ? { ...s, is_reviewed: true } : s))
-      );
-      // Refresh batch progress if applicable
-      if (filterBatchId) {
-        const progress = await api.fetchBatchReviewProgress(filterBatchId);
-        setBatchReviewProgress(progress);
-      }
-    } catch (error) {
-      console.error("Error marking session as reviewed:", error);
-    }
-  };
-
-  const unmarkSessionReviewedAction = async (sessionId: string) => {
-    try {
-      await api.unmarkSessionReviewed(sessionId);
-      setSelectedSession((prev) => (prev ? { ...prev, is_reviewed: false } : null));
-      setSessions((prev) =>
-        prev.map((s) => (s.id === sessionId ? { ...s, is_reviewed: false } : s))
-      );
-      // Refresh batch progress if applicable
-      if (filterBatchId) {
-        const progress = await api.fetchBatchReviewProgress(filterBatchId);
-        setBatchReviewProgress(progress);
-      }
-    } catch (error) {
-      console.error("Error unmarking session as reviewed:", error);
-    }
-  };
-
-  const addSessionNoteAction = async (sessionId: string, content: string, noteType: string = "observation") => {
-    if (!content.trim()) return;
-    try {
-      await api.createSessionNote(sessionId, content, noteType);
-      // Refresh session detail to show new note
-      if (selectedSession?.id === sessionId) {
-        await fetchSessionDetailData(sessionId);
-      }
-    } catch (error) {
-      console.error("Error adding session note:", error);
-    }
-  };
-
-  const refreshSyncStatusData = useCallback(async () => {
-    try {
-      const status = await api.fetchSyncStatus();
-      setSyncStatus(status);
-      return status;
-    } catch (error) {
-      console.error("Error fetching sync status:", error);
-      return null;
-    }
-  }, []);
-
-  const triggerSyncAction = async (fullSync: boolean = false) => {
-    try {
-      await api.triggerSync(fullSync, filterBatchId ?? undefined);
-      // Start polling for sync status with exponential backoff
-      refreshSyncStatusData();
-      
-      // Reset polling interval to initial value
-      syncPollIntervalRef.current = 1000;
-      
-      // Clear any existing polling
-      if (syncPollRef.current) {
-        clearTimeout(syncPollRef.current);
-        syncPollRef.current = null;
-      }
-      
-      // Poll with exponential backoff (1s -> 1.5s -> 2.25s -> ... -> max 5s)
-      const pollWithBackoff = async () => {
-        const status = await refreshSyncStatusData();
-        
-        if (status && !status.is_syncing) {
-          // Sync complete - refresh data and stop polling
-          fetchSessionsData();
-          fetchFilterRangesData();
-          syncPollRef.current = null;
-        } else {
-          // Continue polling with backoff (1.5x, capped at 5s)
-          syncPollIntervalRef.current = Math.min(
-            syncPollIntervalRef.current * 1.5,
-            5000
-          );
-          syncPollRef.current = setTimeout(pollWithBackoff, syncPollIntervalRef.current);
-        }
-      };
-      
-      // Start the first poll after initial interval
-      syncPollRef.current = setTimeout(pollWithBackoff, syncPollIntervalRef.current);
-    } catch (error) {
-      console.error("Error triggering sync:", error);
-    }
-  };
-
-  const fetchFilterRangesData = useCallback(async () => {
-    setLoadingFilterRanges(true);
-    try {
-      const ranges = await api.fetchFilterRanges();
-      setFilterRanges(ranges);
-    } catch (error) {
-      console.error("Error fetching filter ranges:", error);
-    } finally {
-      setLoadingFilterRanges(false);
-    }
-  }, []);
-
-  // ============================================================================
-  // Agent Actions
-  // ============================================================================
-
-  const fetchAgentsData = useCallback(async () => {
-    setLoadingAgents(true);
-    try {
-      const data = await api.fetchAgents();
-      setAgents(data);
-    } catch (error) {
-      console.error("Error fetching agents:", error);
-    } finally {
-      setLoadingAgents(false);
-    }
-  }, []);
-
-  const fetchAgentDetailData = async (agentId: string) => {
-    try {
-      const data = await api.fetchAgentDetail(agentId);
-      setSelectedAgent(data);
-      // Load dimensions, batches, and stats in parallel for faster loading
-      await Promise.all([
-        fetchDimensionsData(agentId),
-        fetchBatchesData(agentId),
-        fetchAgentStatsData(agentId)
-      ]);
-    } catch (error) {
-      console.error("Error fetching agent detail:", error);
-    }
-  };
-
-  const fetchAgentStatsData = async (agentId: string) => {
-    setLoadingAgentStats(true);
-    try {
-      const stats = await api.fetchAgentStats(agentId);
-      setAgentStats(stats);
-    } catch (error) {
-      console.error("Error fetching agent stats:", error);
-      setAgentStats(null);
-    } finally {
-      setLoadingAgentStats(false);
-    }
-  };
-
-  // Unified agent selection with automatic data loading
-  // Use this when selecting an agent from a list (not fetching full details)
-  const selectAgentWithData = async (agent: Agent) => {
-    // If we already have this agent selected with full details, just ensure data is loaded
-    if (selectedAgent?.id === agent.id) {
-      // Already selected, but ensure dimensions and batches are loaded
-      if (dimensions.length === 0 || syntheticBatches.length === 0) {
-        await Promise.all([
-          fetchDimensionsData(agent.id),
-          fetchBatchesData(agent.id)
-        ]);
-      }
-      return;
-    }
-    // Fetch full agent details and related data
-    await fetchAgentDetailData(agent.id);
-  };
-
-  const testAgentConnectionAction = async (agentId: string) => {
-    setConnectionResult(null);
-    try {
-      const result = await api.testAgentConnection(agentId);
-      setConnectionResult(result);
-      await fetchAgentsData();
-      
-      // Update selected agent's connection status if it matches
-      if (selectedAgent?.id === agentId) {
-        setSelectedAgent(prev => prev ? {
-          ...prev,
-          connection_status: result.success ? "connected" : "error"
-        } : null);
-      }
-    } catch (error) {
-      setConnectionResult({
-        success: false,
-        status_code: null,
-        response_time_ms: null,
-        error: String(error),
-      });
-    }
-  };
-
-  // Background health check for selected agent (silent - doesn't update connectionResult)
-  const checkAgentHealthSilently = useCallback(async (agentId: string) => {
-    try {
-      const result = await api.testAgentConnection(agentId);
-      // Update selected agent's connection status silently
-      setSelectedAgent(prev => {
-        if (prev?.id !== agentId) return prev;
-        const newStatus = result.success ? "connected" : "disconnected";
-        if (prev.connection_status !== newStatus) {
-          return { ...prev, connection_status: newStatus };
-        }
-        return prev;
-      });
-      // Also update in agents list
-      setAgents(prev => prev.map(a => 
-        a.id === agentId 
-          ? { ...a, connection_status: result.success ? "connected" : "disconnected" }
-          : a
-      ));
-    } catch {
-      // Silently mark as disconnected on error
-      setSelectedAgent(prev => {
-        if (prev?.id !== agentId) return prev;
-        return { ...prev, connection_status: "disconnected" };
-      });
-    }
-  }, []);
-
-  const createAgentAction = async (name: string, endpoint: string, info: string) => {
-    if (!name || !endpoint || !info) return;
-    await api.createAgent(name, endpoint, info);
-    await fetchAgentsData();
-  };
-
-  const updateAgentAction = async (
-    id: string,
-    name: string,
-    endpoint: string,
-    info: string
-  ) => {
-    const updates: Record<string, string> = {};
-    if (name) updates.name = name;
-    if (endpoint) updates.endpoint_url = endpoint;
-    if (info) updates.agent_info_content = info;
-    await api.updateAgent(id, updates);
-    await fetchAgentsData();
-    if (selectedAgent?.id === id) {
-      await fetchAgentDetailData(id);
-    }
-  };
-
-  const deleteAgentAction = async (agentId: string) => {
-    await api.deleteAgent(agentId);
-    await fetchAgentsData();
-    if (selectedAgent?.id === agentId) {
-      setSelectedAgent(null);
-    }
-  };
-
-  // ============================================================================
-  // Taxonomy Actions
-  // ============================================================================
-
-  const fetchTaxonomyData = useCallback(async () => {
-    setLoadingTaxonomy(true);
-    try {
-      const data = await api.fetchTaxonomy();
-      setTaxonomy(data);
-    } catch (error) {
-      console.error("Error fetching taxonomy:", error);
-    } finally {
-      setLoadingTaxonomy(false);
-    }
-  }, []);
-
-  const syncNotesFromWeaveAction = async () => {
-    setSyncing(true);
-    try {
-      await api.syncNotesFromWeave();
-      await fetchTaxonomyData();
-    } catch (error) {
-      console.error("Error syncing notes:", error);
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  const autoCategorizeAction = async () => {
-    setCategorizing(true);
-    try {
-      await api.autoCategorize();
-      await fetchTaxonomyData();
-    } catch (error) {
-      console.error("Error categorizing:", error);
-    } finally {
-      setCategorizing(false);
-    }
-  };
-
-  const createFailureModeAction = async (
-    name: string,
-    desc: string,
-    severity: string
-  ) => {
-    const result = await api.createFailureMode(name, desc, severity);
-    await fetchTaxonomyData();
-    return result;
-  };
-
-  const deleteFailureModeAction = async (modeId: string) => {
-    await api.deleteFailureMode(modeId);
-    await fetchTaxonomyData();
-  };
-
-  // ============================================================================
-  // Synthetic Data Actions
-  // ============================================================================
-
-  const fetchDimensionsData = async (agentId: string) => {
-    setLoadingDimensions(true);
-    try {
-      const data = await api.fetchDimensions(agentId);
-      setDimensions(data || []);
-    } catch (error) {
-      console.error("Error fetching dimensions:", error);
-    } finally {
-      setLoadingDimensions(false);
-    }
-  };
-
-  const importDimensionsAction = async (agentId: string) => {
-    setLoadingDimensions(true);
-    try {
-      const data = await api.importDimensions(agentId);
-      if (data.imported > 0) {
-        setDimensions(data.dimensions || []);
-      }
-    } catch (error) {
-      console.error("Error importing dimensions:", error);
-    } finally {
-      setLoadingDimensions(false);
-    }
-  };
-
-  const fetchBatchesData = async (agentId: string) => {
-    try {
-      const data = await api.fetchBatches(agentId);
-      setSyntheticBatches(data || []);
-    } catch (error) {
-      console.error("Error fetching batches:", error);
-    }
-  };
-
-  const fetchBatchDetailData = async (batchId: string) => {
-    try {
-      const data = await api.fetchBatchDetail(batchId);
-      setSelectedBatch(data);
-    } catch (error) {
-      console.error("Error fetching batch detail:", error);
-    }
-  };
-
-  const deleteBatchAction = async (batchId: string, agentId: string) => {
-    try {
-      await api.deleteBatch(batchId);
-      await fetchBatchesData(agentId);
-      if (selectedBatch?.id === batchId) {
-        setSelectedBatch(null);
-      }
-    } catch (error) {
-      console.error("Error deleting batch:", error);
-    }
-  };
-
-  // Playground
-  const resetPlayground = () => {
-    setPlaygroundResponse("");
-    setPlaygroundToolCalls([]);
-    setPlaygroundError(null);
-    setPlaygroundEvents([]);
-  };
-
-  // ============================================================================
-  // Effects
-  // ============================================================================
-
-  // Initial data load
-  useEffect(() => {
-    fetchAgentsData(); // Load agents on startup for auto-selection
-  }, [fetchAgentsData]);
-
-  // Threads tab - load from local DB
-  useEffect(() => {
-    if (activeTab === "threads") {
-      fetchSessionsData();
-      refreshSyncStatusData();
-      fetchFilterRangesData();
-    }
-  }, [activeTab, fetchSessionsData, refreshSyncStatusData, fetchFilterRangesData]);
-
-  // Cleanup sync polling on unmount
-  useEffect(() => {
-    return () => {
-      if (syncPollRef.current) clearTimeout(syncPollRef.current);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === "taxonomy") {
-      fetchTaxonomyData();
-    } else if (activeTab === "agents" || activeTab === "synthetic") {
-      // Only fetch agents if not already loaded (avoid redundant fetches on tab switch)
-      if (agents.length === 0) {
-        fetchAgentsData();
-      }
-    }
-  }, [activeTab, fetchTaxonomyData, fetchAgentsData, agents.length]);
-
-  // Automatically load agent data when switching to synthetic tab with a selected agent
-  useEffect(() => {
-    if (activeTab === "synthetic" && selectedAgent) {
-      // Load dimensions and batches if not already loaded
-      const needsDimensions = dimensions.length === 0;
-      const needsBatches = syntheticBatches.length === 0;
-      
-      if (needsDimensions || needsBatches) {
-        Promise.all([
-          needsDimensions ? fetchDimensionsData(selectedAgent.id) : Promise.resolve(),
-          needsBatches ? fetchBatchesData(selectedAgent.id) : Promise.resolve()
-        ]);
-      }
-    }
-  }, [activeTab, selectedAgent, dimensions.length, syntheticBatches.length]);
-
-  // Auto-select a connected agent when agents are loaded and no agent is selected
-  useEffect(() => {
-    if (!selectedAgent && agents.length > 0 && !loadingAgents) {
-      // Find a connected agent, or fall back to first agent
-      const connectedAgent = agents.find(a => a.connection_status === "connected");
-      const agentToSelect = connectedAgent || agents[0];
-      
-      if (agentToSelect) {
-        // Fetch full agent details and related data
-        fetchAgentDetailData(agentToSelect.id);
-      }
-    }
-  }, [agents, selectedAgent, loadingAgents]);
-
-  // Background health checks for selected agent (every 30s)
-  useEffect(() => {
-    // Clear any existing health check polling
-    if (agentHealthPollRef.current) {
-      clearInterval(agentHealthPollRef.current);
-      agentHealthPollRef.current = null;
-    }
-
-    if (selectedAgent) {
-      // Perform immediate health check when agent is selected
-      checkAgentHealthSilently(selectedAgent.id);
-      
-      // Start polling every 30 seconds
-      agentHealthPollRef.current = setInterval(() => {
-        if (selectedAgent) {
-          checkAgentHealthSilently(selectedAgent.id);
-        }
-      }, 30000);
-    }
-
-    // Cleanup on unmount or when agent changes
-    return () => {
-      if (agentHealthPollRef.current) {
-        clearInterval(agentHealthPollRef.current);
-        agentHealthPollRef.current = null;
-      }
-    };
-  }, [selectedAgent?.id, checkAgentHealthSilently]);
-
-  // ============================================================================
-  // Context Value
-  // ============================================================================
-
-  const value: AppState = {
-    // Setup State
-    configStatus,
-    needsSetup: needsSetup && !setupComplete,
-    checkingSetup,
-    completeSetup,
-    refreshConfigStatus,
+  return {
+    // Core app state
+    ...core,
+    workflowProgress, // Override with computed value
     
-    // Landing Page
-    showLandingPage,
-    setShowLandingPage,
-    workflowProgress,
-    dismissLandingPage,
-
-    activeTab,
-    setActiveTab,
-
-    // Sessions (Local DB)
-    sessions,
-    selectedSession,
-    syncStatus,
-    batchReviewProgress,
-    loadingSessions,
-    loadingSessionDetail,
-
-    sortBy,
+    // Session state (from SessionContext)
+    sessions: session.sessions,
+    selectedSession: session.selectedSession,
+    syncStatus: session.syncStatus,
+    batchReviewProgress: session.batchReviewProgress,
+    loadingSessions: session.loadingSessions,
+    loadingSessionDetail: session.loadingSessionDetail,
+    
+    // Filter state (backwards compatible individual accessors)
+    sortBy: session.filters.sortBy,
     setSortBy,
-    sortDirection,
+    sortDirection: session.filters.sortDirection,
     setSortDirection,
-    filterMinTurns,
+    filterMinTurns: session.filters.minTurns,
     setFilterMinTurns,
-    filterMaxTurns,
+    filterMaxTurns: session.filters.maxTurns,
     setFilterMaxTurns,
-    filterMinTokens,
+    filterMinTokens: session.filters.minTokens,
     setFilterMinTokens,
-    filterMaxTokens,
+    filterMaxTokens: session.filters.maxTokens,
     setFilterMaxTokens,
-    filterMinCost,
+    filterMinCost: session.filters.minCost,
     setFilterMinCost,
-    filterMaxCost,
+    filterMaxCost: session.filters.maxCost,
     setFilterMaxCost,
-    filterMinLatency,
+    filterMinLatency: session.filters.minLatency,
     setFilterMinLatency,
-    filterMaxLatency,
+    filterMaxLatency: session.filters.maxLatency,
     setFilterMaxLatency,
-    filterReviewed,
+    filterReviewed: session.filters.isReviewed,
     setFilterReviewed,
-    filterHasError,
+    filterHasError: session.filters.hasError,
     setFilterHasError,
-    filterBatchId,
+    filterBatchId: session.filters.batchId,
     setFilterBatchId,
-    filterBatchName,
+    filterBatchName: session.filters.batchName,
     setFilterBatchName,
-    filterModel,
+    filterModel: session.filters.model,
     setFilterModel,
-    searchQuery,
+    searchQuery: session.filters.searchQuery,
     setSearchQuery,
-    filterRanges,
-    loadingFilterRanges,
-    fetchFilterRanges: fetchFilterRangesData,
+    filterRanges: session.filterRanges,
+    loadingFilterRanges: session.loadingFilterRanges,
+    fetchFilterRanges: session.fetchFilterRanges,
 
     // Session actions
-    fetchSessions: fetchSessionsData,
-    fetchSessionDetail: fetchSessionDetailData,
-    markSessionReviewed: markSessionReviewedAction,
-    unmarkSessionReviewed: unmarkSessionReviewedAction,
-    addSessionNote: addSessionNoteAction,
-    triggerSync: triggerSyncAction,
-    refreshSyncStatus: refreshSyncStatusData,
+    fetchSessions: session.fetchSessions,
+    fetchSessionDetail: session.fetchSessionDetail,
+    markSessionReviewed: session.markSessionReviewed,
+    unmarkSessionReviewed: session.unmarkSessionReviewed,
+    addSessionNote: session.addSessionNote,
+    triggerSync: session.triggerSync,
+    refreshSyncStatus: session.refreshSyncStatus,
 
-    agents,
-    selectedAgent,
-    agentStats,
-    loadingAgents,
-    loadingAgentStats,
-    connectionResult,
+    // Agent state (from AgentContext)
+    agents: agent.agents,
+    selectedAgent: agent.selectedAgent,
+    agentStats: agent.agentStats,
+    loadingAgents: agent.loadingAgents,
+    loadingAgentStats: agent.loadingAgentStats,
+    connectionResult: agent.connectionResult,
+    fetchAgents: agent.fetchAgents,
+    fetchAgentDetail: agent.fetchAgentDetail,
+    fetchAgentStats: agent.fetchAgentStats,
+    selectAgentWithData: agent.selectAgentWithData,
+    testAgentConnection: agent.testAgentConnection,
+    createAgent: agent.createAgent,
+    updateAgent: agent.updateAgent,
+    deleteAgent: agent.deleteAgent,
+    setSelectedAgent: agent.setSelectedAgent,
 
-    fetchAgents: fetchAgentsData,
-    fetchAgentDetail: fetchAgentDetailData,
-    fetchAgentStats: fetchAgentStatsData,
-    selectAgentWithData,
-    testAgentConnection: testAgentConnectionAction,
-    createAgent: createAgentAction,
-    updateAgent: updateAgentAction,
-    deleteAgent: deleteAgentAction,
-    setSelectedAgent,
+    // Synthetic state (from SyntheticContext)
+    dimensions: synthetic.dimensions,
+    loadingDimensions: synthetic.loadingDimensions,
+    syntheticBatches: synthetic.syntheticBatches,
+    selectedBatch: synthetic.selectedBatch,
+    fetchDimensions: synthetic.fetchDimensions,
+    importDimensions: synthetic.importDimensions,
+    fetchBatches: synthetic.fetchBatches,
+    fetchBatchDetail: synthetic.fetchBatchDetail,
+    setSelectedBatch: synthetic.setSelectedBatch,
+    deleteBatch: synthetic.deleteBatch,
+    
+    // Generation/Execution state (placeholder - moved to component-local state)
+    generatingBatch: false,
+    generationProgress: null,
+    executingBatch: false,
+    executionProgress: null,
 
-    taxonomy,
-    loadingTaxonomy,
-    syncing,
-    categorizing,
-
-    fetchTaxonomy: fetchTaxonomyData,
-    syncNotesFromWeave: syncNotesFromWeaveAction,
-    autoCategorize: autoCategorizeAction,
-    createFailureMode: createFailureModeAction,
-    deleteFailureMode: deleteFailureModeAction,
-
-    dimensions,
-    loadingDimensions,
-    syntheticBatches,
-    selectedBatch,
-    generatingBatch,
-    generationProgress,
-
-    fetchDimensions: fetchDimensionsData,
-    importDimensions: importDimensionsAction,
-    fetchBatches: fetchBatchesData,
-    fetchBatchDetail: fetchBatchDetailData,
-    setSelectedBatch,
-    deleteBatch: deleteBatchAction,
-
-    executingBatch,
-    executionProgress,
-
-    playgroundRunning,
-    playgroundResponse,
-    playgroundToolCalls,
-    playgroundError,
-    playgroundEvents,
-    resetPlayground,
+    // Taxonomy state (from TaxonomyContext)
+    taxonomy: taxonomy.taxonomy,
+    loadingTaxonomy: taxonomy.loadingTaxonomy,
+    syncing: taxonomy.syncing,
+    categorizing: taxonomy.categorizing,
+    fetchTaxonomy: taxonomy.fetchTaxonomy,
+    syncNotesFromWeave: taxonomy.syncNotesFromWeave,
+    autoCategorize: taxonomy.autoCategorize,
+    createFailureMode: taxonomy.createFailureMode,
+    deleteFailureMode: taxonomy.deleteFailureMode,
   };
-
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
 
+// ============================================================================
+// Composite Provider
+// ============================================================================
+
+/**
+ * AppProvider wraps all domain-specific contexts.
+ * 
+ * Provider hierarchy:
+ * - SyntheticProvider (innermost - no deps)
+ * - TaxonomyProvider (no deps)
+ * - AgentProvider (depends on Synthetic for loadAgentData)
+ * - SessionProvider (no deps)
+ * - CoreAppProvider (outermost - navigation/setup)
+ */
+export function AppProvider({ children }: { children: ReactNode }) {
+  return (
+    <SyntheticProvider>
+      <TaxonomyProvider>
+        <AgentProviderWithSynthetic>
+          <SessionProvider>
+            <CoreAppProvider>
+              <TabEffects>
+                {children}
+              </TabEffects>
+            </CoreAppProvider>
+          </SessionProvider>
+        </AgentProviderWithSynthetic>
+      </TaxonomyProvider>
+    </SyntheticProvider>
+  );
+}
+
+/**
+ * Wrapper to connect AgentProvider with SyntheticContext
+ */
+function AgentProviderWithSynthetic({ children }: { children: ReactNode }) {
+  const { loadAgentData } = useSynthetic();
+  
+  return (
+    <AgentProvider onAgentSelected={loadAgentData}>
+      {children}
+    </AgentProvider>
+  );
+}
+
+/**
+ * Handles tab-based data loading effects
+ */
+function TabEffects({ children }: { children: ReactNode }) {
+  const core = useContext(CoreAppContext);
+  const session = useSession();
+  const taxonomy = useTaxonomy();
+  const agent = useAgent();
+  const synthetic = useSynthetic();
+  
+  // Load data when switching tabs
+  useEffect(() => {
+    if (!core) return;
+    
+    if (core.activeTab === "threads") {
+      session.fetchSessions();
+      session.refreshSyncStatus();
+      session.fetchFilterRanges();
+    } else if (core.activeTab === "taxonomy") {
+      taxonomy.fetchTaxonomy();
+    } else if (core.activeTab === "synthetic" && agent.selectedAgent) {
+      // Load dimensions and batches if not already loaded
+      if (synthetic.dimensions.length === 0 || synthetic.syntheticBatches.length === 0) {
+        synthetic.loadAgentData(agent.selectedAgent.id);
+      }
+    }
+  }, [core?.activeTab, agent.selectedAgent?.id]);
+  
+  return <>{children}</>;
+}

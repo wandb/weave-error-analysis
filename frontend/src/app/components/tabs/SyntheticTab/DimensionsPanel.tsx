@@ -5,6 +5,14 @@
  *
  * Extracted from SyntheticTab to reduce component size and re-renders.
  * Uses React.memo to prevent unnecessary re-renders when other state changes.
+ * 
+ * Features:
+ * - Empty state with "Add manually" + "Generate with AI" CTAs
+ * - Testing goals input for targeted AI suggestions
+ * - Per-bucket "suggest more values" button
+ * - Favorites (starred values get 5x sampling weight)
+ * - Heatmap showing value usage distribution
+ * - Prompt editing via drawer
  */
 
 import React, { useState, memo } from "react";
@@ -16,12 +24,17 @@ import {
   ChevronDown,
   ChevronUp,
   Copy,
-  HelpCircle,
   Star,
+  Sparkles,
+  Loader2,
+  Settings2,
+  MoreHorizontal,
+  Download,
 } from "lucide-react";
 import type { Dimension } from "../../../types";
 import * as api from "../../../lib/api";
 import { ConfirmDialog } from "../../ui";
+import { PromptEditDrawer } from "../../PromptEditDrawer";
 
 // ============================================================================
 // Types
@@ -70,6 +83,21 @@ export const DimensionsPanel = memo(function DimensionsPanel({
   
   // Delete confirmation state
   const [deletingDimension, setDeletingDimension] = useState<string | null>(null);
+  
+  // AI generation state
+  const [isGeneratingDimensions, setIsGeneratingDimensions] = useState(false);
+  const [suggestingValuesFor, setSuggestingValuesFor] = useState<string | null>(null);
+  const [suggestedDimensions, setSuggestedDimensions] = useState<api.SuggestedDimension[] | null>(null);
+  
+  // Testing goals for AI generation
+  const [testingGoals, setTestingGoals] = useState("");
+  const [showTestingGoalsInput, setShowTestingGoalsInput] = useState(false);
+  
+  // Prompt editing
+  const [editingPromptId, setEditingPromptId] = useState<string | null>(null);
+  
+  // More options menu
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
 
   // ========== HANDLERS ==========
 
@@ -141,6 +169,81 @@ export const DimensionsPanel = memo(function DimensionsPanel({
     return `rgba(94, 234, 212, ${opacity})`;
   };
 
+  // ========== AI GENERATION HANDLERS ==========
+
+  const handleGenerateWithAI = async () => {
+    setIsGeneratingDimensions(true);
+    setSuggestedDimensions(null);
+    try {
+      const response = await api.suggestDimensions(
+        agentId,
+        testingGoals.trim() || undefined
+      );
+      setSuggestedDimensions(response.dimensions);
+      setShowTestingGoalsInput(false);
+    } catch (error) {
+      console.error("Error generating dimensions:", error);
+    } finally {
+      setIsGeneratingDimensions(false);
+    }
+  };
+
+  const handleAcceptSuggestedDimension = async (dim: api.SuggestedDimension) => {
+    try {
+      // Convert suggested values to string array (using labels)
+      const values = dim.values.map((v) => v.label || v.id);
+      await api.saveDimension(agentId, dim.name, values);
+      await onDimensionsChanged(agentId);
+      
+      // Remove from suggestions
+      setSuggestedDimensions((prev) =>
+        prev ? prev.filter((d) => d.name !== dim.name) : null
+      );
+    } catch (error) {
+      console.error("Error saving suggested dimension:", error);
+    }
+  };
+
+  const handleAcceptAllSuggestions = async () => {
+    if (!suggestedDimensions) return;
+    
+    for (const dim of suggestedDimensions) {
+      try {
+        const values = dim.values.map((v) => v.label || v.id);
+        await api.saveDimension(agentId, dim.name, values);
+      } catch (error) {
+        console.error(`Error saving dimension ${dim.name}:`, error);
+      }
+    }
+    
+    await onDimensionsChanged(agentId);
+    setSuggestedDimensions(null);
+  };
+
+  const handleDismissSuggestions = () => {
+    setSuggestedDimensions(null);
+  };
+
+  const handleSuggestMoreValues = async (dimName: string) => {
+    setSuggestingValuesFor(dimName);
+    try {
+      const response = await api.suggestBucketValues(agentId, dimName, 5);
+      
+      // Find the current dimension and add the new values
+      const currentDim = dimensions.find((d) => d.name === dimName);
+      if (currentDim) {
+        const newValues = response.new_values.map((v) => v.label || v.id);
+        const mergedValues = [...currentDim.values, ...newValues];
+        await api.saveDimension(agentId, dimName, mergedValues);
+        await onDimensionsChanged(agentId);
+      }
+    } catch (error) {
+      console.error("Error suggesting values:", error);
+    } finally {
+      setSuggestingValuesFor(null);
+    }
+  };
+
   // ========== RENDER ==========
 
   return (
@@ -172,71 +275,82 @@ export const DimensionsPanel = memo(function DimensionsPanel({
           </span>
         </button>
         <div className="flex gap-2 items-center">
-          {/* Import Button with Help Tooltip */}
-          <div className="relative" onMouseLeave={() => setShowImportHelp(false)}>
+          {/* Generate with AI button (prominent) */}
+          {dimensions.length > 0 && (
             <button
-              onClick={() => onImportDimensions(agentId)}
-              disabled={loadingDimensions}
-              className="text-xs px-3 py-1.5 rounded transition-colors flex items-center gap-1.5 bg-moon-800 text-moon-450 border border-moon-700"
+              onClick={() => setShowTestingGoalsInput(true)}
+              disabled={isGeneratingDimensions}
+              className="text-xs px-3 py-1.5 rounded transition-colors flex items-center gap-1.5 bg-gold/20 text-gold border border-gold/30 hover:bg-gold/30"
             >
-              {loadingDimensions ? "..." : "Import from AGENT_INFO"}
-              <span
-                className="cursor-help"
-                onMouseEnter={() => setShowImportHelp(true)}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <HelpCircle
-                  className={`w-3.5 h-3.5 ${
-                    showImportHelp ? "text-gold" : "text-moon-450"
-                  }`}
-                />
-              </span>
+              <Sparkles className="w-3.5 h-3.5" />
+              Generate more
             </button>
-            {/* Tooltip */}
-            {showImportHelp && (
-              <div
-                className="absolute right-0 top-full mt-1 p-4 rounded-lg z-50 w-96 text-xs cursor-default bg-moon-800 border border-gold shadow-xl"
-                onMouseEnter={() => setShowImportHelp(true)}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <p className="font-medium text-gold">
-                    Expected AGENT_INFO format:
-                  </p>
+          )}
+          
+          {/* More options menu */}
+          <div className="relative">
+            <button
+              onClick={() => setShowMoreMenu(!showMoreMenu)}
+              className="p-1.5 rounded transition-colors bg-moon-800 text-moon-450 border border-moon-700 hover:bg-moon-700"
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+            
+            {showMoreMenu && (
+              <>
+                {/* Backdrop to close menu */}
+                <div 
+                  className="fixed inset-0 z-40" 
+                  onClick={() => setShowMoreMenu(false)} 
+                />
+                
+                <div className="absolute right-0 top-full mt-1 w-56 rounded-lg z-50 bg-moon-800 border border-moon-700 shadow-xl overflow-hidden">
+                  {/* Import from AGENT_INFO */}
                   <button
                     onClick={() => {
-                      navigator.clipboard.writeText(`## Testing Dimensions
-- **personas**: first_time_user, power_user
-- **complexity**: simple, multi_step
-- **scenarios**: pricing_inquiry, refund`);
+                      onImportDimensions(agentId);
+                      setShowMoreMenu(false);
                     }}
-                    className="text-xs px-2 py-1 rounded flex items-center gap-1 transition-colors hover:opacity-80 bg-moon-700 text-moon-450"
+                    disabled={loadingDimensions}
+                    className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-3 hover:bg-moon-700 transition-colors text-moon-200"
                   >
-                    <Copy className="w-3 h-3" />
-                    Copy template
+                    <Download className="w-4 h-4 text-moon-450" />
+                    <span>Import from AGENT_INFO</span>
+                  </button>
+                  
+                  <div className="border-t border-moon-700" />
+                  
+                  {/* Edit prompts */}
+                  <button
+                    onClick={() => {
+                      setEditingPromptId("dimension_suggestion");
+                      setShowMoreMenu(false);
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-3 hover:bg-moon-700 transition-colors text-moon-200"
+                  >
+                    <Settings2 className="w-4 h-4 text-moon-450" />
+                    <span>Edit dimension prompt</span>
+                  </button>
+                  
+                  <button
+                    onClick={() => {
+                      setEditingPromptId("value_suggestion");
+                      setShowMoreMenu(false);
+                    }}
+                    className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-3 hover:bg-moon-700 transition-colors text-moon-200"
+                  >
+                    <Settings2 className="w-4 h-4 text-moon-450" />
+                    <span>Edit value prompt</span>
                   </button>
                 </div>
-                <pre className="p-3 rounded text-xs overflow-x-auto mb-3 select-all bg-moon-900 text-moon-50">
-                  {`## Testing Dimensions
-- **personas**: first_time_user, power_user
-- **complexity**: simple, multi_step
-- **scenarios**: pricing_inquiry, refund`}
-                </pre>
-                <p className="text-moon-450">
-                  Add a{" "}
-                  <code className="px-1 rounded bg-moon-700">
-                    ## Testing Dimensions
-                  </code>{" "}
-                  section with bullet points in the format{" "}
-                  <code className="px-1 rounded bg-moon-700">
-                    - **name**: value1, value2
-                  </code>
-                </p>
-              </div>
+              </>
             )}
           </div>
+          
           <button
             onClick={() => setShowAddDimension(true)}
             className="p-1.5 rounded transition-colors bg-gold text-moon-900"
+            title="Add dimension manually"
           >
             <Plus className="w-4 h-4" />
           </button>
@@ -289,6 +403,115 @@ export const DimensionsPanel = memo(function DimensionsPanel({
 
           {/* Dimensions List */}
           <div className="space-y-3 flex-1 overflow-y-auto pr-1">
+            {/* Testing Goals Input (shown when generating) */}
+            {showTestingGoalsInput && !suggestedDimensions && (
+              <div className="mb-4 p-4 rounded-lg border border-gold/50 bg-gold/5">
+                <h4 className="text-sm font-medium text-gold flex items-center gap-2 mb-3">
+                  <Sparkles className="w-4 h-4" />
+                  What do you want to test?
+                </h4>
+                <p className="text-xs text-moon-400 mb-3">
+                  Describe your testing goals to get more targeted dimension suggestions.
+                  Leave empty for generic dimensions.
+                </p>
+                <textarea
+                  value={testingGoals}
+                  onChange={(e) => setTestingGoals(e.target.value)}
+                  placeholder="e.g., Edge cases around refunds, frustrated customers, complex multi-step requests..."
+                  rows={3}
+                  className="w-full px-3 py-2 rounded text-sm mb-3 bg-moon-900 border border-moon-700 text-moon-50 placeholder:text-moon-600"
+                  autoFocus
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleGenerateWithAI}
+                    disabled={isGeneratingDimensions}
+                    className="px-4 py-2 rounded text-sm font-medium flex items-center gap-2 bg-gold text-moon-900 hover:bg-gold/90 transition-colors disabled:opacity-50"
+                  >
+                    {isGeneratingDimensions ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Generating...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles className="w-4 h-4" />
+                        Generate Dimensions
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowTestingGoalsInput(false);
+                      setTestingGoals("");
+                    }}
+                    className="px-4 py-2 rounded text-sm bg-moon-700 text-moon-400 hover:bg-moon-600"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Suggested Dimensions Preview (from AI) */}
+            {suggestedDimensions && suggestedDimensions.length > 0 && (
+              <div className="mb-4 p-4 rounded-lg border-2 border-dashed border-gold/50 bg-gold/5">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-sm font-medium text-gold flex items-center gap-2">
+                    <Sparkles className="w-4 h-4" />
+                    AI-Suggested Dimensions
+                  </h4>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleAcceptAllSuggestions}
+                      className="text-xs px-3 py-1.5 rounded bg-gold text-moon-900 font-medium"
+                    >
+                      Accept All
+                    </button>
+                    <button
+                      onClick={handleDismissSuggestions}
+                      className="text-xs px-3 py-1.5 rounded bg-moon-700 text-moon-450"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {suggestedDimensions.map((dim) => (
+                    <div
+                      key={dim.name}
+                      className="p-3 rounded-lg bg-moon-800 border border-moon-700"
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-medium text-sm text-moon-50">
+                          {dim.name}
+                        </span>
+                        <button
+                          onClick={() => handleAcceptSuggestedDimension(dim)}
+                          className="text-xs px-2 py-1 rounded bg-gold/20 text-gold hover:bg-gold/30"
+                        >
+                          Add
+                        </button>
+                      </div>
+                      {dim.description && (
+                        <p className="text-xs text-moon-450 mb-2">{dim.description}</p>
+                      )}
+                      <div className="flex flex-wrap gap-1.5">
+                        {dim.values.map((val, j) => (
+                          <span
+                            key={j}
+                            className="text-xs px-2 py-1 rounded bg-moon-700 text-moon-300"
+                          >
+                            {val.label || val.id}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {dimensions.length > 0 ? (
               dimensions.map((dim) => (
                 <div
@@ -305,6 +528,19 @@ export const DimensionsPanel = memo(function DimensionsPanel({
                       </span>
                     </div>
                     <div className="flex gap-1">
+                      {/* Suggest more values button */}
+                      <button
+                        onClick={() => handleSuggestMoreValues(dim.name)}
+                        disabled={suggestingValuesFor === dim.name}
+                        className="p-1.5 rounded transition-colors text-gold/70 hover:text-gold disabled:opacity-50"
+                        title="Suggest more values with AI"
+                      >
+                        {suggestingValuesFor === dim.name ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Sparkles className="w-3.5 h-3.5" />
+                        )}
+                      </button>
                       <button
                         onClick={() =>
                           setEditingDimension(
@@ -395,20 +631,40 @@ export const DimensionsPanel = memo(function DimensionsPanel({
                   )}
                 </div>
               ))
-            ) : (
+            ) : !suggestedDimensions && !showTestingGoalsInput ? (
               <div className="flex-1 flex items-center justify-center text-moon-450">
-                <div className="text-center">
-                  <Target className="w-10 h-10 mx-auto mb-3 opacity-40" />
-                  <p className="text-sm mb-2">No dimensions defined yet</p>
-                  <p className="text-xs mb-3">
-                    Click &quot;Import from AGENT_INFO&quot; or add manually
+                <div className="text-center max-w-md">
+                  <Target className="w-12 h-12 mx-auto mb-4 opacity-40" />
+                  <h3 className="text-base font-medium text-moon-200 mb-2">
+                    Testing Dimensions
+                  </h3>
+                  <p className="text-sm mb-4 leading-relaxed">
+                    Buckets (dimensions) are how we slice your test space: 
+                    persona, scenario, complexity, etc. Each bucket has values 
+                    that we combine to generate diverse test queries.
                   </p>
-                  <p className="text-xs text-gold">
+                  <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                    <button
+                      onClick={() => setShowAddDimension(true)}
+                      className="px-4 py-2 rounded text-sm font-medium flex items-center justify-center gap-2 bg-moon-700 text-moon-200 hover:bg-moon-600 transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                      Add bucket manually
+                    </button>
+                    <button
+                      onClick={() => setShowTestingGoalsInput(true)}
+                      className="px-4 py-2 rounded text-sm font-medium flex items-center justify-center gap-2 bg-gold text-moon-900 hover:bg-gold/90 transition-colors"
+                    >
+                      <Sparkles className="w-4 h-4" />
+                      Generate with AI
+                    </button>
+                  </div>
+                  <p className="text-xs mt-4 text-gold">
                     ⚠️ Define at least one dimension to generate queries
                   </p>
                 </div>
               </div>
-            )}
+            ) : null}
           </div>
         </div>
       )}
@@ -422,6 +678,13 @@ export const DimensionsPanel = memo(function DimensionsPanel({
         message={`Are you sure you want to delete the dimension "${deletingDimension}"? This action cannot be undone.`}
         confirmText="Delete"
         variant="danger"
+      />
+      
+      {/* Prompt Edit Drawer */}
+      <PromptEditDrawer
+        isOpen={!!editingPromptId}
+        onClose={() => setEditingPromptId(null)}
+        promptId={editingPromptId || ""}
       />
     </div>
   );

@@ -658,6 +658,54 @@ export async function deleteDimension(agentId: string, dimName: string): Promise
   invalidateCache(new RegExp(`/agents/${agentId}/dimensions`));
 }
 
+// ============================================================================
+// LLM-Powered Dimension Suggestion API
+// ============================================================================
+
+export interface SuggestedValue {
+  id: string;
+  label: string;
+}
+
+export interface SuggestedDimension {
+  name: string;
+  description?: string;
+  values: SuggestedValue[];
+}
+
+export interface SuggestDimensionsResponse {
+  dimensions: SuggestedDimension[];
+}
+
+export interface SuggestValuesResponse {
+  dimension_name: string;
+  new_values: SuggestedValue[];
+}
+
+export async function suggestDimensions(
+  agentId: string,
+  testingGoals?: string,
+  count: number = 4
+): Promise<SuggestDimensionsResponse> {
+  return apiCall(`${API_BASE}/agents/${agentId}/dimensions/suggest`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ testing_goals: testingGoals, count }),
+  });
+}
+
+export async function suggestBucketValues(
+  agentId: string,
+  dimensionName: string,
+  count: number = 5
+): Promise<SuggestValuesResponse> {
+  return apiCall(`${API_BASE}/agents/${agentId}/dimensions/${dimensionName}/suggest-values`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ count }),
+  });
+}
+
 export async function fetchBatches(agentId: string): Promise<SyntheticBatch[]> {
   return cachedGet(`${API_BASE}/synthetic/batches?agent_id=${agentId}`, { ttl: CACHE_TTL.SHORT });
 }

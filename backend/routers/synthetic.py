@@ -11,12 +11,12 @@ Provides endpoints for:
 import json
 import uuid
 from datetime import datetime
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from config import get_agent_query_timeout, get_default_batch_size
+from config import get_default_batch_size
 from database import get_db, now_iso
 from logger import get_logger
 
@@ -280,6 +280,203 @@ async def delete_dimension(agent_id: str, dimension_name: str):
             raise HTTPException(status_code=404, detail="Dimension not found")
     
     return {"status": "deleted", "dimension": dimension_name}
+
+
+# =============================================================================
+# LLM-Powered Dimension Suggestion Endpoints
+# =============================================================================
+
+class SuggestDimensionsRequest(BaseModel):
+    """Request to suggest testing dimensions using LLM."""
+    testing_goals: Optional[str] = None
+    count: int = 4
+
+
+class SuggestedValueResponse(BaseModel):
+    """A suggested value for a dimension."""
+    id: str
+    label: str
+
+
+class SuggestedDimensionResponse(BaseModel):
+    """A suggested testing dimension."""
+    name: str
+    description: Optional[str] = None
+    values: List[SuggestedValueResponse]
+
+
+class SuggestDimensionsResponse(BaseModel):
+    """Response from dimension suggestion."""
+    dimensions: List[SuggestedDimensionResponse]
+
+
+@router.post("/agents/{agent_id}/dimensions/suggest")
+async def suggest_dimensions(
+    agent_id: str,
+    request: SuggestDimensionsRequest = None
+) -> SuggestDimensionsResponse:
+    """
+    Use LLM to suggest testing dimensions based on agent context.
+    
+    This helps users bootstrap their testing dimension setup without
+    manually defining each bucket and value.
+    
+    The suggestions are NOT saved automatically - the frontend should
+    present them as editable cards that the user can modify before saving.
+    """
+    from services.synthetic import suggest_dimensions_llm
+    
+    if request is None:
+        request = SuggestDimensionsRequest()
+    
+    # Get agent context
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT name, agent_info_parsed FROM agents WHERE id = ?
+        """, (agent_id,))
+        row = cursor.fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Agent not found")
+    
+    # Extract agent info
+    agent_name = row["name"]
+    agent_purpose = None
+    agent_capabilities = []
+    
+    if row["agent_info_parsed"]:
+        try:
+            parsed = json.loads(row["agent_info_parsed"])
+            agent_purpose = parsed.get("purpose")
+            agent_capabilities = parsed.get("capabilities", [])
+        except json.JSONDecodeError:
+            pass
+    
+    # Call LLM to suggest dimensions
+    suggestions = await suggest_dimensions_llm(
+        agent_name=agent_name,
+        agent_purpose=agent_purpose,
+        agent_capabilities=agent_capabilities,
+        testing_goals=request.testing_goals,
+        count=request.count,
+    )
+    
+    # Convert to response format
+    return SuggestDimensionsResponse(
+        dimensions=[
+            SuggestedDimensionResponse(
+                name=dim.name,
+                description=dim.description,
+                values=[
+                    SuggestedValueResponse(id=v.id, label=v.label)
+                    for v in dim.values
+                ]
+            )
+            for dim in suggestions
+        ]
+    )
+
+
+class SuggestValuesRequest(BaseModel):
+    """Request to suggest more values for a dimension."""
+    count: int = 5
+
+
+class SuggestValuesResponse(BaseModel):
+    """Response from value suggestion."""
+    dimension_name: str
+    new_values: List[SuggestedValueResponse]
+
+
+@router.post("/agents/{agent_id}/dimensions/{dimension_name}/suggest-values")
+async def suggest_dimension_values(
+    agent_id: str,
+    dimension_name: str,
+    request: SuggestValuesRequest = None
+) -> SuggestValuesResponse:
+    """
+    Use LLM to suggest additional values for an existing dimension.
+    
+    This helps users expand their test coverage for a specific bucket
+    without having to think of all edge cases manually.
+    
+    The suggestions are NOT saved automatically - they should be
+    presented as addable values that the user can accept or modify.
+    """
+    from services.synthetic import suggest_values_for_bucket
+    
+    if request is None:
+        request = SuggestValuesRequest()
+    
+    # Get agent and dimension info
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        # Get agent
+        cursor.execute("""
+            SELECT name, agent_info_parsed FROM agents WHERE id = ?
+        """, (agent_id,))
+        agent_row = cursor.fetchone()
+        
+        if not agent_row:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        
+        # Get dimension
+        cursor.execute("""
+            SELECT dimension_values, descriptions FROM agent_dimensions 
+            WHERE agent_id = ? AND name = ?
+        """, (agent_id, dimension_name))
+        dim_row = cursor.fetchone()
+        
+        if not dim_row:
+            raise HTTPException(status_code=404, detail="Dimension not found")
+    
+    # Extract agent info
+    agent_name = agent_row["name"]
+    agent_purpose = None
+    
+    if agent_row["agent_info_parsed"]:
+        try:
+            parsed = json.loads(agent_row["agent_info_parsed"])
+            agent_purpose = parsed.get("purpose")
+        except json.JSONDecodeError:
+            pass
+    
+    # Get existing values
+    existing_values = []
+    if dim_row["dimension_values"]:
+        existing_values = json.loads(dim_row["dimension_values"])
+    
+    # Get dimension description if available
+    dimension_description = None
+    if dim_row["descriptions"]:
+        try:
+            descs = json.loads(dim_row["descriptions"])
+            # Use the first description as the dimension description
+            if descs:
+                dimension_description = list(descs.values())[0] if isinstance(descs, dict) else None
+        except json.JSONDecodeError:
+            pass
+    
+    # Call LLM to suggest values
+    suggestions = await suggest_values_for_bucket(
+        dimension_name=dimension_name,
+        existing_values=existing_values,
+        agent_name=agent_name,
+        agent_purpose=agent_purpose,
+        dimension_description=dimension_description,
+        count=request.count,
+    )
+    
+    # Convert to response format
+    return SuggestValuesResponse(
+        dimension_name=dimension_name,
+        new_values=[
+            SuggestedValueResponse(id=v.id, label=v.label)
+            for v in suggestions
+        ]
+    )
 
 
 @router.post("/agents/{agent_id}/dimensions/import-from-agent")
@@ -913,6 +1110,3 @@ async def reset_batch(batch_id: str, only_failed: bool = False):
         "batch_id": batch_id,
         "only_failed": only_failed
     }
-
-
-

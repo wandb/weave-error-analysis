@@ -6,6 +6,10 @@ Uses a two-step process:
 1. Generate dimension tuples (combinations of persona, scenario, complexity, etc.)
 using LLM when LLM Guided is enabled.
 2. Convert tuples to natural language queries using LLM
+
+Also provides LLM-powered dimension design:
+- suggest_dimensions_llm: Generate dimension schema from agent context
+- suggest_values_for_bucket: Expand a bucket with additional values
 """
 
 import json
@@ -14,7 +18,7 @@ import random
 import asyncio
 from math import prod
 from typing import AsyncGenerator
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import defaultdict
 from pydantic import BaseModel
 from enum import Enum
@@ -25,6 +29,232 @@ from logger import get_logger, log_event, LOG_LLM_CONTENT
 from prompts import prompt_manager
 
 logger = get_logger("synthetic")
+
+
+# =============================================================================
+# LLM-Powered Dimension Design
+# =============================================================================
+
+class SuggestedDimensionValue(BaseModel):
+    """A suggested value for a dimension."""
+    id: str
+    label: str
+
+
+class SuggestedDimension(BaseModel):
+    """A suggested testing dimension with values."""
+    name: str
+    description: str | None = None
+    values: list[SuggestedDimensionValue]
+
+
+async def suggest_dimensions_llm(
+    agent_name: str | None = None,
+    agent_purpose: str | None = None,
+    agent_capabilities: list[str] | None = None,
+    testing_goals: str | None = None,
+    count: int = 4,
+) -> list[SuggestedDimension]:
+    """
+    Use LLM to suggest testing dimensions based on agent context.
+    
+    Works in two modes:
+    - Cold start (no agent info): Generate generic but useful dimensions
+    - Agent-aware: Generate dimensions relevant to agent's capabilities
+    
+    Args:
+        agent_name: Name of the agent (optional)
+        agent_purpose: What the agent does (optional)
+        agent_capabilities: List of agent capabilities (optional)
+        testing_goals: User-specified testing focus areas (optional)
+        count: Number of dimensions to suggest (default: 4)
+    
+    Returns:
+        List of SuggestedDimension objects
+    """
+    # Build agent context section
+    if agent_name or agent_purpose:
+        context_lines = ["## Agent Context"]
+        if agent_name:
+            context_lines.append(f"**Name:** {agent_name}")
+        if agent_purpose:
+            context_lines.append(f"**Purpose:** {agent_purpose}")
+        if agent_capabilities:
+            context_lines.append(f"**Capabilities:** {', '.join(agent_capabilities[:10])}")
+        agent_context_section = "\n".join(context_lines)
+    else:
+        agent_context_section = "No specific agent context provided. Generate generic testing dimensions suitable for any conversational AI agent."
+    
+    # Build testing goals section
+    if testing_goals:
+        testing_goals_section = f"**Testing Goals:** {testing_goals}"
+    else:
+        testing_goals_section = ""
+    
+    # Get prompt and format
+    prompt_config = prompt_manager.get_prompt("dimension_suggestion")
+    variables = {
+        "agent_context_section": agent_context_section,
+        "count": str(count),
+        "testing_goals_section": testing_goals_section,
+    }
+    
+    # Build messages
+    messages = []
+    if prompt_config.system_prompt:
+        messages.append({
+            "role": "system",
+            "content": prompt_config.system_prompt
+        })
+    messages.append({
+        "role": "user",
+        "content": prompt_config.user_prompt_template.format(**variables)
+    })
+    
+    log_event(logger, "llm.dimension_suggestion_start",
+        operation="suggest_dimensions",
+        has_agent_context=bool(agent_name or agent_purpose),
+        has_testing_goals=bool(testing_goals),
+        requested_count=count
+    )
+    
+    # Create LLM client and generate
+    llm = LLMClient.for_prompt(prompt_config)
+    content = await llm.complete(messages=messages, json_mode=True)
+    
+    # Parse response
+    data = json.loads(content)
+    
+    # Extract dimensions from response
+    dimensions_data = data.get("dimensions", [])
+    if not dimensions_data and isinstance(data, list):
+        dimensions_data = data
+    
+    dimensions = []
+    for dim in dimensions_data:
+        values = []
+        for v in dim.get("values", []):
+            if isinstance(v, dict):
+                values.append(SuggestedDimensionValue(
+                    id=v.get("id", v.get("label", "").lower().replace(" ", "_")),
+                    label=v.get("label", v.get("id", ""))
+                ))
+            elif isinstance(v, str):
+                values.append(SuggestedDimensionValue(id=v.lower().replace(" ", "_"), label=v))
+        
+        dimensions.append(SuggestedDimension(
+            name=dim.get("name", ""),
+            description=dim.get("description"),
+            values=values
+        ))
+    
+    log_event(logger, "llm.dimension_suggestion_complete",
+        operation="suggest_dimensions",
+        dimensions_count=len(dimensions),
+        dimension_names=[d.name for d in dimensions]
+    )
+    
+    return dimensions
+
+
+async def suggest_values_for_bucket(
+    dimension_name: str,
+    existing_values: list[str],
+    agent_name: str | None = None,
+    agent_purpose: str | None = None,
+    dimension_description: str | None = None,
+    count: int = 5,
+) -> list[SuggestedDimensionValue]:
+    """
+    Use LLM to suggest additional values for an existing dimension.
+    
+    Args:
+        dimension_name: Name of the bucket to expand
+        existing_values: Current values in the bucket
+        agent_name: Agent name for context (optional)
+        agent_purpose: Agent purpose for context (optional)
+        dimension_description: Description of what this dimension tests (optional)
+        count: Number of values to suggest (default: 5)
+    
+    Returns:
+        List of SuggestedDimensionValue objects
+    """
+    # Build agent context section
+    if agent_name or agent_purpose:
+        context_lines = ["## Agent Context"]
+        if agent_name:
+            context_lines.append(f"**Name:** {agent_name}")
+        if agent_purpose:
+            context_lines.append(f"**Purpose:** {agent_purpose}")
+        agent_context_section = "\n".join(context_lines)
+    else:
+        agent_context_section = ""
+    
+    # Build description line
+    if dimension_description:
+        desc_section = f"Description: {dimension_description}"
+    else:
+        desc_section = ""
+    
+    # Get prompt and format
+    prompt_config = prompt_manager.get_prompt("value_suggestion")
+    variables = {
+        "agent_context_section": agent_context_section,
+        "dimension_name": dimension_name,
+        "dimension_description": desc_section,
+        "existing_values": ", ".join(existing_values) if existing_values else "(none)",
+        "count": str(count),
+    }
+    
+    # Build messages
+    messages = []
+    if prompt_config.system_prompt:
+        messages.append({
+            "role": "system",
+            "content": prompt_config.system_prompt
+        })
+    messages.append({
+        "role": "user",
+        "content": prompt_config.user_prompt_template.format(**variables)
+    })
+    
+    log_event(logger, "llm.value_suggestion_start",
+        operation="suggest_values",
+        dimension_name=dimension_name,
+        existing_count=len(existing_values),
+        requested_count=count
+    )
+    
+    # Create LLM client and generate
+    llm = LLMClient.for_prompt(prompt_config)
+    content = await llm.complete(messages=messages, json_mode=True)
+    
+    # Parse response
+    data = json.loads(content)
+    
+    # Extract values from response
+    values_data = data.get("new_values", [])
+    if not values_data and isinstance(data, list):
+        values_data = data
+    
+    values = []
+    for v in values_data:
+        if isinstance(v, dict):
+            values.append(SuggestedDimensionValue(
+                id=v.get("id", v.get("label", "").lower().replace(" ", "_")),
+                label=v.get("label", v.get("id", ""))
+            ))
+        elif isinstance(v, str):
+            values.append(SuggestedDimensionValue(id=v.lower().replace(" ", "_"), label=v))
+    
+    log_event(logger, "llm.value_suggestion_complete",
+        operation="suggest_values",
+        dimension_name=dimension_name,
+        values_count=len(values),
+        value_ids=[v.id for v in values]
+    )
+    
+    return values
 
 
 class DimensionTuple(BaseModel):
@@ -82,9 +312,10 @@ class SyntheticGenerator:
             llm_client: LLM client for query generation (uses default if not provided)
         """
         self.agent_info = agent_info
-        self.dimensions = agent_info.testing_dimensions
-        # Default LLM client (fallback, but prefer prompt-specific clients)
-        self._default_llm = llm_client or LLMClient()
+        # Todo: dimensions should not come from agent_info, but from the database.
+        # if there is no database entry for the dimensiont, we should allow the user to either,
+        # manually create it or create using LLM.
+        self.dimensions: dict[str, list[str]] | None = agent_info.testing_dimensions
     
     def get_dimension_values(self) -> dict[str, list[str]]:
         """Get all dimension names and their possible values."""
@@ -157,7 +388,7 @@ class SyntheticGenerator:
         seen_combinations: set[tuple] = set()
         seen_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
         
-        now = datetime.utcnow().isoformat() + "Z"
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         max_attempts = n * 20  # Prevent infinite loops
         
         for attempt in range(max_attempts):
@@ -345,13 +576,13 @@ based on what's relevant for testing this agent.
             tuples_data = data
         elif isinstance(data, dict):
             # Find the array in the dict (could be "tuples", "test_cases", etc.)
-            for key, value in data.items():
+            for _, value in data.items():
                 if isinstance(value, list):
                     tuples_data = value
                     break
         
         tuples = []
-        now = datetime.utcnow().isoformat() + "Z"
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         
         for combo in tuples_data:
             if isinstance(combo, dict):
@@ -465,91 +696,6 @@ based on what's relevant for testing this agent.
         log_event(logger, "llm.request_complete", **log_extra)
         
         return query_text
-    
-    async def generate_queries_from_tuples(
-        self, 
-        tuples: list[DimensionTuple],
-        batch_id: str | None = None
-    ) -> list[SyntheticQuery]:
-        """
-        Generate queries from a list of tuples.
-        
-        Args:
-            tuples: List of dimension tuples
-            batch_id: Optional batch ID to associate queries with
-        
-        Returns:
-            List of SyntheticQuery objects
-        """
-        import asyncio
-        
-        queries: list[SyntheticQuery] = []
-        now = datetime.utcnow().isoformat() + "Z"
-        
-        # Generate queries concurrently with rate limiting
-        semaphore = asyncio.Semaphore(5)  # Max 5 concurrent LLM calls
-        
-        async def generate_one(t: DimensionTuple) -> SyntheticQuery:
-            async with semaphore:
-                query_text = await self.tuple_to_query(t)
-                return SyntheticQuery(
-                    id=f"query_{uuid.uuid4().hex[:12]}",
-                    tuple_id=t.id,
-                    dimension_values=t.values,
-                    query_text=query_text,
-                    batch_id=batch_id,
-                    created_at=now
-                )
-        
-        tasks = [generate_one(t) for t in tuples]
-        queries = await asyncio.gather(*tasks)
-        
-        return list(queries)
-    
-    async def generate_batch(
-        self, 
-        n: int = 20,
-        name: str | None = None,
-        focus_areas: list[str] | None = None
-    ) -> SyntheticBatch:
-        """
-        Generate a complete batch of synthetic queries.
-        
-        This is the main entry point for generating test data.
-        Uses LLM-guided tuple generation for realistic test cases.
-        
-        Args:
-            n: Number of queries to generate
-            name: Optional name for the batch
-            focus_areas: Areas to focus on (e.g., ["edge cases", "adversarial"])
-        
-        Returns:
-            SyntheticBatch with generated queries
-        """
-        # Generate a short ID that will be used consistently
-        short_id = uuid.uuid4().hex[:6].upper()
-        batch_id = f"batch_{short_id.lower()}"
-        now = datetime.utcnow().isoformat() + "Z"
-        
-        if not name:
-            # Use a consistent format: Batch YYYY-MM-DD #SHORTID
-            name = f"Batch {now[:10]} #{short_id}"
-        
-        # Generate tuples using LLM
-        tuples = await self.generate_tuples_llm_guided(n, focus_areas)
-        
-        # Generate queries from tuples
-        queries = await self.generate_queries_from_tuples(tuples, batch_id)
-        
-        return SyntheticBatch(
-            id=batch_id,
-            agent_id="",  # Will be set when saving
-            name=name,
-            query_count=len(queries),
-            status=SyntheticBatchStatus.READY,
-            created_at=now,
-            queries=queries
-        )
 
     async def generate_batch_streaming(
         self,
@@ -565,13 +711,12 @@ based on what's relevant for testing this agent.
         no_duplicates: bool = True,
     ) -> AsyncGenerator[dict, None]:
         """
-        Generate a batch of synthetic queries with streaming progress.
+        Generate a batch of synthetic queries.
         
         Yields progress events as queries are generated, allowing real-time UI updates.
         
         When use_dimensions=True and selected_dimensions is provided, uses HEURISTIC
-        tuple generation (no LLM call - fast and free). Otherwise uses LLM-guided
-        tuple generation.
+        tuple generation. Otherwise uses LLM-guided tuple generation.
         
         Args:
             n: Number of queries to generate
@@ -597,7 +742,8 @@ based on what's relevant for testing this agent.
         self._custom_query_prompt = custom_query_prompt
         self._use_dimensions = use_dimensions
         
-        # If selected_dimensions provided and use_dimensions is True, temporarily override the generator's dimensions
+        # If selected_dimensions provided and use_dimensions is True,
+        # temporarily override the generator's dimensions with the selected dimensions.
         original_dimensions = None
         if selected_dimensions and use_dimensions:
             original_dimensions = self.dimensions
@@ -606,15 +752,15 @@ based on what's relevant for testing this agent.
                 for dim_name, values in selected_dimensions.items()
             ]
         
-        # Convert favorites list to set for heuristic method
+        # Convert favorites list to set for heuristic method.
         favorites_sets: dict[str, set[str]] | None = None
         if favorites:
-            favorites_sets = {k: set(v) for k, v in favorites.items()}
+            favorites_sets = {k: set[str](v) for k, v in favorites.items()}
         
-        # Generate a short ID that will be used consistently
+        # Generate a short ID that will be used consistently.
         short_id = uuid.uuid4().hex[:6].upper()
         batch_id = f"batch_{short_id.lower()}"
-        now = datetime.utcnow().isoformat() + "Z"
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         
         if not name:
             # Use a consistent format: Batch YYYY-MM-DD #SHORTID
@@ -637,7 +783,7 @@ based on what's relevant for testing this agent.
         
         tuple_method = "heuristic"
         if use_dimensions and selected_dimensions:
-            # HEURISTIC PATH: Fast, free, local sampling (NO LLM CALL!)
+            # HEURISTIC PATH
             log_event(logger, "synthetic.tuple_generation_method",
                 method="heuristic",
                 variety=variety,
@@ -650,7 +796,6 @@ based on what's relevant for testing this agent.
                 favorites=favorites_sets,
                 no_duplicates=no_duplicates
             )
-            tuple_method = "heuristic"
         else:
             # LLM PATH: For free-form generation when LLM decides dimensions
             log_event(logger, "synthetic.tuple_generation_method",
@@ -666,7 +811,7 @@ based on what's relevant for testing this agent.
         yield {
             "type": "tuples_generated",
             "count": total,
-            "method": tuple_method,  # Indicates whether LLM was used
+            "method": tuple_method,
             "tuples": [{"id": t.id, "values": t.values} for t in tuples]
         }
         # Allow event loop to flush
@@ -732,59 +877,3 @@ based on what's relevant for testing this agent.
         # Restore original dimensions if they were overridden
         if original_dimensions is not None:
             self.dimensions = original_dimensions
-
-
-# Utility functions for dimension manipulation
-
-def merge_dimensions(
-    agent_dimensions: list[TestingDimension],
-    custom_dimensions: dict[str, list[str]]
-) -> list[TestingDimension]:
-    """
-    Merge agent's dimensions with custom user-provided dimensions.
-    
-    Args:
-        agent_dimensions: Dimensions from AGENT_INFO
-        custom_dimensions: Additional dimensions provided by user
-    
-    Returns:
-        Merged list of TestingDimension objects
-    """
-    result = list(agent_dimensions)
-    existing_names = {d.name for d in result}
-    
-    for name, values in custom_dimensions.items():
-        if name in existing_names:
-            # Extend existing dimension
-            for dim in result:
-                if dim.name == name:
-                    dim.values = list(set(dim.values + values))
-                    break
-        else:
-            # Add new dimension
-            result.append(TestingDimension(name=name, values=values))
-    
-    return result
-
-
-def filter_tuples_by_criteria(
-    tuples: list[DimensionTuple],
-    criteria: dict[str, list[str]]
-) -> list[DimensionTuple]:
-    """
-    Filter tuples to only include those matching criteria.
-    
-    Args:
-        tuples: List of tuples to filter
-        criteria: dict of dimension name -> allowed values
-    
-    Returns:
-        Filtered list of tuples
-    """
-    def matches(t: DimensionTuple) -> bool:
-        for dim_name, allowed_values in criteria.items():
-            if dim_name in t.values and t.values[dim_name] not in allowed_values:
-                return False
-        return True
-    
-    return [t for t in tuples if matches(t)]

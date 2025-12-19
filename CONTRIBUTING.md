@@ -111,13 +111,48 @@ weave-error-analysis/
 
 ## Testing
 
-Currently, testing is "vibe-based" (manual verification):
+### Running Tests
+
+```bash
+# Install test dependencies
+uv pip install pytest pytest-asyncio
+
+# Run all tests
+uv run pytest tests/ -v
+
+# Run specific test file
+uv run pytest tests/backend/services/test_llm.py -v
+
+# Run specific test class
+uv run pytest tests/backend/services/test_llm.py::TestTemperatureHandling -v
+
+# Run with coverage (if installed)
+uv run pytest tests/ --cov=backend --cov-report=term-missing
+```
+
+### Test Structure
+
+```
+tests/
+├── backend/
+│   └── services/
+│       └── test_llm.py    # LLM client tests
+```
+
+### Writing Tests
+
+- Use pytest fixtures to reduce boilerplate
+- Mock external services (litellm, settings DB) to avoid real API calls
+- Use `@pytest.mark.asyncio` for async tests
+- Group related tests in classes (e.g., `TestTemperatureHandling`)
+
+### Manual Testing
+
+For end-to-end verification, run through the UI workflow:
 
 1. Run `uv run ea`
-2. Go through the workflow: Settings → Agent → Synthetic → Sessions → Taxonomy
+2. Go through: Settings → Agent → Synthetic → Sessions → Taxonomy
 3. Verify each feature works
-
-Automated tests are on the roadmap.
 
 ## Troubleshooting
 

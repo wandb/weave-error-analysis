@@ -82,6 +82,9 @@ export function AgentProvider({ children, onAgentSelected }: AgentProviderProps)
   const [loadingAgentStats, setLoadingAgentStats] = useState(false);
   const [connectionResult, setConnectionResult] = useState<ConnectionTestResult | null>(null);
   
+  // Track if user manually cleared selection (prevents auto-reselect)
+  const userClearedSelectionRef = useRef(false);
+  
   // Health check polling ref
   const agentHealthPollRef = useRef<NodeJS.Timeout | null>(null);
   
@@ -220,6 +223,16 @@ export function AgentProvider({ children, onAgentSelected }: AgentProviderProps)
     }
   }, [fetchAgents, selectedAgent?.id]);
   
+  // Wrapper that tracks user-initiated clears to prevent auto-reselect
+  const handleSetSelectedAgent = useCallback((agent: AgentDetail | null) => {
+    if (agent === null) {
+      userClearedSelectionRef.current = true;
+    } else {
+      userClearedSelectionRef.current = false;
+    }
+    setSelectedAgent(agent);
+  }, []);
+  
   // ============================================================================
   // Effects
   // ============================================================================
@@ -229,9 +242,14 @@ export function AgentProvider({ children, onAgentSelected }: AgentProviderProps)
     fetchAgents();
   }, [fetchAgents]);
   
-  // Auto-select a connected agent when agents load
+  // Auto-select a connected agent when agents load (but not if user manually cleared)
   useEffect(() => {
     if (!selectedAgent && agents.length > 0 && !loadingAgents) {
+      // Don't auto-select if user intentionally closed the agent card
+      if (userClearedSelectionRef.current) {
+        return;
+      }
+      
       const connectedAgent = agents.find(a => a.connection_status === "connected");
       const agentToSelect = connectedAgent || agents[0];
       
@@ -285,7 +303,7 @@ export function AgentProvider({ children, onAgentSelected }: AgentProviderProps)
     createAgent,
     updateAgent,
     deleteAgent,
-    setSelectedAgent,
+    setSelectedAgent: handleSetSelectedAgent,
   };
   
   return (

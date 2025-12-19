@@ -7,8 +7,7 @@ Handles secure storage of API keys and provides defaults.
 
 import os
 import base64
-from typing import Optional, Dict, Any, List
-from datetime import datetime
+from typing import Dict, Any, List
 from pydantic import BaseModel
 from database import get_db, get_db_readonly, now_iso
 from logger import get_logger, log_event
@@ -16,164 +15,150 @@ from logger import get_logger, log_event
 logger = get_logger("settings")
 
 
-# Simple encoding for API keys (not true encryption, but obfuscates in DB)
-# For production, use proper encryption with a key stored securely
+# =============================================================================
+# Encoding Utilities
+# =============================================================================
+
 def _encode_secret(value: str) -> str:
     """Encode a secret value for storage."""
-    if not value:
-        return ""
     return base64.b64encode(value.encode()).decode()
 
 
 def _decode_secret(encoded: str) -> str:
     """Decode a stored secret value."""
-    if not encoded:
-        return ""
-    try:
-        return base64.b64decode(encoded.encode()).decode()
-    except Exception:
-        return encoded  # Return as-is if not encoded
+    return base64.b64decode(encoded.encode()).decode()
 
 
-# Default settings with descriptions
-DEFAULT_SETTINGS = {
+# =============================================================================
+# Pydantic Models
+# =============================================================================
+
+class SettingDefinition(BaseModel):
+    """Definition of a single setting with its default value and metadata."""
+    value: str = ""
+    is_secret: bool = False
+    description: str = ""
+    internal: bool = False  # Not shown in Settings UI
+
+
+class DefaultSettings(BaseModel):
+    """All application settings with their defaults and metadata."""
+    
     # LLM Settings
-    "llm_provider": {
-        "value": "openai",
-        "is_secret": False,
-        "description": "LLM provider (openai, anthropic, google, etc.)"
-    },
-    "llm_model": {
-        "value": "gpt-5-mini",
-        "is_secret": False,
-        "description": "Model name for synthetic data generation and AI suggestions"
-    },
-    "llm_api_key": {
-        "value": "",
-        "is_secret": True,
-        "description": "API key for the LLM provider"
-    },
-    "llm_api_base": {
-        "value": "",
-        "is_secret": False,
-        "description": "Custom API base URL (optional, for proxies or custom endpoints)"
-    },
+    llm_provider: SettingDefinition = SettingDefinition(
+        value="openai",
+        description="LLM provider (openai, anthropic, google, etc.)"
+    )
+    llm_model: SettingDefinition = SettingDefinition(
+        value="gpt-4o-mini",
+        description="Model name for synthetic data generation and AI suggestions"
+    )
+    llm_api_key: SettingDefinition = SettingDefinition(
+        is_secret=True,
+        description="API key for the LLM provider"
+    )
+    llm_api_base: SettingDefinition = SettingDefinition(
+        description="Custom API base URL (optional, for proxies or custom endpoints)"
+    )
+    llm_max_concurrent: SettingDefinition = SettingDefinition(
+        value="10",
+        description="Maximum concurrent LLM API calls (rate limiting)",
+        internal=True
+    )
     
     # Weave Settings (for connecting to USER'S agent project)
-    "weave_api_key": {
-        "value": "",
-        "is_secret": True,
-        "description": "W&B API key for Weave access"
-    },
-    "weave_entity": {
-        "value": "",
-        "is_secret": False,
-        "description": "W&B entity (username or team) where your agent's traces are logged"
-    },
-    "weave_project": {
-        "value": "",
-        "is_secret": False,
-        "description": "Weave project name where your agent logs traces (e.g., 'customer-support-agent')"
-    },
-    "weave_api_base": {
-        "value": "https://trace.wandb.ai",
-        "is_secret": False,
-        "description": "Weave API base URL (default: https://trace.wandb.ai, change for enterprise/self-hosted)"
-    },
+    weave_api_key: SettingDefinition = SettingDefinition(
+        is_secret=True,
+        description="W&B API key for Weave access"
+    )
+    weave_entity: SettingDefinition = SettingDefinition(
+        description="W&B entity (username or team) where your agent's traces are logged"
+    )
+    weave_project: SettingDefinition = SettingDefinition(
+        description="Weave project name where your agent logs traces (e.g., 'customer-support-agent')"
+    )
+    weave_api_base: SettingDefinition = SettingDefinition(
+        value="https://trace.wandb.ai",
+        description="Weave API base URL (default: https://trace.wandb.ai, change for enterprise/self-hosted)"
+    )
     
     # Internal Settings (not exposed in Settings UI)
-    # These are used by services but configured programmatically or kept at defaults
-    "suggestion_confidence_threshold": {
-        "value": "0.6",
-        "is_secret": False,
-        "description": "Minimum confidence level (0.0-1.0) for showing AI suggestions",
-        "internal": True,  # Not shown in Settings UI
-    },
-    
-    # Tool Project Name - where this tool logs its own traces/prompts
-    # Separate from user's agent project to avoid mixing traces
-    "tool_project_name": {
-        "value": "error-analysis-tool",
-        "is_secret": False,
-        "description": "Weave project name for tool's internal traces and prompts (separate from your agent's project)",
-        "internal": True,  # Typically not changed, but available via env var
-    },
-    
-    # Query/Sync Limits - configurable for performance tuning
-    "sync_query_limit": {
-        "value": "500",
-        "is_secret": False,
-        "description": "Maximum number of calls to fetch per sync operation (higher = more data, slower sync)",
-        "internal": True,
-    },
-    "feedback_query_limit": {
-        "value": "500",
-        "is_secret": False,
-        "description": "Maximum number of feedback entries to fetch per query",
-        "internal": True,
-    },
-    
-    # Timeout Configuration
-    "agent_query_timeout": {
-        "value": "120",
-        "is_secret": False,
-        "description": "Timeout in seconds for agent query requests (increase for slow agents)",
-        "internal": True,
-    },
-    "weave_api_timeout": {
-        "value": "60",
-        "is_secret": False,
-        "description": "Timeout in seconds for Weave API requests",
-        "internal": True,
-    },
-    "health_check_timeout": {
-        "value": "10",
-        "is_secret": False,
-        "description": "Timeout in seconds for agent health checks",
-        "internal": True,
-    },
-    
-    # LLM Rate Limiting
-    "llm_max_concurrent": {
-        "value": "10",
-        "is_secret": False,
-        "description": "Maximum concurrent LLM API calls (rate limiting)",
-        "internal": True,
-    },
-    
-    # Synthetic Query Defaults
-    "default_batch_size": {
-        "value": "20",
-        "is_secret": False,
-        "description": "Default number of queries per synthetic batch",
-        "internal": True,
-    },
-}
+    suggestion_confidence_threshold: SettingDefinition = SettingDefinition(
+        value="0.6",
+        description="Minimum confidence level (0.0-1.0) for showing AI suggestions",
+        internal=True
+    )
+    tool_project_name: SettingDefinition = SettingDefinition(
+        value="error-analysis-tool",
+        description="Weave project name for tool's internal traces and prompts (separate from your agent's project)",
+        internal=True
+    )
+    sync_query_limit: SettingDefinition = SettingDefinition(
+        value="500",
+        description="Maximum number of calls to fetch per sync operation (higher = more data, slower sync)",
+        internal=True
+    )
+    feedback_query_limit: SettingDefinition = SettingDefinition(
+        value="500",
+        description="Maximum number of feedback entries to fetch per query",
+        internal=True
+    )
+    agent_query_timeout: SettingDefinition = SettingDefinition(
+        value="120",
+        description="Timeout in seconds for agent query requests (increase for slow agents)",
+        internal=True
+    )
+    weave_api_timeout: SettingDefinition = SettingDefinition(
+        value="60",
+        description="Timeout in seconds for Weave API requests",
+        internal=True
+    )
+    health_check_timeout: SettingDefinition = SettingDefinition(
+        value="10",
+        description="Timeout in seconds for agent health checks",
+        internal=True
+    )
+    default_batch_size: SettingDefinition = SettingDefinition(
+        value="20",
+        description="Default number of queries per synthetic batch",
+        internal=True
+    )
+
+
+# Single instance of default settings
+DEFAULT_SETTINGS = DefaultSettings()
 
 
 class SettingValue(BaseModel):
-    """A single setting value."""
+    """A single setting value for API responses."""
     key: str
     value: str
     is_secret: bool = False
-    description: Optional[str] = None
-    updated_at: Optional[str] = None
+    description: str | None = None
+    updated_at: str | None = None
 
 
 class SettingsGroup(BaseModel):
-    """A group of related settings."""
+    """A group of related settings for UI display."""
     name: str
     description: str
     settings: List[SettingValue]
 
 
-def get_setting(key: str, default: Optional[str] = None) -> Optional[str]:
+# =============================================================================
+# Core Settings Functions
+# =============================================================================
+
+def get_setting(key: str, default: str | None = None) -> str | None:
     """
     Get a setting value by key.
     
     First checks the database, then falls back to environment variables,
     then to defaults.
     """
+    # Get the definition for this key
+    definition = getattr(DEFAULT_SETTINGS, key, None)
+    
     # Try database first
     with get_db_readonly() as conn:
         cursor = conn.cursor()
@@ -210,23 +195,25 @@ def get_setting(key: str, default: Optional[str] = None) -> Optional[str]:
     if env_value:
         return env_value
     
-    # Fall back to default
-    if key in DEFAULT_SETTINGS:
-        return DEFAULT_SETTINGS[key]["value"]
+    # Fall back to default from Pydantic model
+    if definition:
+        return definition.value
     
     return default
 
 
-def set_setting(key: str, value: str, is_secret: Optional[bool] = None) -> None:
+def set_setting(key: str, value: str, is_secret: bool | None = None) -> None:
     """
     Set a setting value.
     
-    If is_secret is not provided, uses the default from DEFAULT_SETTINGS.
+    If is_secret is not provided, uses the default from DefaultSettings.
     """
-    if is_secret is None:
-        is_secret = DEFAULT_SETTINGS.get(key, {}).get("is_secret", False)
+    definition = getattr(DEFAULT_SETTINGS, key, None)
     
-    description = DEFAULT_SETTINGS.get(key, {}).get("description", "")
+    if is_secret is None:
+        is_secret = definition.is_secret if definition else False
+    
+    description = definition.description if definition else ""
     
     # Encode secret values
     stored_value = _encode_secret(value) if is_secret else value
@@ -250,6 +237,69 @@ def delete_setting(key: str) -> None:
         cursor.execute("DELETE FROM app_settings WHERE key = ?", (key,))
 
 
+# =============================================================================
+# LLM-Related Functions
+# =============================================================================
+
+def get_litellm_kwargs() -> Dict[str, Any]:
+    """
+    Get kwargs for litellm calls based on current settings.
+    
+    This allows synthetic generation and AI suggestions to use the configured LLM.
+    Logs the resolved configuration for visibility.
+    """
+    kwargs = {}
+    
+    # Use DEFAULT_SETTINGS as the single source of truth for the default model
+    model = get_setting("llm_model", DEFAULT_SETTINGS.llm_model.value)
+    api_key = get_setting("llm_api_key")
+    api_base = get_setting("llm_api_base")
+    
+    # Determine the source of the API key
+    api_key_source = "none"
+    if api_key:
+        kwargs["api_key"] = api_key
+        # Check if it came from DB or env
+        with get_db_readonly() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1 FROM app_settings WHERE key = 'llm_api_key' AND value != ''")
+            api_key_source = "settings" if cursor.fetchone() else "environment"
+    
+    if api_base:
+        kwargs["api_base"] = api_base
+    
+    # Log the resolved configuration
+    log_event(logger, "llm.config_resolved",
+        model=model,
+        has_api_key=bool(api_key),
+        api_key_source=api_key_source,
+        api_key_suffix=api_key[-4:] if api_key and len(api_key) >= 4 else None,
+        api_base=api_base or "default"
+    )
+    
+    return {
+        "model": model,
+        **kwargs
+    }
+
+
+def check_llm_configured() -> Dict[str, Any]:
+    """Check if LLM is properly configured."""
+    api_key = get_setting("llm_api_key")
+    model = get_setting("llm_model")
+    
+    return {
+        "configured": bool(api_key),
+        "model": model,
+        "provider": get_setting("llm_provider"),
+        "message": "LLM is configured" if api_key else "LLM API key not set. Configure in Settings."
+    }
+
+
+# =============================================================================
+# Router-Friendly Functions
+# =============================================================================
+
 def get_all_settings(include_secrets: bool = False) -> Dict[str, SettingValue]:
     """
     Get all settings with their current values.
@@ -259,14 +309,16 @@ def get_all_settings(include_secrets: bool = False) -> Dict[str, SettingValue]:
     """
     result = {}
     
-    # Start with defaults
-    for key, config in DEFAULT_SETTINGS.items():
+    # Iterate over all fields in DefaultSettings
+    for key, _ in DEFAULT_SETTINGS.model_dump().items():
+        definition_obj = getattr(DEFAULT_SETTINGS, key)
+        
         # Get actual value (from DB, env, or default)
-        actual_value = get_setting(key, config["value"])
+        actual_value = get_setting(key, definition_obj.value)
         
         # Mask secrets
         display_value = actual_value
-        if config["is_secret"] and not include_secrets:
+        if definition_obj.is_secret and not include_secrets:
             if actual_value:
                 display_value = "••••••••" + actual_value[-4:] if len(actual_value) > 4 else "••••••••"
             else:
@@ -275,11 +327,11 @@ def get_all_settings(include_secrets: bool = False) -> Dict[str, SettingValue]:
         result[key] = SettingValue(
             key=key,
             value=display_value,
-            is_secret=config["is_secret"],
-            description=config["description"]
+            is_secret=definition_obj.is_secret,
+            description=definition_obj.description
         )
     
-    # Also get any custom settings from DB
+    # Also get any custom settings from DB not in defaults
     with get_db_readonly() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT key, value, is_secret, description, updated_at FROM app_settings")
@@ -310,8 +362,8 @@ def get_settings_grouped() -> List[SettingsGroup]:
     """
     Get settings organized by group for UI display.
     
-    Only returns user-facing settings. Internal settings (like suggestion_confidence_threshold)
-    are not exposed in the Settings UI - they're configured per-prompt or kept at defaults.
+    Only returns user-facing settings. Internal settings are not exposed
+    in the Settings UI - they're configured per-prompt or kept at defaults.
     """
     all_settings = get_all_settings(include_secrets=False)
     
@@ -341,19 +393,6 @@ def get_settings_grouped() -> List[SettingsGroup]:
     return groups
 
 
-def check_llm_configured() -> Dict[str, Any]:
-    """Check if LLM is properly configured."""
-    api_key = get_setting("llm_api_key")
-    model = get_setting("llm_model")
-    
-    return {
-        "configured": bool(api_key),
-        "model": model,
-        "provider": get_setting("llm_provider"),
-        "message": "LLM is configured" if api_key else "LLM API key not set. Configure in Settings."
-    }
-
-
 def check_weave_configured() -> Dict[str, Any]:
     """Check if Weave is properly configured."""
     api_key = get_setting("weave_api_key")
@@ -369,49 +408,3 @@ def check_weave_configured() -> Dict[str, Any]:
         "project_id": f"{entity}/{project}" if entity and project else None,
         "message": "Weave is configured" if configured else "Weave credentials not set. Configure in Settings."
     }
-
-
-def get_litellm_kwargs() -> Dict[str, Any]:
-    """
-    Get kwargs for litellm calls based on current settings.
-    
-    This allows synthetic generation and AI suggestions to use the configured LLM.
-    Logs the resolved configuration for visibility.
-    
-    The default model comes from DEFAULT_SETTINGS to ensure a single source of truth.
-    """
-    kwargs = {}
-    
-    # Use DEFAULT_SETTINGS as the single source of truth for the default model
-    default_model = DEFAULT_SETTINGS["llm_model"]["value"]
-    model = get_setting("llm_model", default_model)
-    api_key = get_setting("llm_api_key")
-    api_base = get_setting("llm_api_base")
-    
-    # Determine the source of the API key
-    api_key_source = "none"
-    if api_key:
-        kwargs["api_key"] = api_key
-        # Check if it came from DB or env
-        with get_db_readonly() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT 1 FROM app_settings WHERE key = 'llm_api_key' AND value != ''")
-            api_key_source = "settings" if cursor.fetchone() else "environment"
-    
-    if api_base:
-        kwargs["api_base"] = api_base
-    
-    # Log the resolved configuration - this answers "is my model being used?"
-    log_event(logger, "llm.config_resolved",
-        model=model,
-        has_api_key=bool(api_key),
-        api_key_source=api_key_source,
-        api_key_suffix=api_key[-4:] if api_key and len(api_key) >= 4 else None,
-        api_base=api_base or "default"
-    )
-    
-    return {
-        "model": model,
-        **kwargs
-    }
-

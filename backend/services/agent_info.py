@@ -186,8 +186,9 @@ class AgentInfoParser:
         return ' '.join(lines) if lines else None
     
     def _extract_list_after_heading(self, content: str, heading: str) -> List[str]:
-        """Extract a bullet list after a ### heading."""
-        pattern = rf'###\s*{heading}.*?\n((?:[-*]\s*.+\n?)+)'
+        """Extract a bullet or numbered list after a ### heading."""
+        # Match bullet points (-, *) or numbered lists (1., 2., etc.)
+        pattern = rf'###\s*{heading}.*?\n((?:(?:[-*]|\d+\.)\s*.+\n?)+)'
         match = re.search(pattern, content, re.IGNORECASE | re.DOTALL)
         if not match:
             return []
@@ -196,8 +197,13 @@ class AgentInfoParser:
         items = []
         for line in list_content.split('\n'):
             line = line.strip()
+            # Match bullet points (-, *) or numbered lists (1., 2., etc.)
             if line.startswith('-') or line.startswith('*'):
                 item = re.sub(r'^[-*]\s*', '', line).strip()
+                if item:
+                    items.append(item)
+            elif re.match(r'^\d+\.\s+', line):
+                item = re.sub(r'^\d+\.\s+', '', line).strip()
                 if item:
                     items.append(item)
         

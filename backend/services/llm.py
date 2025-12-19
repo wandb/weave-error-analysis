@@ -33,15 +33,14 @@ Usage:
 
 import asyncio
 import random
-from typing import Any, Dict, List, Optional, Type, TypeVar, Union, overload, TYPE_CHECKING
+from typing import Any, Type, TypeVar, overload, TYPE_CHECKING
 
 import litellm
+from litellm import get_supported_openai_params
 from pydantic import BaseModel
 
 from logger import get_logger, log_event, LOG_LLM_CONTENT
-
-# Default max concurrent LLM requests (configurable via settings)
-DEFAULT_MAX_CONCURRENT_LLM = 10
+from services.settings import get_setting, get_litellm_kwargs, DEFAULT_SETTINGS
 
 # Retry configuration for rate limit errors
 MAX_RETRIES = 3
@@ -74,29 +73,25 @@ class LLMClient:
     1. Instance overrides (set in __init__)
     2. Database settings (via get_litellm_kwargs from Settings UI)
     3. Environment variables (handled by settings module)
-    4. DEFAULT_MODEL constant (bootstrap fallback when DB unavailable)
+    4. DEFAULT_SETTINGS.llm_model.value (fallback when DB unavailable)
     
-    The single source of truth for the default model is the Settings database.
-    DEFAULT_MODEL is only used during bootstrap before DB is initialized.
+    The single source of truth for the default model is DEFAULT_SETTINGS in the settings module.
     """
     
+    # Fallback temperature when not specified
     DEFAULT_TEMPERATURE = 0.3
-    # Bootstrap fallback - only used when settings module unavailable.
-    # The actual default is in settings.py DEFAULT_SETTINGS["llm_model"]
-    # Using gpt-5-mini: modern model with good cost/performance for tool operations
-    DEFAULT_MODEL = "gpt-5-mini"
-    
+
     # Class-level semaphore for rate limiting (shared across instances)
-    _semaphore: Optional[asyncio.Semaphore] = None
-    _semaphore_limit: int = DEFAULT_MAX_CONCURRENT_LLM
-    
+    _semaphore: asyncio.Semaphore | None = None
+    _semaphore_limit: int = int(DEFAULT_SETTINGS.llm_max_concurrent.value)
+
     def __init__(
         self,
-        model: Optional[str] = None,
-        temperature: Optional[float] = None,
-        api_key: Optional[str] = None,
-        api_base: Optional[str] = None,
-        max_concurrent: Optional[int] = None,
+        model: str | None = None,
+        temperature: float | None = None,
+        api_key: str | None = None,
+        api_base: str | None = None,
+        max_concurrent: int | None = None,
     ):
         """
         Initialize with optional overrides.
@@ -108,7 +103,7 @@ class LLMClient:
             api_base: API base URL override
             max_concurrent: Override max concurrent requests (rate limiting)
         """
-        self._model_override = model
+        self._model_override = model if model is not None else DEFAULT_SETTINGS.llm_model.value
         self._temperature = temperature if temperature is not None else self.DEFAULT_TEMPERATURE
         self._api_key = api_key
         self._api_base = api_base
@@ -118,13 +113,12 @@ class LLMClient:
     def _get_max_concurrent(cls) -> int:
         """Get max concurrent LLM requests from settings."""
         try:
-            from services.settings import get_setting
             value = get_setting("llm_max_concurrent")
             if value:
                 return int(value)
         except Exception:
             pass
-        return DEFAULT_MAX_CONCURRENT_LLM
+        return int(DEFAULT_SETTINGS.llm_max_concurrent.value)
     
     @classmethod
     def _get_semaphore(cls) -> asyncio.Semaphore:
@@ -145,7 +139,7 @@ class LLMClient:
         
         return cls._semaphore
     
-    def _get_kwargs(self) -> Dict[str, Any]:
+    def _get_kwargs(self) -> dict[str, Any]:
         """
         Get kwargs for litellm call, respecting settings hierarchy.
         
@@ -156,11 +150,7 @@ class LLMClient:
         4. Defaults
         """
         # Start with settings-based config
-        try:
-            from services.settings import get_litellm_kwargs
-            kwargs = get_litellm_kwargs()
-        except ImportError:
-            kwargs = {"model": self.DEFAULT_MODEL}
+        kwargs = get_litellm_kwargs()
         
         # Apply instance overrides
         if self._model_override:
@@ -172,14 +162,42 @@ class LLMClient:
         
         # Ensure we always have a model
         if "model" not in kwargs:
-            kwargs["model"] = self.DEFAULT_MODEL
+            kwargs["model"] = DEFAULT_SETTINGS.llm_model.value
         
         return kwargs
     
     @property
     def model(self) -> str:
         """Get the current model name."""
-        return self._get_kwargs().get("model", self.DEFAULT_MODEL)
+        return self._get_kwargs().get("model", DEFAULT_SETTINGS.llm_model.value)
+    
+    def _is_param_supported(self, model: str, param: str) -> bool:
+        """
+        Check if a parameter is supported by the given model.
+        
+        Uses litellm's get_supported_openai_params() to check model capabilities.
+        Some models (like gpt-5/o3 family) don't support certain parameters like
+        temperature. This method helps avoid UnsupportedParamsError.
+        
+        Args:
+            model: The model name to check
+            param: The parameter name (e.g., "temperature", "top_p")
+        
+        Returns:
+            True if the param is supported, False otherwise.
+            Returns True on error (fail-open) to avoid breaking existing behavior.
+        """
+        try:
+            supported_params = get_supported_openai_params(model=model)
+            return param in supported_params
+        except Exception as e:
+            # Fail-open: if we can't determine, assume it's supported
+            log_event(logger, "llm.param_check_failed", level="debug",
+                model=model,
+                param=param,
+                error=str(e)
+            )
+            return True
     
     # -------------------------------------------------------------------------
     # Core Completion Methods
@@ -188,10 +206,10 @@ class LLMClient:
     @overload
     async def complete(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         *,
         response_model: None = None,
-        temperature: Optional[float] = None,
+        temperature: float | None = None,
         json_mode: bool = False,
         **kwargs: Any
     ) -> str:
@@ -201,10 +219,10 @@ class LLMClient:
     @overload
     async def complete(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         *,
         response_model: Type[T],
-        temperature: Optional[float] = None,
+        temperature: float | None = None,
         json_mode: bool = False,
         **kwargs: Any
     ) -> T:
@@ -213,23 +231,23 @@ class LLMClient:
     
     async def complete(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         *,
-        response_model: Optional[Type[T]] = None,
-        temperature: Optional[float] = None,
+        response_model: Type[T] | None = None,
+        temperature: float | None = None,
         json_mode: bool = False,
         max_retries: int = MAX_RETRIES,
         **kwargs: Any
-    ) -> Union[str, T]:
+    ) -> str | T:
         """
         Make an async LLM completion call with rate limiting and retry logic.
         
         Args:
             messages: List of message dicts with 'role' and 'content'
-            response_model: Optional Pydantic model for structured output
+            response_model: Pydantic model for structured output
             temperature: Override default temperature
             json_mode: If True (and no response_model), request JSON output
-            max_retries: Maximum retries for rate limit errors (default: 3)
+            max_retries: Maximum retries for rate limit errors
             **kwargs: Additional kwargs passed to litellm
         
         Returns:
@@ -259,20 +277,34 @@ class LLMClient:
         """
         llm_kwargs = self._get_kwargs()
         temp = temperature if temperature is not None else self._temperature
+        model_name = llm_kwargs.get("model", DEFAULT_SETTINGS.llm_model.value)
         
         # Build request kwargs
         request_kwargs = {
             **llm_kwargs,
             "messages": messages,
-            "temperature": temp,
             **kwargs
         }
+        
+        # Only include temperature if the model supports it
+        # Some models (gpt-5/o3 family) only support temperature=1
+        if self._is_param_supported(model_name, "temperature"):
+            request_kwargs["temperature"] = temp
+        else:
+            log_event(logger, "llm.temperature_not_supported", level="warning",
+                model=model_name,
+                requested_temperature=temp,
+                reason="Model does not support custom temperature, using model default"
+            )
         
         # Handle structured output
         if response_model is not None:
             request_kwargs["response_format"] = response_model
         elif json_mode:
             request_kwargs["response_format"] = {"type": "json_object"}
+
+        # Drop param
+        request_kwargs["drop_params"] = True
         
         # Get semaphore for rate limiting
         semaphore = self._get_semaphore()
@@ -291,7 +323,7 @@ class LLMClient:
                 messages=messages
             )
         
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
         
         for attempt in range(max_retries + 1):
             try:
@@ -369,13 +401,13 @@ class LLMClient:
     
     def complete_sync(
         self,
-        messages: List[Dict[str, str]],
+        messages: list[dict[str, str]],
         *,
-        response_model: Optional[Type[T]] = None,
-        temperature: Optional[float] = None,
+        response_model: Type[T] | None = None,
+        temperature: float | None = None,
         json_mode: bool = False,
         **kwargs: Any
-    ) -> Union[str, T]:
+    ) -> str | T:
         """
         Synchronous wrapper for complete().
         
@@ -401,7 +433,7 @@ class LLMClient:
         system_prompt: str,
         user_prompt: str,
         response_model: Type[T],
-        temperature: Optional[float] = None,
+        temperature: float | None = None,
     ) -> T:
         """
         Common pattern: system + user prompt with structured output.
@@ -428,7 +460,7 @@ class LLMClient:
     async def generate(
         self,
         prompt: str,
-        temperature: Optional[float] = None,
+        temperature: float | None = None,
         json_mode: bool = False,
     ) -> str:
         """
@@ -448,7 +480,7 @@ class LLMClient:
             json_mode=json_mode
         )
     
-    async def test_connection(self) -> Dict[str, Any]:
+    async def test_connection(self) -> dict[str, Any]:
         """
         Test that the LLM connection works.
         
@@ -522,4 +554,3 @@ class LLMClient:
 
 # Default singleton instance
 llm_client = LLMClient()
-

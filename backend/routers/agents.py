@@ -709,3 +709,44 @@ async def test_agent_connection(agent_id: str):
     )
 
 
+class AgentRunRequest(BaseModel):
+    """Request to run a query through the agent playground."""
+    message: str = Field(..., description="The message/query to send to the agent")
+
+
+class AgentRunResponse(BaseModel):
+    """Response from running an agent query."""
+    response: str = ""
+    thread_id: Optional[str] = None
+    error: Optional[str] = None
+
+
+@router.post("/agents/{agent_id}/run", response_model=AgentRunResponse)
+async def run_agent_query(agent_id: str, request: AgentRunRequest):
+    """
+    Run a single query against an agent (playground mode).
+    
+    This endpoint allows testing an agent with a one-off query.
+    Useful for quick testing before creating synthetic batches.
+    """
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT endpoint_url FROM agents WHERE id = ?", (agent_id,))
+        row = cursor.fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        
+        endpoint_url = row["endpoint_url"]
+    
+    # Use AgentClient to send the query
+    client = AgentClient(endpoint_url)
+    result = await client.query(request.message)
+    
+    return AgentRunResponse(
+        response=result.response,
+        thread_id=result.thread_id,
+        error=result.error
+    )
+
+

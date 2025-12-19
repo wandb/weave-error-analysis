@@ -1,18 +1,23 @@
 """
 Synthetic Data Generation Service
 
-Generates realistic test queries based on AGENT_INFO testing dimensions.
+Generates realistic test queries based on testing dimensions.
 Uses a two-step process:
-1. Generate dimension tuples (combinations of persona, scenario, complexity, etc.) using LLM
+1. Generate dimension tuples (combinations of persona, scenario, complexity, etc.)
+using LLM when LLM Guided is enabled.
 2. Convert tuples to natural language queries using LLM
 """
 
 import json
 import uuid
+import random
 import asyncio
-from typing import List, Dict, Any, Optional, AsyncGenerator
+from math import prod
+from typing import AsyncGenerator
 from datetime import datetime
+from collections import defaultdict
 from pydantic import BaseModel
+from enum import Enum
 
 from services.agent_info import AgentInfo, TestingDimension
 from services.llm import LLMClient
@@ -25,17 +30,25 @@ logger = get_logger("synthetic")
 class DimensionTuple(BaseModel):
     """A combination of dimension values."""
     id: str
-    values: Dict[str, str]  # e.g., {"persona": "frustrated_customer", "scenario": "refund_request"}
+    values: dict[str, str]  # e.g., {"persona": "frustrated_customer", "scenario": "refund_request"}
     created_at: str
+
+
+class SyntheticBatchStatus(Enum):
+    PENDING = "pending"
+    GENERATING = "generating"
+    READY = "ready"
+    RUNNING = "running"
+    COMPLETED = "completed"
 
 
 class SyntheticQuery(BaseModel):
     """A generated synthetic query."""
     id: str
     tuple_id: str
-    dimension_values: Dict[str, str]
+    dimension_values: dict[str, str]
     query_text: str
-    batch_id: Optional[str] = None
+    batch_id: str | None = None
     created_at: str
 
 
@@ -45,25 +58,25 @@ class SyntheticBatch(BaseModel):
     agent_id: str
     name: str
     query_count: int
-    status: str  # 'pending', 'generating', 'ready', 'running', 'completed'
+    status: SyntheticBatchStatus
     created_at: str
-    queries: List[SyntheticQuery] = []
+    queries: list[SyntheticQuery] = []
 
 
 class SyntheticGenerator:
     """
-    Generates synthetic test queries based on AGENT_INFO dimensions using LLM.
+    Generates synthetic test queries based on testing dimensions using LLM.
     
     The generation process:
-    1. Extract testing dimensions from AGENT_INFO
+    1. Extract testing dimensions from AGENT_INFO if available.
     2. Generate dimension tuples using LLM (creates realistic combinations)
     3. Convert tuples to natural language queries using LLM
     """
     
-    def __init__(self, agent_info: AgentInfo, llm_client: Optional[LLMClient] = None):
+    def __init__(self, agent_info: AgentInfo, llm_client: LLMClient | None = None):
         """
         Initialize the generator.
-        
+
         Args:
             agent_info: Parsed AGENT_INFO containing testing dimensions
             llm_client: LLM client for query generation (uses default if not provided)
@@ -73,18 +86,156 @@ class SyntheticGenerator:
         # Default LLM client (fallback, but prefer prompt-specific clients)
         self._default_llm = llm_client or LLMClient()
     
-    def get_dimension_values(self) -> Dict[str, List[str]]:
+    def get_dimension_values(self) -> dict[str, list[str]]:
         """Get all dimension names and their possible values."""
-        result = {}
+        result: dict[str, list[str]] = {}
         for dim in self.dimensions:
             result[dim.name] = dim.values
         return result
     
+    def generate_tuples_heuristic(
+        self,
+        n: int = 20,
+        variety: float = 0.5,
+        favorites: dict[str, set[str]] | None = None,
+        no_duplicates: bool = True,
+        seed: int | None = None,
+    ) -> list[DimensionTuple]:
+        """
+        Generate tuples using weighted probabilistic sampling (no LLM call).
+        
+        This is used when the user has selected dimensions with predefined values.
+        Instead of calling an LLM, we sample combinations heuristically based on:
+        - Variety slider (0.0 = predictable/peaked, 1.0 = surprising/uniform)
+        - Favorites (starred values get 5x weight)
+        - Diversity penalty (avoid repeating same values at high variety)
+        
+        Args:
+            n: Number of tuples to generate
+            variety: 0.0 = peaked distribution favoring favorites
+                     1.0 = uniform distribution with diversity penalty
+            favorites: Dict mapping dimension_name -> set of favorite values (5x weight)
+            no_duplicates: If True, ensure unique combinations
+            seed: Random seed for reproducibility
+        
+        Returns:
+            List of DimensionTuple objects
+        """
+        if seed is not None:
+            random.seed(seed)
+        
+        favorites = favorites or {}
+        dim_values = self.get_dimension_values()
+        
+        if not dim_values:
+            log_event(logger, "synthetic.heuristic_no_dimensions", level="warning")
+            return []
+        
+        # Calculate max possible unique combinations
+        max_combinations = prod(len(v) for v in dim_values.values()) if dim_values else 0
+        
+        log_event(logger, "synthetic.heuristic_start",
+            operation="generate_tuples_heuristic",
+            requested_count=n,
+            variety=variety,
+            no_duplicates=no_duplicates,
+            max_combinations=max_combinations,
+            dimensions=list(dim_values.keys()),
+            dimension_sizes={k: len(v) for k, v in dim_values.items()}
+        )
+        
+        # Base weights: 5.0 for favorites, 1.0 for others
+        base_weights: dict[str, dict[str, float]] = {}
+        for dim_name, values in dim_values.items():
+            dim_favorites = favorites.get(dim_name, set())
+            base_weights[dim_name] = {
+                v: 5.0 if v in dim_favorites else 1.0
+                for v in values
+            }
+        
+        tuples: list[DimensionTuple] = []
+        seen_combinations: set[tuple] = set()
+        seen_counts: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        
+        now = datetime.utcnow().isoformat() + "Z"
+        max_attempts = n * 20  # Prevent infinite loops
+        
+        for attempt in range(max_attempts):
+            if len(tuples) >= n:
+                break
+            
+            # Sample one tuple
+            tuple_values: dict[str, str] = {}
+            for dim_name, values in dim_values.items():
+                weights = []
+                for v in values:
+                    w = base_weights[dim_name][v]
+                    
+                    # Diversity penalty: reduce weight for already-seen values
+                    # Stronger penalty at high variety (explore all corners)
+                    if variety > 0.3:
+                        usage = seen_counts[dim_name][v]
+                        # Penalty increases with usage and variety level
+                        diversity_penalty = 1.0 / (1.0 + usage * variety * 2)
+                        w *= diversity_penalty
+                    
+                    # Temperature effect: flatten distribution at high variety
+                    # At variety=1.0, blend toward uniform distribution
+                    # At variety=0.0, peaked distribution (favorites dominate)
+                    if variety > 0.5:
+                        uniform_weight = 1.0
+                        blend = (variety - 0.5) * 2  # Maps 0.5-1.0 to 0-1
+                        w = w * (1 - blend) + uniform_weight * blend
+                    
+                    weights.append(max(w, 0.01))  # Floor to prevent zero probability
+                
+                # Weighted random choice
+                chosen = random.choices(values, weights=weights, k=1)[0]
+                tuple_values[dim_name] = chosen
+            
+            # Check for duplicates if no_duplicates is enabled
+            tuple_key = tuple(sorted(tuple_values.items()))
+            if no_duplicates:
+                if tuple_key in seen_combinations:
+                    # Skip duplicate, but cap attempts if we've exhausted combinations
+                    if len(seen_combinations) >= max_combinations:
+                        log_event(logger, "synthetic.heuristic_exhausted",
+                            level="warning",
+                            generated=len(tuples),
+                            requested=n,
+                            max_combinations=max_combinations
+                        )
+                        break
+                    continue
+            
+            seen_combinations.add(tuple_key)
+            
+            # Create tuple object
+            tuples.append(DimensionTuple(
+                id=f"tuple_{uuid.uuid4().hex[:12]}",
+                values=tuple_values,
+                created_at=now
+            ))
+            
+            # Update seen counts for diversity penalty
+            for dim_name, value in tuple_values.items():
+                seen_counts[dim_name][value] += 1
+        
+        log_event(logger, "synthetic.heuristic_complete",
+            operation="generate_tuples_heuristic",
+            generated_count=len(tuples),
+            requested_count=n,
+            attempts=min(attempt + 1, max_attempts),
+            sample_tuple=tuples[0].values if tuples else None
+        )
+        
+        return tuples
+    
     async def generate_tuples_llm_guided(
         self, 
         n: int = 20,
-        focus_areas: Optional[List[str]] = None
-    ) -> List[DimensionTuple]:
+        focus_areas: list[str] | None = None
+    ) -> list[DimensionTuple]:
         """
         Generate tuples using LLM to create realistic combinations.
         
@@ -317,9 +468,9 @@ based on what's relevant for testing this agent.
     
     async def generate_queries_from_tuples(
         self, 
-        tuples: List[DimensionTuple],
-        batch_id: Optional[str] = None
-    ) -> List[SyntheticQuery]:
+        tuples: list[DimensionTuple],
+        batch_id: str | None = None
+    ) -> list[SyntheticQuery]:
         """
         Generate queries from a list of tuples.
         
@@ -332,7 +483,7 @@ based on what's relevant for testing this agent.
         """
         import asyncio
         
-        queries = []
+        queries: list[SyntheticQuery] = []
         now = datetime.utcnow().isoformat() + "Z"
         
         # Generate queries concurrently with rate limiting
@@ -358,8 +509,8 @@ based on what's relevant for testing this agent.
     async def generate_batch(
         self, 
         n: int = 20,
-        name: Optional[str] = None,
-        focus_areas: Optional[List[str]] = None
+        name: str | None = None,
+        focus_areas: list[str] | None = None
     ) -> SyntheticBatch:
         """
         Generate a complete batch of synthetic queries.
@@ -395,7 +546,7 @@ based on what's relevant for testing this agent.
             agent_id="",  # Will be set when saving
             name=name,
             query_count=len(queries),
-            status="ready",
+            status=SyntheticBatchStatus.READY,
             created_at=now,
             queries=queries
         )
@@ -403,32 +554,41 @@ based on what's relevant for testing this agent.
     async def generate_batch_streaming(
         self,
         n: int = 20,
-        name: Optional[str] = None,
-        focus_areas: Optional[List[str]] = None,
-        custom_tuple_prompt: Optional[str] = None,
-        custom_query_prompt: Optional[str] = None,
-        selected_dimensions: Optional[Dict[str, List[str]]] = None,
-        use_dimensions: bool = True
-    ) -> AsyncGenerator[Dict, None]:
+        name: str | None = None,
+        focus_areas: list[str] | None = None,
+        custom_tuple_prompt: str | None = None,
+        custom_query_prompt: str | None = None,
+        selected_dimensions: dict[str, list[str]] | None = None,
+        use_dimensions: bool = True,
+        variety: float = 0.5,
+        favorites: dict[str, list[str]] | None = None,
+        no_duplicates: bool = True,
+    ) -> AsyncGenerator[dict, None]:
         """
         Generate a batch of synthetic queries with streaming progress.
         
         Yields progress events as queries are generated, allowing real-time UI updates.
-        Uses LLM-guided tuple generation for realistic test cases.
+        
+        When use_dimensions=True and selected_dimensions is provided, uses HEURISTIC
+        tuple generation (no LLM call - fast and free). Otherwise uses LLM-guided
+        tuple generation.
         
         Args:
             n: Number of queries to generate
             name: Batch name
             focus_areas: Optional areas to focus on (e.g., ["edge cases", "adversarial"])
-            custom_tuple_prompt: Custom prompt for tuple generation
+            custom_tuple_prompt: Custom prompt for tuple generation (LLM mode only)
             custom_query_prompt: Custom prompt for query generation
-            selected_dimensions: Optional dict of dimension_name -> values to use (overrides agent dimensions)
-            use_dimensions: If True, use dimensions for tuple generation. If False, let LLM generate freely.
+            selected_dimensions: Optional dict of dimension_name -> values to use
+            use_dimensions: If True + selected_dimensions, use heuristics. If False, LLM decides.
+            variety: 0.0 = predictable (favor favorites), 1.0 = surprising (uniform + diversity)
+            favorites: Dict of dimension_name -> list of favorite values (get 5x weight)
+            no_duplicates: If True, ensure unique tuple combinations
         
         Yields:
             Dict events:
                 - {"type": "batch_started", "batch_id": str, "name": str, "total": int}
-                - {"type": "tuples_generated", "count": int, "tuples": List}
+                - {"type": "tuples_generated", "count": int, "tuples": List, "method": str}
                 - {"type": "query_generated", "index": int, "total": int, "query": dict}
                 - {"type": "batch_complete", "batch_id": str, "query_count": int}
         """
@@ -445,6 +605,11 @@ based on what's relevant for testing this agent.
                 TestingDimension(name=dim_name, values=values)
                 for dim_name, values in selected_dimensions.items()
             ]
+        
+        # Convert favorites list to set for heuristic method
+        favorites_sets: dict[str, set[str]] | None = None
+        if favorites:
+            favorites_sets = {k: set(v) for k, v in favorites.items()}
         
         # Generate a short ID that will be used consistently
         short_id = uuid.uuid4().hex[:6].upper()
@@ -466,8 +631,34 @@ based on what's relevant for testing this agent.
         # Allow event loop to flush
         await asyncio.sleep(0)
         
-        # Generate tuples using LLM
-        tuples = await self.generate_tuples_llm_guided(n, focus_areas)
+        # DECISION: Use heuristics or LLM for tuple generation?
+        # - Heuristics: when use_dimensions=True AND we have selected_dimensions
+        # - LLM: when use_dimensions=False (LLM decides freely)
+        
+        tuple_method = "heuristic"
+        if use_dimensions and selected_dimensions:
+            # HEURISTIC PATH: Fast, free, local sampling (NO LLM CALL!)
+            log_event(logger, "synthetic.tuple_generation_method",
+                method="heuristic",
+                variety=variety,
+                no_duplicates=no_duplicates,
+                has_favorites=favorites is not None and len(favorites) > 0
+            )
+            tuples = self.generate_tuples_heuristic(
+                n=n,
+                variety=variety,
+                favorites=favorites_sets,
+                no_duplicates=no_duplicates
+            )
+            tuple_method = "heuristic"
+        else:
+            # LLM PATH: For free-form generation when LLM decides dimensions
+            log_event(logger, "synthetic.tuple_generation_method",
+                method="llm_guided",
+                focus_areas=focus_areas
+            )
+            tuples = await self.generate_tuples_llm_guided(n, focus_areas)
+            tuple_method = "llm_guided"
         
         total = len(tuples)
         
@@ -475,6 +666,7 @@ based on what's relevant for testing this agent.
         yield {
             "type": "tuples_generated",
             "count": total,
+            "method": tuple_method,  # Indicates whether LLM was used
             "tuples": [{"id": t.id, "values": t.values} for t in tuples]
         }
         # Allow event loop to flush
@@ -545,9 +737,9 @@ based on what's relevant for testing this agent.
 # Utility functions for dimension manipulation
 
 def merge_dimensions(
-    agent_dimensions: List[TestingDimension],
-    custom_dimensions: Dict[str, List[str]]
-) -> List[TestingDimension]:
+    agent_dimensions: list[TestingDimension],
+    custom_dimensions: dict[str, list[str]]
+) -> list[TestingDimension]:
     """
     Merge agent's dimensions with custom user-provided dimensions.
     
@@ -576,15 +768,15 @@ def merge_dimensions(
 
 
 def filter_tuples_by_criteria(
-    tuples: List[DimensionTuple],
-    criteria: Dict[str, List[str]]
-) -> List[DimensionTuple]:
+    tuples: list[DimensionTuple],
+    criteria: dict[str, list[str]]
+) -> list[DimensionTuple]:
     """
     Filter tuples to only include those matching criteria.
     
     Args:
         tuples: List of tuples to filter
-        criteria: Dict of dimension name -> allowed values
+        criteria: dict of dimension name -> allowed values
     
     Returns:
         Filtered list of tuples
@@ -596,4 +788,3 @@ def filter_tuples_by_criteria(
         return True
     
     return [t for t in tuples if matches(t)]
-

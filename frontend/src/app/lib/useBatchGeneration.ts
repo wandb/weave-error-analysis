@@ -45,6 +45,10 @@ export interface UseBatchGenerationOptions {
   dimensions: Dimension[];
   selectedDimensionIds: Set<string>;
   useDimensions: boolean;
+  // Heuristic sampling parameters (used when useDimensions=true)
+  variety?: number; // 0.0 = predictable, 1.0 = surprising (default: 0.5)
+  favorites?: Record<string, string[]>; // dimension_name -> favorite values (5x weight)
+  noDuplicates?: boolean; // Ensure unique combinations (default: true)
   onBatchCreated?: (batchId: string, batchName: string) => void;
   onBatchComplete?: (batch: { id: string; name: string; queries: GeneratedQuery[] }) => void;
   onQueryGenerated?: (query: GeneratedQuery, progress: GenerationProgress) => void;
@@ -91,6 +95,9 @@ export function useBatchGeneration(
     dimensions,
     selectedDimensionIds,
     useDimensions,
+    variety = 0.5,
+    favorites,
+    noDuplicates = true,
     onBatchCreated,
     onBatchComplete,
     onQueryGenerated,
@@ -368,6 +375,10 @@ export function useBatchGeneration(
               count,
               selected_dimensions: selectedDimensions,
               use_dimensions: useDimensions,
+              // Heuristic sampling parameters (used when useDimensions=true)
+              variety,
+              favorites,
+              no_duplicates: noDuplicates,
             }),
             signal: abortControllerRef.current.signal,
           }
@@ -465,6 +476,9 @@ export function useBatchGeneration(
       useDimensions,
       dimensions,
       selectedDimensionIds,
+      variety,
+      favorites,
+      noDuplicates,
       onBatchCreated,
       onBatchComplete,
       onQueryGenerated,

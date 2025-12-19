@@ -3,7 +3,7 @@ Batch Executor Service for running synthetic queries through connected agents.
 
 This service orchestrates:
 1. Fetching synthetic queries from a batch
-2. Running each query through the agent via AG-UI
+2. Running each query through the agent
 3. Tracking execution status and results
 4. Linking generated traces back to the batch
 5. **Auto-syncing sessions after batch completion** (Phase 2)

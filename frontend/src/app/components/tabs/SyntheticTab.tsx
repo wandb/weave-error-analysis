@@ -81,6 +81,12 @@ export function SyntheticTab() {
   const [showDimensionSelector, setShowDimensionSelector] = useState(false);
   const [useDimensions, setUseDimensions] = useState(true);
 
+  // Heuristic sampling settings (used when useDimensions=true)
+  const [variety, setVariety] = useState(0.5); // 0.0 = predictable, 1.0 = surprising
+  const [noDuplicates, setNoDuplicates] = useState(true);
+  const [favorites, setFavorites] = useState<Record<string, string[]>>({}); // dim_name -> favorite values
+  const [seenCounts, setSeenCounts] = useState<Record<string, Record<string, number>>>({}); // dim_name -> value -> count
+
   // Collapsible sections
   const [dimensionsCollapsed, setDimensionsCollapsed] = useState(false);
   const [batchesCollapsed, setBatchesCollapsed] = useState(false);
@@ -113,8 +119,14 @@ export function SyntheticTab() {
     dimensions,
     selectedDimensionIds,
     useDimensions,
+    // Heuristic sampling parameters
+    variety,
+    favorites: Object.keys(favorites).length > 0 ? favorites : undefined,
+    noDuplicates,
     onBatchCreated: (batchId, batchName) => {
       setSelectedBatch({ id: batchId, name: batchName, queries: [] });
+      // Reset seen counts when starting new batch
+      setSeenCounts({});
     },
     onBatchComplete: async (batch) => {
       if (selectedAgent) {
@@ -123,6 +135,18 @@ export function SyntheticTab() {
       setSelectedBatch({ id: batch.id, name: batch.name, queries: batch.queries });
     },
     onQueryGenerated: (query, progress) => {
+      // Update seen counts from tuple values
+      const tupleValues = query.tuple_values as Record<string, string>;
+      if (tupleValues) {
+        setSeenCounts((prev) => {
+          const next = { ...prev };
+          for (const [dimName, value] of Object.entries(tupleValues)) {
+            if (!next[dimName]) next[dimName] = {};
+            next[dimName][value] = (next[dimName][value] || 0) + 1;
+          }
+          return next;
+        });
+      }
       // Update selected batch queries every 10 queries
       if (generation.streamingQueries.length % 10 === 0) {
         setSelectedBatch((prev) =>
@@ -418,6 +442,16 @@ export function SyntheticTab() {
           />
         </div>
 
+        {/* Variety Controls (only shown when using dimensions) */}
+        {useDimensions && selectedDimensionIds.size > 0 && (
+          <VarietyControls
+            variety={variety}
+            setVariety={setVariety}
+            noDuplicates={noDuplicates}
+            setNoDuplicates={setNoDuplicates}
+          />
+        )}
+
         {/* Edit Prompt Buttons */}
         <div className="flex items-center gap-1 border-l border-moon-700 pl-2 ml-1">
           {!useDimensions && (
@@ -476,6 +510,10 @@ export function SyntheticTab() {
               onToggleCollapsed={() => setDimensionsCollapsed(!dimensionsCollapsed)}
               onImportDimensions={importDimensions}
               onDimensionsChanged={handleDimensionsChanged}
+              favorites={favorites}
+              onFavoritesChange={setFavorites}
+              seenCounts={seenCounts}
+              isGenerating={generation.generating}
             />
           </div>
 
@@ -733,6 +771,98 @@ function DimensionSelector({
                 </div>
               )}
             </div>
+  );
+}
+
+// ============================================================================
+// Variety Controls Component
+// ============================================================================
+
+interface VarietyControlsProps {
+  variety: number;
+  setVariety: (value: number) => void;
+  noDuplicates: boolean;
+  setNoDuplicates: (value: boolean) => void;
+}
+
+function VarietyControls({
+  variety,
+  setVariety,
+  noDuplicates,
+  setNoDuplicates,
+}: VarietyControlsProps) {
+  const varietyPercent = Math.round(variety * 100);
+  
+  // Preset values for quick selection
+  const presets = [0, 0.25, 0.5, 0.75, 1.0];
+  
+  return (
+    <div className="flex items-center gap-5 border-l border-moon-700 pl-4 ml-2">
+      {/* Variety Slider - Clean style matching prompt drawer */}
+      <div className="flex items-center gap-3">
+        <label className="text-xs font-medium text-moon-50 whitespace-nowrap">
+          Variety
+          <span className="ml-2 font-mono text-gold">{varietyPercent}%</span>
+        </label>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] text-moon-450">Predictable</span>
+          <input
+            type="range"
+            min="0"
+            max="100"
+            value={varietyPercent}
+            onChange={(e) => setVariety(parseInt(e.target.value) / 100)}
+            className="w-28"
+            style={{
+              background: `linear-gradient(to right, #FCBC32 0%, #FCBC32 ${varietyPercent}%, #333333 ${varietyPercent}%, #333333 100%)`,
+            }}
+          />
+          <span className="text-[10px] text-moon-450">Surprising</span>
+        </div>
+        {/* Quick presets */}
+        <div className="flex gap-1 ml-1">
+          {presets.map((p) => (
+            <button
+              key={p}
+              onClick={() => setVariety(p)}
+              className={`text-[10px] px-1.5 py-0.5 rounded transition-all ${
+                variety === p ? "ring-1 ring-gold" : ""
+              }`}
+              style={{
+                backgroundColor: variety === p 
+                  ? "rgba(252, 188, 50, 0.2)" 
+                  : "rgba(37, 40, 48, 0.5)",
+                color: variety === p ? "#FCBC32" : "#8F949E",
+              }}
+            >
+              {Math.round(p * 100)}
+            </button>
+          ))}
+        </div>
+      </div>
+      
+      {/* No Duplicates Toggle - Clean checkbox style */}
+      <label className="flex items-center gap-2 cursor-pointer select-none group">
+        <button
+          onClick={() => setNoDuplicates(!noDuplicates)}
+          className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all ${
+            noDuplicates 
+              ? "bg-teal border-teal" 
+              : "bg-transparent border-moon-450 group-hover:border-moon-50"
+          }`}
+          title={noDuplicates ? "Unique combinations only" : "Allow duplicate combinations"}
+        >
+          {noDuplicates && (
+            <svg className="w-2.5 h-2.5 text-moon-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+            </svg>
+          )}
+        </button>
+        <span className="text-xs text-moon-450 group-hover:text-moon-50 transition-colors">
+          Unique only
+        </span>
+      </label>
+    </div>
   );
 }
 

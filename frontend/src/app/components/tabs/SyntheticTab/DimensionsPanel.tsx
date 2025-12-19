@@ -17,6 +17,7 @@ import {
   ChevronUp,
   Copy,
   HelpCircle,
+  Star,
 } from "lucide-react";
 import type { Dimension } from "../../../types";
 import * as api from "../../../lib/api";
@@ -35,6 +36,11 @@ interface DimensionsPanelProps {
   onToggleCollapsed: () => void;
   onImportDimensions: (agentId: string) => Promise<void>;
   onDimensionsChanged: (agentId: string) => Promise<void>;
+  // Favorites and heatmap support
+  favorites?: Record<string, string[]>; // dim_name -> favorite values
+  onFavoritesChange?: (favorites: Record<string, string[]>) => void;
+  seenCounts?: Record<string, Record<string, number>>; // dim_name -> value -> count
+  isGenerating?: boolean;
 }
 
 // ============================================================================
@@ -50,6 +56,10 @@ export const DimensionsPanel = memo(function DimensionsPanel({
   onToggleCollapsed,
   onImportDimensions,
   onDimensionsChanged,
+  favorites = {},
+  onFavoritesChange,
+  seenCounts = {},
+  isGenerating = false,
 }: DimensionsPanelProps) {
   // Local editing state
   const [editingDimension, setEditingDimension] = useState<string | null>(null);
@@ -94,6 +104,41 @@ export const DimensionsPanel = memo(function DimensionsPanel({
     } finally {
       setDeletingDimension(null);
     }
+  };
+
+  const toggleFavorite = (dimName: string, value: string) => {
+    if (!onFavoritesChange) return;
+    
+    const currentFavorites = favorites[dimName] || [];
+    const isFavorite = currentFavorites.includes(value);
+    
+    const newFavorites = {
+      ...favorites,
+      [dimName]: isFavorite
+        ? currentFavorites.filter((v) => v !== value)
+        : [...currentFavorites, value],
+    };
+    
+    // Clean up empty arrays
+    if (newFavorites[dimName].length === 0) {
+      delete newFavorites[dimName];
+    }
+    
+    onFavoritesChange(newFavorites);
+  };
+
+  const getHeatColor = (dimName: string, value: string): string => {
+    const count = seenCounts[dimName]?.[value] || 0;
+    if (count === 0) return "";
+    
+    // Calculate max seen for this dimension
+    const dimCounts = seenCounts[dimName] || {};
+    const maxCount = Math.max(...Object.values(dimCounts), 1);
+    const intensity = count / maxCount;
+    
+    // Gradient from dim teal to bright teal
+    const opacity = 0.1 + intensity * 0.4;
+    return `rgba(94, 234, 212, ${opacity})`;
   };
 
   // ========== RENDER ==========
@@ -298,14 +343,54 @@ export const DimensionsPanel = memo(function DimensionsPanel({
                     />
                   ) : (
                     <div className="flex flex-wrap gap-1.5">
-                      {dim.values?.map((val, j) => (
-                        <span
-                          key={j}
-                          className="text-xs px-2 py-1 rounded bg-moon-700 text-moon-50"
-                        >
-                          {val}
-                        </span>
-                      ))}
+                      {dim.values?.map((val, j) => {
+                        const isFavorite = favorites[dim.name]?.includes(val) || false;
+                        const seenCount = seenCounts[dim.name]?.[val] || 0;
+                        const heatColor = getHeatColor(dim.name, val);
+                        
+                        return (
+                          <div
+                            key={j}
+                            className={`group relative flex items-center gap-1 text-xs px-2 py-1 rounded transition-all ${
+                              isFavorite ? "ring-1 ring-gold/50" : ""
+                            }`}
+                            style={{
+                              backgroundColor: heatColor || "rgb(55, 55, 60)",
+                            }}
+                          >
+                            {/* Star toggle */}
+                            {onFavoritesChange && (
+                              <button
+                                onClick={() => toggleFavorite(dim.name, val)}
+                                className={`transition-colors ${
+                                  isFavorite ? "text-gold" : "text-moon-600 hover:text-moon-400"
+                                }`}
+                                title={isFavorite ? "Remove from favorites" : "Add to favorites (5x weight)"}
+                              >
+                                <Star
+                                  className={`w-3 h-3 ${isFavorite ? "fill-current" : ""}`}
+                                />
+                              </button>
+                            )}
+                            
+                            {/* Value text */}
+                            <span className="text-moon-50">{val}</span>
+                            
+                            {/* Seen count badge - persists after generation */}
+                            {seenCount > 0 && (
+                              <span 
+                                className={`ml-1 px-1.5 py-0.5 text-[10px] rounded font-mono transition-all ${
+                                  isGenerating 
+                                    ? "bg-teal/30 text-teal animate-pulse" 
+                                    : "bg-moon-700 text-moon-450"
+                                }`}
+                              >
+                                {seenCount}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>

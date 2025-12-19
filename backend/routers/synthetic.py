@@ -88,12 +88,16 @@ class BatchCreateRequest(BaseModel):
     count: Optional[int] = None  # None = use configured default_batch_size
     focus_areas: Optional[List[str]] = None
     # Custom prompts (optional - uses defaults if not provided)
-    custom_tuple_prompt: Optional[str] = None  # Prompt for generating tuples
+    custom_tuple_prompt: Optional[str] = None  # Prompt for generating tuples (LLM mode only)
     custom_query_prompt: Optional[str] = None  # Prompt for generating queries
     # Selected dimensions (dimension_name -> values)
     selected_dimensions: Optional[Dict[str, List[str]]] = None
     # Whether to use dimensions (True) or let LLM generate freely (False)
     use_dimensions: bool = True
+    # Heuristic sampling parameters (used when use_dimensions=True)
+    variety: float = 0.5  # 0.0 = predictable (favor favorites), 1.0 = surprising (uniform + diversity)
+    favorites: Optional[Dict[str, List[str]]] = None  # dimension_name -> list of favorite values (5x weight)
+    no_duplicates: bool = True  # Ensure unique tuple combinations
 
 
 class BatchResponse(BaseModel):
@@ -423,7 +427,11 @@ async def create_batch_streaming(request: BatchCreateRequest):
                 custom_tuple_prompt=request.custom_tuple_prompt,
                 custom_query_prompt=request.custom_query_prompt,
                 selected_dimensions=request.selected_dimensions if request.use_dimensions else None,
-                use_dimensions=request.use_dimensions
+                use_dimensions=request.use_dimensions,
+                # Heuristic sampling parameters (used when use_dimensions=True)
+                variety=request.variety,
+                favorites=request.favorites,
+                no_duplicates=request.no_duplicates,
             ):
                 if event["type"] == "batch_started":
                     batch_id = event["batch_id"]

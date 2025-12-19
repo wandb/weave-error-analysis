@@ -263,3 +263,81 @@ input::placeholder, textarea::placeholder {
   max-height: 600px;
 }
 
+/* ============================================================================
+   Range Slider Styling - Edge to Edge Thumb
+   ============================================================================ */
+
+/* Base range slider styling */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-moon-700);
+  cursor: pointer;
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
+input[type="range"]:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Webkit (Chrome, Safari, Edge) thumb */
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--color-gold);
+  cursor: pointer;
+  border: 2px solid var(--color-moon-900);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+  box-shadow: 0 2px 6px rgba(252, 188, 50, 0.4);
+}
+
+/* Firefox thumb */
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--color-gold);
+  cursor: pointer;
+  border: 2px solid var(--color-moon-900);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+input[type="range"]::-moz-range-thumb:hover {
+  transform: scale(1.1);
+  box-shadow: 0 2px 6px rgba(252, 188, 50, 0.4);
+}
+
+/* Firefox track */
+input[type="range"]::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--color-moon-700);
+}
+
+/* Teal variant for toggles */
+input[type="range"].slider-teal::-webkit-slider-thumb {
+  background: var(--color-teal);
+}
+
+input[type="range"].slider-teal::-moz-range-thumb {
+  background: var(--color-teal);
+}
+
+input[type="range"].slider-teal::-webkit-slider-thumb:hover {
+  box-shadow: 0 2px 6px rgba(16, 191, 204, 0.4);
+}
+

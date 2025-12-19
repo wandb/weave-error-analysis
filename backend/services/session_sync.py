@@ -475,20 +475,34 @@ class SessionSyncService:
         
         logger.info(f"Syncing batch {batch_id}: {len(batch_trace_ids)} trace_ids, {len(batch_thread_ids)} thread_ids")
         
-        # Fetch calls from Weave
+        # Fetch calls from Weave - use thread_ids filter to get only relevant calls
         try:
-            all_calls = await weave_client.query_calls(
-                limit=get_sync_query_limit(),
-                sort_field="started_at",
-                sort_direction="desc"
-            )
+            # Query Weave with thread_ids filter to get only batch-related calls
+            if batch_thread_ids:
+                all_calls = await weave_client.query_calls(
+                    thread_ids=list(batch_thread_ids),
+                    limit=get_sync_query_limit(),
+                    sort_field="started_at",
+                    sort_direction="desc"
+                )
+            else:
+                # Fallback: fetch recent calls and filter by trace_id
+                all_calls = await weave_client.query_calls(
+                    limit=get_sync_query_limit(),
+                    sort_field="started_at",
+                    sort_direction="desc"
+                )
         except Exception as e:
             result.success = False
             result.error_message = f"Weave API error: {e}"
             return result
         
+        logger.info(f"Fetched {len(all_calls)} calls from Weave for batch {batch_id}")
+        
         # Group calls by session
         sessions_data = self._group_calls_by_session(all_calls)
+        
+        logger.info(f"Grouped into {len(sessions_data)} sessions for batch {batch_id}")
         
         # Filter to only sessions in this batch
         batch_sessions = {}
@@ -500,6 +514,8 @@ class SessionSyncService:
                 batch_sessions[session_id] = calls
             elif call_trace_ids.intersection(batch_trace_ids):
                 batch_sessions[session_id] = calls
+        
+        logger.info(f"Matched {len(batch_sessions)} sessions for batch {batch_id}")
         
         # Get existing reviewed threads for migration
         reviewed_threads = self._get_reviewed_threads()

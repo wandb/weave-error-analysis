@@ -170,6 +170,9 @@ export function SessionProvider({ children }: SessionProviderProps) {
     setLoadingSessions(true);
     try {
       const isOrganicFilter = filters.batchId === ORGANIC_FILTER;
+      // When viewing a specific batch, don't filter by id_prefix since batch sessions
+      // have IDs from Weave that may not start with "session_"
+      const isBatchFilter = filters.batchId && !isOrganicFilter;
       
       const data = await api.fetchSessions({
         sort_by: filters.sortBy,
@@ -187,7 +190,9 @@ export function SessionProvider({ children }: SessionProviderProps) {
         batch_id: isOrganicFilter ? null : filters.batchId,
         exclude_batches: isOrganicFilter ? true : undefined,
         primary_model: filters.model,
-        id_prefix: SESSION_ID_PREFIX,
+        // Only filter by id_prefix when not viewing a specific batch
+        // Batch sessions have Weave-generated IDs that may not have our prefix
+        id_prefix: isBatchFilter ? undefined : SESSION_ID_PREFIX,
         limit: 100,
       });
       setSessions(data.sessions);

@@ -4,11 +4,10 @@
  * SyntheticTab - Synthetic data generation and batch execution
  *
  * Refactored to use extracted sub-components and hooks:
- * - DimensionsPanel: Testing dimensions management
+ * - DimensionsPanel: Testing dimensions management (with AI-assisted design)
  * - BatchesPanel: Batch list with run controls
- * - TuplesPreview: Preview tuples before query generation
  * - QueryPreviewCard: Expandable query cards
- * - useBatchGeneration: SSE streaming for generation
+ * - useBatchGeneration: SSE streaming for generation (heuristic tuples + LLM queries)
  * - useBatchExecution: SSE streaming for execution
  */
 
@@ -45,7 +44,6 @@ const logger = createLogger("SyntheticTab");
 import {
   DimensionsPanel,
   BatchesPanel,
-  TuplesPreview,
   QueryPreviewCard,
 } from "./SyntheticTab/index";
 
@@ -76,12 +74,11 @@ export function SyntheticTab() {
   // Generation settings
   const [batchSize, setBatchSize] = useState(20);
 
-  // LLM Guided dimension selection
+  // Dimension selection for generation
   const [selectedDimensionIds, setSelectedDimensionIds] = useState<Set<string>>(new Set());
   const [showDimensionSelector, setShowDimensionSelector] = useState(false);
-  const [useDimensions, setUseDimensions] = useState(true);
 
-  // Heuristic sampling settings (used when useDimensions=true)
+  // Heuristic sampling settings
   const [variety, setVariety] = useState(0.5); // 0.0 = predictable, 1.0 = surprising
   const [noDuplicates, setNoDuplicates] = useState(true);
   const [favorites, setFavorites] = useState<Record<string, string[]>>({}); // dim_name -> favorite values
@@ -117,7 +114,6 @@ export function SyntheticTab() {
     agentId: selectedAgent?.id || null,
     dimensions,
     selectedDimensionIds,
-    useDimensions,
     // Heuristic sampling parameters
     variety,
     favorites: Object.keys(favorites).length > 0 ? favorites : undefined,
@@ -131,7 +127,7 @@ export function SyntheticTab() {
       }
       setSelectedBatch({ id: batch.id, name: batch.name, queries: batch.queries });
     },
-    onQueryGenerated: (query, progress) => {
+    onQueryGenerated: () => {
       // Update selected batch queries every 10 queries for UI responsiveness
       if (generation.streamingQueries.length % 10 === 0) {
         setSelectedBatch((prev) =>
@@ -438,10 +434,8 @@ export function SyntheticTab() {
             <span className="text-xs text-moon-450">queries</span>
           </div>
 
-          {/* Dimension mode selector */}
+          {/* Dimension selector */}
           <DimensionSelector
-            useDimensions={useDimensions}
-            setUseDimensions={setUseDimensions}
             dimensions={dimensions}
             selectedDimensionIds={selectedDimensionIds}
             setSelectedDimensionIds={setSelectedDimensionIds}
@@ -450,8 +444,8 @@ export function SyntheticTab() {
           />
         </div>
 
-        {/* Variety Controls (only shown when using dimensions) */}
-        {useDimensions && selectedDimensionIds.size > 0 && (
+        {/* Variety Controls (shown when dimensions are selected) */}
+        {selectedDimensionIds.size > 0 && (
           <VarietyControls
             variety={variety}
             setVariety={setVariety}
@@ -460,16 +454,8 @@ export function SyntheticTab() {
           />
         )}
 
-        {/* Edit Prompt Buttons */}
+        {/* Edit Prompt Button */}
         <div className="flex items-center gap-1 border-l border-moon-700 pl-2 ml-1">
-          {!useDimensions && (
-            <EditPromptButton
-              promptId="tuple_generation_free"
-              label="Tuples"
-              size="sm"
-              variant="ghost"
-            />
-          )}
           <EditPromptButton
             promptId="query_generation"
             label="Queries"
@@ -481,21 +467,27 @@ export function SyntheticTab() {
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Generation Buttons */}
-        <GenerationButtons
-          useDimensions={useDimensions}
-          batchSize={batchSize}
-          selectedDimensionIds={selectedDimensionIds}
-          previewTuples={generation.previewTuples}
-          selectedTupleIds={generation.selectedTupleIds}
-          generating={generation.generating}
-          generatingTuples={generation.generatingTuples}
-          generatingQueries={generation.generatingQueries}
-          onGenerateBatch={() => generation.generateBatch(batchSize)}
-          onGenerateTuples={() => generation.generateTuplesPreview(batchSize)}
-          onGenerateQueries={generation.generateQueriesFromTuples}
-          onClearTuples={generation.clearTuplesPreview}
-        />
+        {/* Generate Button */}
+        <button
+          onClick={() => generation.generateBatch(batchSize)}
+          disabled={generation.generating || selectedDimensionIds.size === 0}
+          className={`flex items-center gap-2 px-6 py-2.5 rounded-md font-medium transition-all disabled:opacity-50 ${
+            generation.generating ? "bg-moon-700 text-moon-450" : "bg-gold text-moon-900"
+          }`}
+          title={selectedDimensionIds.size === 0 ? "Select at least one dimension" : undefined}
+        >
+          {generation.generating ? (
+            <>
+              <RefreshCw className="w-4 h-4 animate-spin" />
+              <span>GENERATING...</span>
+            </>
+          ) : (
+            <>
+              <Zap className="w-4 h-4" />
+              <span>GENERATE {batchSize} QUERIES</span>
+            </>
+          )}
+        </button>
       </div>
 
       {/* Click-away listener for dimension selector */}
@@ -562,29 +554,6 @@ export function SyntheticTab() {
           />
         )}
 
-        {/* Tuples Preview */}
-        <TuplesPreview
-          tuples={generation.previewTuples}
-          selectedTupleIds={generation.selectedTupleIds}
-          editingTupleId={generation.editingTupleId}
-          generatingQueries={generation.generatingQueries}
-          genProgress={generation.genProgress}
-          onToggleSelect={(tupleId, selected) => {
-            generation.setSelectedTupleIds((prev) => {
-              const newSet = new Set(prev);
-              if (selected) newSet.add(tupleId);
-              else newSet.delete(tupleId);
-              return newSet;
-            });
-          }}
-          onSelectAll={() =>
-            generation.setSelectedTupleIds(new Set(generation.previewTuples.map((t) => t.id)))
-          }
-          onDeselectAll={() => generation.setSelectedTupleIds(new Set())}
-          onEdit={generation.setEditingTupleId}
-          onUpdateValue={generation.updateTupleValue}
-          onDelete={generation.deleteTupleFromPreview}
-        />
 
         {/* BOTTOM: Batch Data Preview */}
         <BatchDataPreview
@@ -636,8 +605,6 @@ export function SyntheticTab() {
 // ============================================================================
 
 interface DimensionSelectorProps {
-  useDimensions: boolean;
-  setUseDimensions: (value: boolean) => void;
   dimensions: { id: string; name: string; values: string[] }[];
   selectedDimensionIds: Set<string>;
   setSelectedDimensionIds: React.Dispatch<React.SetStateAction<Set<string>>>;
@@ -646,8 +613,6 @@ interface DimensionSelectorProps {
 }
 
 function DimensionSelector({
-  useDimensions,
-  setUseDimensions,
   dimensions,
   selectedDimensionIds,
   setSelectedDimensionIds,
@@ -655,130 +620,93 @@ function DimensionSelector({
   setShowSelector,
 }: DimensionSelectorProps) {
   return (
-            <div className="relative">
-              <button
+    <div className="relative">
+      <button
         onClick={() => setShowSelector(!showSelector)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors border border-moon-700 ${
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-sm transition-colors border border-moon-700 ${
           showSelector ? "bg-teal/15 text-teal" : "bg-moon-900 text-moon-50"
-                }`}
-              >
-                <Target className="w-3.5 h-3.5" />
-                <span>
-                  {useDimensions 
-                    ? `${selectedDimensionIds.size}/${dimensions.length} dimensions` 
-            : "LLM decides"}
-                </span>
+        }`}
+      >
+        <Target className="w-3.5 h-3.5" />
+        <span>
+          {`${selectedDimensionIds.size}/${dimensions.length} dimensions`}
+        </span>
         {showSelector ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-              </button>
-              
+      </button>
+      
       {showSelector && (
-                <div className="absolute top-full left-0 mt-1 p-3 rounded-lg z-50 min-w-[320px] bg-moon-800 border border-teal shadow-lg">
-                  {/* Mode Toggle */}
-                  <div className="flex gap-1 p-1 rounded-lg mb-3 bg-moon-900">
-                    <button
-                      onClick={() => setUseDimensions(true)}
-                      className={`flex-1 px-3 py-1.5 rounded text-xs font-medium transition-all ${
-                useDimensions ? "bg-teal text-moon-900" : "bg-transparent text-moon-450"
-                      }`}
-                    >
-                      Use Dimensions
-                    </button>
-                    <button
-                      onClick={() => setUseDimensions(false)}
-                      className={`flex-1 px-3 py-1.5 rounded text-xs font-medium transition-all ${
-                !useDimensions ? "bg-gold text-moon-900" : "bg-transparent text-moon-450"
-                      }`}
-                    >
-                      LLM Decides
-                    </button>
-                  </div>
-                  
-                  {useDimensions ? (
-                    <>
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-medium text-teal">Select dimensions to use</span>
-                        <div className="flex gap-1">
-                          <button
-                    onClick={() => setSelectedDimensionIds(new Set(dimensions.map((d) => d.id)))}
-                            className="text-xs px-2 py-0.5 rounded bg-moon-700 text-moon-450"
-                          >
-                            All
-                          </button>
-                          <button
-                            onClick={() => setSelectedDimensionIds(new Set())}
-                            className="text-xs px-2 py-0.5 rounded bg-moon-700 text-moon-450"
-                          >
-                            None
-                          </button>
-                        </div>
-                      </div>
-                      
-                      {dimensions.length > 0 ? (
-                        <div className="space-y-2 max-h-48 overflow-y-auto">
-                  {dimensions.map((dim) => (
-                            <label 
-                              key={dim.id} 
-                              className={`flex items-start gap-2 cursor-pointer p-2 rounded transition-colors hover:bg-opacity-50 ${
-                        selectedDimensionIds.has(dim.id) ? "bg-teal/10" : "bg-transparent"
-                              }`}
-                            >
-                              <input
-                                type="checkbox"
-                                checked={selectedDimensionIds.has(dim.id)}
-                                onChange={(e) => {
-                                  const newSet = new Set(selectedDimensionIds);
-                                  if (e.target.checked) newSet.add(dim.id);
-                                  else newSet.delete(dim.id);
-                                  setSelectedDimensionIds(newSet);
-                                }}
-                                className="w-4 h-4 mt-0.5 rounded accent-teal"
-                              />
-                              <div className="flex-1 min-w-0">
-                                <div className="font-medium text-sm text-moon-50">{dim.name}</div>
-                                <div className="flex flex-wrap gap-1 mt-1">
-                                  {dim.values?.slice(0, 4).map((val, i) => (
-                            <span
-                              key={i}
-                              className="text-xs px-1.5 py-0.5 rounded bg-moon-700 text-moon-450"
-                            >
-                                      {val}
-                                    </span>
-                                  ))}
-                                  {dim.values?.length > 4 && (
-                            <span className="text-xs text-moon-450">
-                              +{dim.values.length - 4} more
-                            </span>
-                                  )}
-                                </div>
-                              </div>
-                            </label>
-                          ))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-center py-4 text-moon-450">
-                  No dimensions defined. Add them in the Testing Dimensions panel or use "LLM
-                  Decides" mode.
-                        </p>
-                      )}
-                      
-                      {dimensions.length > 0 && selectedDimensionIds.size === 0 && (
-                <p className="text-xs mt-2 text-center text-gold">⚠️ Select at least one dimension</p>
-                      )}
-                    </>
-                  ) : (
-                    <div className="text-center py-3">
-                      <p className="text-sm mb-2 text-moon-50">
-                        LLM will generate test case combinations freely
-                      </p>
-                      <p className="text-xs text-moon-450">
-                The LLM will create diverse tuples based on the agent's purpose without being
-                constrained to predefined dimension values.
-                      </p>
-                    </div>
-                  )}
-                </div>
-              )}
+        <div className="absolute top-full left-0 mt-1 p-3 rounded-lg z-50 min-w-[320px] bg-moon-800 border border-teal shadow-lg">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs font-medium text-teal">Select dimensions to use</span>
+            <div className="flex gap-1">
+              <button
+                onClick={() => setSelectedDimensionIds(new Set(dimensions.map((d) => d.id)))}
+                className="text-xs px-2 py-0.5 rounded bg-moon-700 text-moon-450"
+              >
+                All
+              </button>
+              <button
+                onClick={() => setSelectedDimensionIds(new Set())}
+                className="text-xs px-2 py-0.5 rounded bg-moon-700 text-moon-450"
+              >
+                None
+              </button>
             </div>
+          </div>
+          
+          {dimensions.length > 0 ? (
+            <div className="space-y-2 max-h-48 overflow-y-auto">
+              {dimensions.map((dim) => (
+                <label 
+                  key={dim.id} 
+                  className={`flex items-start gap-2 cursor-pointer p-2 rounded transition-colors hover:bg-opacity-50 ${
+                    selectedDimensionIds.has(dim.id) ? "bg-teal/10" : "bg-transparent"
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedDimensionIds.has(dim.id)}
+                    onChange={(e) => {
+                      const newSet = new Set(selectedDimensionIds);
+                      if (e.target.checked) newSet.add(dim.id);
+                      else newSet.delete(dim.id);
+                      setSelectedDimensionIds(newSet);
+                    }}
+                    className="w-4 h-4 mt-0.5 rounded accent-teal"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm text-moon-50">{dim.name}</div>
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {dim.values?.slice(0, 4).map((val, i) => (
+                        <span
+                          key={i}
+                          className="text-xs px-1.5 py-0.5 rounded bg-moon-700 text-moon-450"
+                        >
+                          {val}
+                        </span>
+                      ))}
+                      {dim.values?.length > 4 && (
+                        <span className="text-xs text-moon-450">
+                          +{dim.values.length - 4} more
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-center py-4 text-moon-450">
+              No dimensions defined. Add them in the Testing Dimensions panel.
+            </p>
+          )}
+          
+          {dimensions.length > 0 && selectedDimensionIds.size === 0 && (
+            <p className="text-xs mt-2 text-center text-gold">⚠️ Select at least one dimension</p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -874,125 +802,6 @@ function VarietyControls({
   );
 }
 
-interface GenerationButtonsProps {
-  useDimensions: boolean;
-  batchSize: number;
-  selectedDimensionIds: Set<string>;
-  previewTuples: { id: string }[];
-  selectedTupleIds: Set<string>;
-  generating: boolean;
-  generatingTuples: boolean;
-  generatingQueries: boolean;
-  onGenerateBatch: () => void;
-  onGenerateTuples: () => void;
-  onGenerateQueries: () => void;
-  onClearTuples: () => void;
-}
-
-function GenerationButtons({
-  useDimensions,
-  batchSize,
-  selectedDimensionIds,
-  previewTuples,
-  selectedTupleIds,
-  generating,
-  generatingTuples,
-  generatingQueries,
-  onGenerateBatch,
-  onGenerateTuples,
-  onGenerateQueries,
-  onClearTuples,
-}: GenerationButtonsProps) {
-  return (
-        <div className="flex items-center gap-2">
-      {/* When useDimensions=true: Direct query generation */}
-          {useDimensions && previewTuples.length === 0 && (
-            <button
-          onClick={onGenerateBatch}
-              disabled={generating || selectedDimensionIds.size === 0}
-              className={`flex items-center gap-2 px-6 py-2.5 rounded-md font-medium transition-all disabled:opacity-50 ${
-            generating ? "bg-moon-700 text-moon-450" : "bg-gold text-moon-900"
-              }`}
-              title={selectedDimensionIds.size === 0 ? "Select at least one dimension" : undefined}
-            >
-              {generating ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>GENERATING...</span>
-                </>
-              ) : (
-                <>
-                  <Zap className="w-4 h-4" />
-                  <span>GENERATE {batchSize} QUERIES</span>
-                </>
-              )}
-            </button>
-          )}
-          
-      {/* When useDimensions=false (LLM Decides): Two-step flow */}
-          {!useDimensions && previewTuples.length === 0 && (
-            <button
-          onClick={onGenerateTuples}
-              disabled={generatingTuples || generatingQueries}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-md font-medium transition-all disabled:opacity-50 ${
-            generatingTuples ? "bg-moon-700 text-moon-450" : "bg-teal text-moon-900"
-              }`}
-              title="LLM will generate test case combinations for your review"
-            >
-              {generatingTuples ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>GENERATING TUPLES...</span>
-                </>
-              ) : (
-                <>
-                  <Target className="w-4 h-4" />
-                  <span>GENERATE {batchSize} TUPLES</span>
-                </>
-              )}
-            </button>
-          )}
-          
-          {/* After tuples generated: Show approve/generate buttons */}
-          {previewTuples.length > 0 && (
-            <>
-              <button
-            onClick={onClearTuples}
-                disabled={generatingQueries}
-                className="flex items-center gap-2 px-3 py-2.5 rounded-md font-medium transition-all disabled:opacity-50 bg-moon-700 text-moon-450"
-                title="Clear tuples and start over"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-              <button
-            onClick={onGenerateQueries}
-                disabled={generatingQueries || selectedTupleIds.size === 0}
-                className={`flex items-center gap-2 px-6 py-2.5 rounded-md font-medium transition-all disabled:opacity-50 ${
-              generatingQueries ? "bg-moon-700 text-moon-450" : "bg-gold text-moon-900"
-            }`}
-            title={
-              selectedTupleIds.size === 0
-                ? "Select at least one tuple"
-                : `Generate queries from ${selectedTupleIds.size} selected tuples`
-            }
-              >
-                {generatingQueries ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>GENERATING QUERIES...</span>
-                  </>
-                ) : (
-                  <>
-                    <Zap className="w-4 h-4" />
-                    <span>GENERATE {selectedTupleIds.size} QUERIES</span>
-                  </>
-                )}
-              </button>
-            </>
-          )}
-        </div>
-  );
-}
 
 interface GenerationProgressProps {
   progress: { total: number; completed: number; percent: number; currentQuery?: string };

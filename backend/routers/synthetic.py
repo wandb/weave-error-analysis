@@ -86,15 +86,11 @@ class BatchCreateRequest(BaseModel):
     agent_id: str
     name: Optional[str] = None
     count: Optional[int] = None  # None = use configured default_batch_size
-    focus_areas: Optional[List[str]] = None
-    # Custom prompts (optional - uses defaults if not provided)
-    custom_tuple_prompt: Optional[str] = None  # Prompt for generating tuples (LLM mode only)
+    # Custom query prompt (optional - uses default if not provided)
     custom_query_prompt: Optional[str] = None  # Prompt for generating queries
     # Selected dimensions (dimension_name -> values)
     selected_dimensions: Optional[Dict[str, List[str]]] = None
-    # Whether to use dimensions (True) or let LLM generate freely (False)
-    use_dimensions: bool = True
-    # Heuristic sampling parameters (used when use_dimensions=True)
+    # Heuristic sampling parameters
     variety: float = 0.5  # 0.0 = predictable (favor favorites), 1.0 = surprising (uniform + diversity)
     favorites: Optional[Dict[str, List[str]]] = None  # dimension_name -> list of favorite values (5x weight)
     no_duplicates: bool = True  # Ensure unique tuple combinations
@@ -588,7 +584,7 @@ async def create_batch_streaming(request: BatchCreateRequest):
     
     Returns an SSE stream of generation events, allowing the frontend to show
     real-time progress and populate queries as they're generated.
-    Uses LLM-guided generation for realistic test cases.
+    Uses heuristic tuple generation with LLM query generation.
     
     Events:
     - batch_started: Generation has begun
@@ -604,7 +600,7 @@ async def create_batch_streaming(request: BatchCreateRequest):
     if not agent_info.testing_dimensions:
         raise HTTPException(
             status_code=400,
-            detail="No testing dimensions defined. Import from AGENT_INFO first."
+            detail="No testing dimensions defined. Add dimensions in the Synthetic tab first."
         )
     
     generator = SyntheticGenerator(agent_info)
@@ -620,12 +616,8 @@ async def create_batch_streaming(request: BatchCreateRequest):
             async for event in generator.generate_batch_streaming(
                 n=count,
                 name=request.name,
-                focus_areas=request.focus_areas,
-                custom_tuple_prompt=request.custom_tuple_prompt,
                 custom_query_prompt=request.custom_query_prompt,
-                selected_dimensions=request.selected_dimensions if request.use_dimensions else None,
-                use_dimensions=request.use_dimensions,
-                # Heuristic sampling parameters (used when use_dimensions=True)
+                selected_dimensions=request.selected_dimensions,
                 variety=request.variety,
                 favorites=request.favorites,
                 no_duplicates=request.no_duplicates,
@@ -652,7 +644,7 @@ async def create_batch_streaming(request: BatchCreateRequest):
                             event["name"],
                             "ready",
                             event["query_count"],
-                            "llm_guided",
+                            "heuristic",
                             now_iso()
                         ))
                         

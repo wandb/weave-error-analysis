@@ -462,159 +462,6 @@ class SyntheticGenerator:
         
         return tuples
     
-    async def generate_tuples_llm_guided(
-        self, 
-        n: int = 20,
-        focus_areas: list[str] | None = None
-    ) -> list[DimensionTuple]:
-        """
-        Generate tuples using LLM to create realistic combinations.
-        
-        The LLM considers which combinations make sense together and generates
-        diverse, realistic test case scenarios.
-        
-        When use_dimensions is False, the LLM generates tuples freely without
-        being constrained to predefined dimension values.
-        
-        Args:
-            n: Number of tuples to generate
-            focus_areas: Optional areas to focus on (e.g., ["edge cases", "adversarial"])
-        
-        Returns:
-            List of DimensionTuple objects
-        """
-        use_dimensions = getattr(self, '_use_dimensions', True)
-        dim_values = self.get_dimension_values()
-        
-        focus_instruction = ""
-        if focus_areas:
-            focus_instruction = f"\nFocus on these areas: {', '.join(focus_areas)}"
-        
-        # Use custom prompt if provided, otherwise use default
-        custom_prompt = getattr(self, '_custom_tuple_prompt', None)
-        
-        # Determine prompt mode for logging
-        prompt_mode = "free_generation" if not use_dimensions else ("custom_prompt" if custom_prompt else "dimensions_guided")
-        
-        # Build dimensions section (empty for free mode, populated otherwise)
-        if use_dimensions and dim_values:
-            dimensions_section = f"""
-These are the available testing dimensions that you can use as inspiration:
-{json.dumps(dim_values, indent=2)}
-
-Feel free to generate tuples that make sense for the agent and purpose.
-"""
-        else:
-            # Free mode - let LLM decide dimensions
-            dimensions_section = """
-You decide what dimensions to use (e.g., persona, scenario, complexity, mood, intent, etc.)
-based on what's relevant for testing this agent.
-"""
-        
-        if custom_prompt:
-            # Replace placeholders in custom prompt
-            prompt = custom_prompt.replace("{agent_name}", self.agent_info.name)
-            prompt = prompt.replace("{agent_purpose}", self.agent_info.purpose or "AI assistant")
-            prompt = prompt.replace("{dimensions}", json.dumps(dim_values, indent=2))
-            prompt = prompt.replace("{dimensions_section}", dimensions_section)
-            prompt = prompt.replace("{count}", str(n))
-            prompt = prompt.replace("{focus_instruction}", focus_instruction)
-            prompt_config = prompt_manager.get_prompt("tuple_generation")
-        else:
-            prompt_config = prompt_manager.get_prompt("tuple_generation")
-            variables = {
-                "agent_name": self.agent_info.name,
-                "agent_purpose": self.agent_info.purpose or "AI assistant",
-                "count": str(n),
-                "dimensions_section": dimensions_section,
-                "focus_instruction": focus_instruction,
-            }
-            prompt = prompt_config.user_prompt_template.format(**variables)
-
-        # Log the tuple generation request
-        log_event(logger, "llm.tuple_generation_start",
-            operation="generate_tuples_llm_guided",
-            mode=prompt_mode,
-            use_dimensions=use_dimensions,
-            has_custom_prompt=custom_prompt is not None,
-            dimension_count=len(dim_values) if use_dimensions else 0,
-            dimension_names=list(dim_values.keys()) if use_dimensions and dim_values else [],
-            requested_count=n,
-            agent_name=self.agent_info.name,
-            agent_purpose=self.agent_info.purpose or "AI assistant"
-        )
-        
-        # Log the full prompt if LOG_LLM_CONTENT is enabled
-        if LOG_LLM_CONTENT:
-            log_event(logger, "llm.tuple_generation_prompt", level="debug",
-                prompt=prompt,
-                dimensions=dim_values if use_dimensions else None
-            )
-
-        # Create LLM client with prompt-specific configuration
-        llm = LLMClient.for_prompt(prompt_config)
-        
-        # Use the LLM client for JSON mode completion
-        content = await llm.generate(
-            prompt=prompt,
-            json_mode=True
-        )
-        
-        # Log response received
-        log_event(logger, "llm.tuple_generation_response",
-            operation="generate_tuples_llm_guided",
-            mode=prompt_mode,
-            response_length=len(content) if content else 0
-        )
-        
-        # Parse the response - handle both direct array and wrapped object
-        data = json.loads(content)
-        
-        # Extract tuples from response
-        tuples_data = []
-        if isinstance(data, list):
-            tuples_data = data
-        elif isinstance(data, dict):
-            # Find the array in the dict (could be "tuples", "test_cases", etc.)
-            for _, value in data.items():
-                if isinstance(value, list):
-                    tuples_data = value
-                    break
-        
-        tuples = []
-        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-        
-        for combo in tuples_data:
-            if isinstance(combo, dict):
-                # Flatten any nested values to strings (LLM sometimes returns nested dicts)
-                flat_values = {}
-                for k, v in combo.items():
-                    if isinstance(v, str):
-                        flat_values[k] = v
-                    elif isinstance(v, dict):
-                        # For nested dicts, use the first string value or JSON stringify
-                        str_vals = [sv for sv in v.values() if isinstance(sv, str)]
-                        flat_values[k] = str_vals[0] if str_vals else json.dumps(v)
-                    else:
-                        flat_values[k] = str(v)
-                
-                tuples.append(DimensionTuple(
-                    id=f"tuple_{uuid.uuid4().hex[:12]}",
-                    values=flat_values,
-                    created_at=now
-                ))
-        
-        # Log successful tuple generation
-        log_event(logger, "llm.tuple_generation_complete",
-            operation="generate_tuples_llm_guided",
-            mode=prompt_mode,
-            tuples_generated=len(tuples),
-            requested_count=n,
-            sample_tuple=tuples[0].values if tuples else None
-        )
-        
-        return tuples
-    
     async def tuple_to_query(self, dimension_tuple: DimensionTuple) -> str:
         """
         Convert a dimension tuple to a natural language query.
@@ -701,11 +548,8 @@ based on what's relevant for testing this agent.
         self,
         n: int = 20,
         name: str | None = None,
-        focus_areas: list[str] | None = None,
-        custom_tuple_prompt: str | None = None,
         custom_query_prompt: str | None = None,
         selected_dimensions: dict[str, list[str]] | None = None,
-        use_dimensions: bool = True,
         variety: float = 0.5,
         favorites: dict[str, list[str]] | None = None,
         no_duplicates: bool = True,
@@ -714,18 +558,13 @@ based on what's relevant for testing this agent.
         Generate a batch of synthetic queries.
         
         Yields progress events as queries are generated, allowing real-time UI updates.
-        
-        When use_dimensions=True and selected_dimensions is provided, uses HEURISTIC
-        tuple generation. Otherwise uses LLM-guided tuple generation.
+        Uses heuristic tuple generation with user-defined dimensions.
         
         Args:
             n: Number of queries to generate
             name: Batch name
-            focus_areas: Optional areas to focus on (e.g., ["edge cases", "adversarial"])
-            custom_tuple_prompt: Custom prompt for tuple generation (LLM mode only)
             custom_query_prompt: Custom prompt for query generation
             selected_dimensions: Optional dict of dimension_name -> values to use
-            use_dimensions: If True + selected_dimensions, use heuristics. If False, LLM decides.
             variety: 0.0 = predictable (favor favorites), 1.0 = surprising (uniform + diversity)
             favorites: Dict of dimension_name -> list of favorite values (get 5x weight)
             no_duplicates: If True, ensure unique tuple combinations
@@ -737,15 +576,12 @@ based on what's relevant for testing this agent.
                 - {"type": "query_generated", "index": int, "total": int, "query": dict}
                 - {"type": "batch_complete", "batch_id": str, "query_count": int}
         """
-        # Store custom prompts for use in generation methods
-        self._custom_tuple_prompt = custom_tuple_prompt
+        # Store custom query prompt for use in tuple_to_query
         self._custom_query_prompt = custom_query_prompt
-        self._use_dimensions = use_dimensions
         
-        # If selected_dimensions provided and use_dimensions is True,
-        # temporarily override the generator's dimensions with the selected dimensions.
+        # If selected_dimensions provided, temporarily override the generator's dimensions
         original_dimensions = None
-        if selected_dimensions and use_dimensions:
+        if selected_dimensions:
             original_dimensions = self.dimensions
             self.dimensions = [
                 TestingDimension(name=dim_name, values=values)
@@ -777,33 +613,19 @@ based on what's relevant for testing this agent.
         # Allow event loop to flush
         await asyncio.sleep(0)
         
-        # DECISION: Use heuristics or LLM for tuple generation?
-        # - Heuristics: when use_dimensions=True AND we have selected_dimensions
-        # - LLM: when use_dimensions=False (LLM decides freely)
-        
-        tuple_method = "heuristic"
-        if use_dimensions and selected_dimensions:
-            # HEURISTIC PATH
-            log_event(logger, "synthetic.tuple_generation_method",
-                method="heuristic",
-                variety=variety,
-                no_duplicates=no_duplicates,
-                has_favorites=favorites is not None and len(favorites) > 0
-            )
-            tuples = self.generate_tuples_heuristic(
-                n=n,
-                variety=variety,
-                favorites=favorites_sets,
-                no_duplicates=no_duplicates
-            )
-        else:
-            # LLM PATH: For free-form generation when LLM decides dimensions
-            log_event(logger, "synthetic.tuple_generation_method",
-                method="llm_guided",
-                focus_areas=focus_areas
-            )
-            tuples = await self.generate_tuples_llm_guided(n, focus_areas)
-            tuple_method = "llm_guided"
+        # Use heuristic tuple generation (fast, deterministic)
+        log_event(logger, "synthetic.tuple_generation_method",
+            method="heuristic",
+            variety=variety,
+            no_duplicates=no_duplicates,
+            has_favorites=favorites is not None and len(favorites) > 0
+        )
+        tuples = self.generate_tuples_heuristic(
+            n=n,
+            variety=variety,
+            favorites=favorites_sets,
+            no_duplicates=no_duplicates
+        )
         
         total = len(tuples)
         
@@ -811,7 +633,7 @@ based on what's relevant for testing this agent.
         yield {
             "type": "tuples_generated",
             "count": total,
-            "method": tuple_method,
+            "method": "heuristic",
             "tuples": [{"id": t.id, "values": t.values} for t in tuples]
         }
         # Allow event loop to flush

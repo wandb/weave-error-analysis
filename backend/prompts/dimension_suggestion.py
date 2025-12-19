@@ -34,6 +34,8 @@ Consider dimensions like:
 - Scenario types (common use cases, edge cases, adversarial)
 - Domain-specific factors based on agent capabilities
 
+Focus on the user defined testing goals if provided.
+
 {testing_goals_section}
 
 Return a JSON object with this exact structure:

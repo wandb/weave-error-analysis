@@ -12,7 +12,7 @@
  * - useBatchExecution: SSE streaming for execution
  */
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
   Cpu,
   Target,
@@ -85,7 +85,6 @@ export function SyntheticTab() {
   const [variety, setVariety] = useState(0.5); // 0.0 = predictable, 1.0 = surprising
   const [noDuplicates, setNoDuplicates] = useState(true);
   const [favorites, setFavorites] = useState<Record<string, string[]>>({}); // dim_name -> favorite values
-  const [seenCounts, setSeenCounts] = useState<Record<string, Record<string, number>>>({}); // dim_name -> value -> count
 
   // Collapsible sections
   const [dimensionsCollapsed, setDimensionsCollapsed] = useState(false);
@@ -125,8 +124,6 @@ export function SyntheticTab() {
     noDuplicates,
     onBatchCreated: (batchId, batchName) => {
       setSelectedBatch({ id: batchId, name: batchName, queries: [] });
-      // Reset seen counts when starting new batch
-      setSeenCounts({});
     },
     onBatchComplete: async (batch) => {
       if (selectedAgent) {
@@ -135,19 +132,7 @@ export function SyntheticTab() {
       setSelectedBatch({ id: batch.id, name: batch.name, queries: batch.queries });
     },
     onQueryGenerated: (query, progress) => {
-      // Update seen counts from tuple values
-      const tupleValues = query.tuple_values as Record<string, string>;
-      if (tupleValues) {
-        setSeenCounts((prev) => {
-          const next = { ...prev };
-          for (const [dimName, value] of Object.entries(tupleValues)) {
-            if (!next[dimName]) next[dimName] = {};
-            next[dimName][value] = (next[dimName][value] || 0) + 1;
-          }
-          return next;
-        });
-      }
-      // Update selected batch queries every 10 queries
+      // Update selected batch queries every 10 queries for UI responsiveness
       if (generation.streamingQueries.length % 10 === 0) {
         setSelectedBatch((prev) =>
           prev ? { ...prev, queries: [...generation.streamingQueries] } : null
@@ -155,6 +140,29 @@ export function SyntheticTab() {
       }
     },
   });
+
+  // Compute seenCounts as a derived value from the current queries
+  // This is computed from either streaming queries (during generation) or selected batch queries
+  const seenCounts = useMemo(() => {
+    const counts: Record<string, Record<string, number>> = {};
+    
+    // Use streaming queries during active generation, otherwise use selected batch queries
+    const queries = generation.generating 
+      ? generation.streamingQueries 
+      : selectedBatch?.queries || [];
+    
+    for (const query of queries) {
+      const tupleValues = query.tuple_values as Record<string, string> | undefined;
+      if (tupleValues) {
+        for (const [dimName, value] of Object.entries(tupleValues)) {
+          if (!counts[dimName]) counts[dimName] = {};
+          counts[dimName][value] = (counts[dimName][value] || 0) + 1;
+        }
+      }
+    }
+    
+    return counts;
+  }, [generation.generating, generation.streamingQueries, selectedBatch?.queries]);
 
   // Batch execution hook
   const execution = useBatchExecution({

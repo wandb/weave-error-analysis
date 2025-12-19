@@ -23,13 +23,14 @@ import {
   Edit3,
   ChevronDown,
   ChevronUp,
-  Copy,
   Star,
   Sparkles,
   Loader2,
   Settings2,
   MoreHorizontal,
-  Download,
+  RotateCcw,
+  Square,
+  CheckSquare,
 } from "lucide-react";
 import type { Dimension } from "../../../types";
 import * as api from "../../../lib/api";
@@ -79,10 +80,14 @@ export const DimensionsPanel = memo(function DimensionsPanel({
   const [newDimensionName, setNewDimensionName] = useState("");
   const [newDimensionValues, setNewDimensionValues] = useState("");
   const [showAddDimension, setShowAddDimension] = useState(false);
-  const [showImportHelp, setShowImportHelp] = useState(false);
   
   // Delete confirmation state
   const [deletingDimension, setDeletingDimension] = useState<string | null>(null);
+  
+  // Bulk selection state
+  const [selectedDimensions, setSelectedDimensions] = useState<Set<string>>(new Set());
+  const [showClearAllConfirm, setShowClearAllConfirm] = useState(false);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   
   // AI generation state
   const [isGeneratingDimensions, setIsGeneratingDimensions] = useState(false);
@@ -131,6 +136,54 @@ export const DimensionsPanel = memo(function DimensionsPanel({
       console.error("Error deleting dimension:", error);
     } finally {
       setDeletingDimension(null);
+    }
+  };
+
+  const handleClearAllDimensions = async () => {
+    try {
+      for (const dim of dimensions) {
+        await api.deleteDimension(agentId, dim.name);
+      }
+      await onDimensionsChanged(agentId);
+      setSelectedDimensions(new Set());
+    } catch (error) {
+      console.error("Error clearing dimensions:", error);
+    } finally {
+      setShowClearAllConfirm(false);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    try {
+      for (const dimName of selectedDimensions) {
+        await api.deleteDimension(agentId, dimName);
+      }
+      await onDimensionsChanged(agentId);
+      setSelectedDimensions(new Set());
+    } catch (error) {
+      console.error("Error bulk deleting dimensions:", error);
+    } finally {
+      setShowBulkDeleteConfirm(false);
+    }
+  };
+
+  const toggleDimensionSelection = (dimName: string) => {
+    setSelectedDimensions((prev) => {
+      const next = new Set(prev);
+      if (next.has(dimName)) {
+        next.delete(dimName);
+      } else {
+        next.add(dimName);
+      }
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedDimensions.size === dimensions.length) {
+      setSelectedDimensions(new Set());
+    } else {
+      setSelectedDimensions(new Set(dimensions.map((d) => d.name)));
     }
   };
 
@@ -275,8 +328,19 @@ export const DimensionsPanel = memo(function DimensionsPanel({
           </span>
         </button>
         <div className="flex gap-2 items-center">
+          {/* Bulk delete button (shown when items selected) */}
+          {selectedDimensions.size > 0 && (
+            <button
+              onClick={() => setShowBulkDeleteConfirm(true)}
+              className="text-xs px-3 py-1.5 rounded transition-colors flex items-center gap-1.5 bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Delete {selectedDimensions.size}
+            </button>
+          )}
+          
           {/* Generate with AI button (prominent) */}
-          {dimensions.length > 0 && (
+          {dimensions.length > 0 && selectedDimensions.size === 0 && (
             <button
               onClick={() => setShowTestingGoalsInput(true)}
               disabled={isGeneratingDimensions}
@@ -305,20 +369,23 @@ export const DimensionsPanel = memo(function DimensionsPanel({
                 />
                 
                 <div className="absolute right-0 top-full mt-1 w-56 rounded-lg z-50 bg-moon-800 border border-moon-700 shadow-xl overflow-hidden">
-                  {/* Import from AGENT_INFO */}
-                  <button
-                    onClick={() => {
-                      onImportDimensions(agentId);
-                      setShowMoreMenu(false);
-                    }}
-                    disabled={loadingDimensions}
-                    className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-3 hover:bg-moon-700 transition-colors text-moon-200"
-                  >
-                    <Download className="w-4 h-4 text-moon-450" />
-                    <span>Import from AGENT_INFO</span>
-                  </button>
-                  
-                  <div className="border-t border-moon-700" />
+                  {/* Clear all dimensions */}
+                  {dimensions.length > 0 && (
+                    <>
+                      <button
+                        onClick={() => {
+                          setShowClearAllConfirm(true);
+                          setShowMoreMenu(false);
+                        }}
+                        className="w-full text-left px-4 py-2.5 text-sm flex items-center gap-3 hover:bg-moon-700 transition-colors text-red-400"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                        <span>Clear all & start fresh</span>
+                      </button>
+                      
+                      <div className="border-t border-moon-700" />
+                    </>
+                  )}
                   
                   {/* Edit prompts */}
                   <button
@@ -513,56 +580,96 @@ export const DimensionsPanel = memo(function DimensionsPanel({
             )}
 
             {dimensions.length > 0 ? (
-              dimensions.map((dim) => (
-                <div
-                  key={dim.id}
-                  className="rounded-lg p-3 bg-moon-800 border border-moon-700"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-sm text-moon-50">
-                        {dim.name}
+              <>
+                {/* Select all bar (shown when at least one selected) */}
+                {dimensions.length > 1 && (
+                  <div className="flex items-center gap-3 mb-2 pb-2 border-b border-moon-700/50">
+                    <button
+                      onClick={toggleSelectAll}
+                      className="flex items-center gap-2 text-xs text-moon-400 hover:text-moon-200 transition-colors"
+                    >
+                      {selectedDimensions.size === dimensions.length ? (
+                        <CheckSquare className="w-4 h-4 text-gold" />
+                      ) : (
+                        <Square className="w-4 h-4" />
+                      )}
+                      {selectedDimensions.size === dimensions.length ? "Deselect all" : "Select all"}
+                    </button>
+                    {selectedDimensions.size > 0 && (
+                      <span className="text-xs text-moon-500">
+                        {selectedDimensions.size} of {dimensions.length} selected
                       </span>
-                      <span className="text-xs px-2 py-0.5 rounded bg-moon-700 text-moon-450">
-                        {dim.values?.length || 0}
-                      </span>
-                    </div>
-                    <div className="flex gap-1">
-                      {/* Suggest more values button */}
-                      <button
-                        onClick={() => handleSuggestMoreValues(dim.name)}
-                        disabled={suggestingValuesFor === dim.name}
-                        className="p-1.5 rounded transition-colors text-gold/70 hover:text-gold disabled:opacity-50"
-                        title="Suggest more values with AI"
-                      >
-                        {suggestingValuesFor === dim.name ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <Sparkles className="w-3.5 h-3.5" />
-                        )}
-                      </button>
-                      <button
-                        onClick={() =>
-                          setEditingDimension(
-                            editingDimension === dim.id ? null : dim.id
-                          )
-                        }
-                        className={`p-1.5 rounded transition-colors hover:bg-opacity-80 ${
-                          editingDimension === dim.id
-                            ? "text-gold"
-                            : "text-moon-450"
-                        }`}
-                      >
-                        <Edit3 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => setDeletingDimension(dim.name)}
-                        className="p-1.5 rounded transition-colors text-red-400 hover:text-red-300"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
+                    )}
                   </div>
+                )}
+                
+                {dimensions.map((dim) => {
+                  const isSelected = selectedDimensions.has(dim.name);
+                  
+                  return (
+                    <div
+                      key={dim.id}
+                      className={`rounded-lg p-3 bg-moon-800 border transition-colors ${
+                        isSelected ? "border-gold/50 bg-gold/5" : "border-moon-700"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          {/* Checkbox */}
+                          <button
+                            onClick={() => toggleDimensionSelection(dim.name)}
+                            className="transition-colors"
+                          >
+                            {isSelected ? (
+                              <CheckSquare className="w-4 h-4 text-gold" />
+                            ) : (
+                              <Square className="w-4 h-4 text-moon-500 hover:text-moon-300" />
+                            )}
+                          </button>
+                          
+                          <span className="font-medium text-sm text-moon-50">
+                            {dim.name}
+                          </span>
+                          <span className="text-xs px-2 py-0.5 rounded bg-moon-700 text-moon-450">
+                            {dim.values?.length || 0}
+                          </span>
+                        </div>
+                        <div className="flex gap-1">
+                          {/* Suggest more values button */}
+                          <button
+                            onClick={() => handleSuggestMoreValues(dim.name)}
+                            disabled={suggestingValuesFor === dim.name}
+                            className="p-1.5 rounded transition-colors text-gold/70 hover:text-gold disabled:opacity-50"
+                            title="Suggest more values with AI"
+                          >
+                            {suggestingValuesFor === dim.name ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Sparkles className="w-3.5 h-3.5" />
+                            )}
+                          </button>
+                          <button
+                            onClick={() =>
+                              setEditingDimension(
+                                editingDimension === dim.id ? null : dim.id
+                              )
+                            }
+                            className={`p-1.5 rounded transition-colors hover:bg-opacity-80 ${
+                              editingDimension === dim.id
+                                ? "text-gold"
+                                : "text-moon-450"
+                            }`}
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setDeletingDimension(dim.name)}
+                            className="p-1.5 rounded transition-colors text-red-400 hover:text-red-300"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
                   {editingDimension === dim.id ? (
                     <textarea
                       defaultValue={dim.values.join(", ")}
@@ -630,7 +737,9 @@ export const DimensionsPanel = memo(function DimensionsPanel({
                     </div>
                   )}
                 </div>
-              ))
+              );
+            })}
+          </>
             ) : !suggestedDimensions && !showTestingGoalsInput ? (
               <div className="flex-1 flex items-center justify-center text-moon-450">
                 <div className="text-center max-w-md">
@@ -677,6 +786,28 @@ export const DimensionsPanel = memo(function DimensionsPanel({
         title="Delete Dimension?"
         message={`Are you sure you want to delete the dimension "${deletingDimension}"? This action cannot be undone.`}
         confirmText="Delete"
+        variant="danger"
+      />
+      
+      {/* Clear All Confirmation Dialog */}
+      <ConfirmDialog
+        open={showClearAllConfirm}
+        onConfirm={handleClearAllDimensions}
+        onCancel={() => setShowClearAllConfirm(false)}
+        title="Clear All Dimensions?"
+        message={`This will delete all ${dimensions.length} dimensions. You can then generate new dimensions for a different testing goal. This action cannot be undone.`}
+        confirmText="Clear All"
+        variant="danger"
+      />
+      
+      {/* Bulk Delete Confirmation Dialog */}
+      <ConfirmDialog
+        open={showBulkDeleteConfirm}
+        onConfirm={handleBulkDelete}
+        onCancel={() => setShowBulkDeleteConfirm(false)}
+        title="Delete Selected Dimensions?"
+        message={`Are you sure you want to delete ${selectedDimensions.size} selected dimension${selectedDimensions.size > 1 ? "s" : ""}? This action cannot be undone.`}
+        confirmText="Delete Selected"
         variant="danger"
       />
       

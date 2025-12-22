@@ -68,7 +68,6 @@ export function TaxonomyTab() {
     selectedAgent,
     fetchBatches,
     setActiveTab,
-    fetchSessionDetail,
   } = useApp();
 
   // Local UI state
@@ -155,11 +154,7 @@ export function TaxonomyTab() {
     setExpandedModes(newExpanded);
   };
 
-  // Navigate to Threads tab and show the session for a note
-  const handleViewSession = async (sessionId: string) => {
-    await fetchSessionDetail(sessionId);
-    setActiveTab("threads");
-  };
+  // Note: handleViewSession removed - review traces in Weave UI directly
 
   // Status update handler
   const handleStatusUpdate = async (modeId: string, newStatus: FailureModeStatus) => {
@@ -621,7 +616,6 @@ export function TaxonomyTab() {
                       setNoteSuggestion(null);
                     }}
                     onAssign={(modeId) => assignNoteToMode(note.id, modeId)}
-                    onViewSession={note.session_id ? () => handleViewSession(note.session_id!) : undefined}
                     onGetSuggestion={() => suggestCategoryForNote(note.id)}
                     suggestion={selectedNote?.id === note.id ? noteSuggestion : null}
                     loadingSuggestion={selectedNote?.id === note.id && loadingSuggestion}
@@ -1249,7 +1243,6 @@ function InboxNoteCard({
   failureModes,
   onSelect,
   onAssign,
-  onViewSession,
   onGetSuggestion,
   suggestion,
   loadingSuggestion,
@@ -1261,7 +1254,6 @@ function InboxNoteCard({
   failureModes: FailureMode[];
   onSelect: () => void;
   onAssign: (modeId: string) => void;
-  onViewSession?: () => void;
   onGetSuggestion: () => void;
   suggestion: AISuggestion | null;
   loadingSuggestion: boolean;
@@ -1287,19 +1279,6 @@ function InboxNoteCard({
         </div>
 
         <div className="flex items-center gap-2">
-          {onViewSession && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onViewSession();
-              }}
-              className="p-2 hover:bg-moon-700 rounded-lg text-accent-teal transition-colors"
-              title="View Session"
-            >
-              <Eye className="w-4 h-4" />
-            </button>
-          )}
-
           {/* Quick Assign */}
           <div className="relative">
             <button

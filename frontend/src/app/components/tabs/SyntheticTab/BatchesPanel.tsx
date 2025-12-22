@@ -5,9 +5,12 @@
  *
  * Extracted from SyntheticTab to reduce component size and re-renders.
  * Uses React.memo to prevent unnecessary re-renders when other state changes.
+ *
+ * After batch execution, users can click "Review in Weave" to open Weave's
+ * trace viewer with filters pre-applied to show only traces from that batch.
  */
 
-import React, { useState, memo } from "react";
+import React, { useState, memo, useCallback } from "react";
 import {
   Zap,
   RefreshCw,
@@ -22,6 +25,7 @@ import {
 } from "lucide-react";
 import { StatusBadge, ConfirmDialog } from "../../ui";
 import { formatRelativeTime } from "../../../utils/formatters";
+import { getBatchWeaveUrl } from "../../../lib/api";
 import type { SyntheticBatch, BatchDetail } from "../../../types";
 
 // ============================================================================
@@ -41,7 +45,6 @@ interface BatchesPanelProps {
   onStopExecution: () => void;
   onResetBatch: (batchId: string, onlyFailed: boolean) => void;
   onDeleteBatch: (batchId: string) => void;
-  onViewInThreads: (batchId: string, batchName: string) => void;
 }
 
 // ============================================================================
@@ -62,7 +65,6 @@ interface BatchCardProps {
   onExecute: () => void;
   onStop: () => void;
   onReset: (onlyFailed: boolean) => void;
-  onViewInThreads: () => void;
 }
 
 const BatchCard = memo(function BatchCard({
@@ -79,12 +81,32 @@ const BatchCard = memo(function BatchCard({
   onExecute,
   onStop,
   onReset,
-  onViewInThreads,
 }: BatchCardProps) {
+  const [loadingWeaveUrl, setLoadingWeaveUrl] = useState(false);
+  
   const isReady = batch.status === "ready" || batch.status === "pending";
   const isRunning = batch.status === "running" || executingBatchId === batch.id;
   const isCompleted = batch.status === "completed";
   const isFailed = batch.status === "failed";
+
+  // Open Weave with pre-applied filters for this batch
+  const handleReviewInWeave = useCallback(async () => {
+    setLoadingWeaveUrl(true);
+    try {
+      const response = await getBatchWeaveUrl(batch.id);
+      if (response.configured && response.url && !response.url.startsWith("#error:")) {
+        window.open(response.url, "_blank");
+      } else {
+        // Show a message if Weave is not configured
+        alert("Weave is not configured. Please set up W&B Entity and Project in Settings.");
+      }
+    } catch (error) {
+      console.error("Failed to get Weave URL:", error);
+      alert("Failed to generate Weave URL. Please try again.");
+    } finally {
+      setLoadingWeaveUrl(false);
+    }
+  }, [batch.id]);
 
   return (
     <div
@@ -203,11 +225,17 @@ const BatchCard = memo(function BatchCard({
                   Re-run
                 </button>
                 <button
-                  onClick={onViewInThreads}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs transition-all text-teal"
+                  onClick={handleReviewInWeave}
+                  disabled={loadingWeaveUrl}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs transition-all text-teal disabled:opacity-50"
+                  title="Open traces in Weave with batch filter applied"
                 >
-                  <ExternalLink className="w-3 h-3" />
-                  Review
+                  {loadingWeaveUrl ? (
+                    <RefreshCw className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <ExternalLink className="w-3 h-3" />
+                  )}
+                  Review in Weave
                 </button>
               </>
             )}
@@ -235,7 +263,6 @@ export const BatchesPanel = memo(function BatchesPanel({
   onStopExecution,
   onResetBatch,
   onDeleteBatch,
-  onViewInThreads,
 }: BatchesPanelProps) {
   const [selectedBatchIds, setSelectedBatchIds] = useState<Set<string>>(
     new Set()
@@ -345,7 +372,6 @@ export const BatchesPanel = memo(function BatchesPanel({
                   onExecute={() => onExecuteBatch(batch.id, batch.name)}
                   onStop={onStopExecution}
                   onReset={(onlyFailed) => onResetBatch(batch.id, onlyFailed)}
-                  onViewInThreads={() => onViewInThreads(batch.id, batch.name)}
                 />
               ))}
             </div>

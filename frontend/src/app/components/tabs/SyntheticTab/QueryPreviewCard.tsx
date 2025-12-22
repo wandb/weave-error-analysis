@@ -18,7 +18,6 @@ import {
   Bot,
   Zap,
   AlertTriangle,
-  ExternalLink,
 } from "lucide-react";
 import { StatusBadge } from "../../ui";
 import type { SyntheticQuery } from "../../../types";
@@ -36,7 +35,6 @@ interface QueryPreviewCardProps {
   onToggleSelect: (selected: boolean) => void;
   onToggleExpand: () => void;
   onEdit: (newText: string) => void;
-  onViewInThreads: (sessionId: string) => void;
 }
 
 // ============================================================================
@@ -52,7 +50,6 @@ export const QueryPreviewCard = memo(function QueryPreviewCard({
   onToggleSelect,
   onToggleExpand,
   onEdit,
-  onViewInThreads,
 }: QueryPreviewCardProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(query.query_text); // Controlled input for editing
@@ -207,11 +204,10 @@ export const QueryPreviewCard = memo(function QueryPreviewCard({
             </div>
           )}
 
-          {/* Call Metrics Indicator */}
+          {/* Call Metrics Display */}
           {isExecuted && query.call_count && query.call_count > 1 && (
-            <button
-              onClick={() => query.session_id && onViewInThreads(query.session_id)}
-              className="flex items-center justify-center gap-3 py-2 px-4 rounded-lg transition-all hover:bg-white/5 group/metrics bg-gold/5 border border-dashed border-gold/30"
+            <div
+              className="flex items-center justify-center gap-3 py-2 px-4 rounded-lg bg-gold/5 border border-dashed border-gold/30"
             >
               <div className="flex items-center gap-2">
                 <Zap className="w-3.5 h-3.5 text-gold" />
@@ -227,10 +223,7 @@ export const QueryPreviewCard = memo(function QueryPreviewCard({
                   </span>
                 </>
               )}
-              <span className="text-xs opacity-0 group-hover/metrics:opacity-100 transition-opacity flex items-center gap-1 text-teal">
-                View details <ExternalLink className="w-3 h-3" />
-              </span>
-            </button>
+            </div>
           )}
 
           {/* Full Response */}

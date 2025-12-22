@@ -1102,3 +1102,65 @@ async def reset_batch(batch_id: str, only_failed: bool = False):
         "batch_id": batch_id,
         "only_failed": only_failed
     }
+
+
+# =============================================================================
+# Weave Integration Endpoints
+# =============================================================================
+
+class WeaveUrlResponse(BaseModel):
+    """Response containing a Weave deep link URL."""
+    url: str
+    batch_id: str
+    configured: bool
+
+
+@router.get("/synthetic/batches/{batch_id}/weave-url")
+async def get_batch_weave_url(batch_id: str) -> WeaveUrlResponse:
+    """
+    Get Weave URL with batch filter pre-applied.
+    
+    This generates a deep link to Weave's traces view, filtered to show only
+    traces from this specific batch execution. Users can click "Review in Weave"
+    to immediately see all traces, add feedback, and annotate results.
+    
+    The URL includes:
+    - Filter by attributes.batch_id
+    - Optional time filter (batch start time) for efficiency
+    - Sort by started_at descending (newest first)
+    """
+    from services.weave_url import generate_batch_review_url
+    from datetime import datetime
+    
+    # Get batch start time for time filter
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, started_at FROM synthetic_batches WHERE id = ?
+        """, (batch_id,))
+        row = cursor.fetchone()
+        
+        if not row:
+            raise HTTPException(status_code=404, detail="Batch not found")
+        
+        started_at = None
+        if row["started_at"]:
+            try:
+                # Parse ISO format date string
+                started_at = datetime.fromisoformat(row["started_at"].replace("Z", "+00:00"))
+            except (ValueError, AttributeError):
+                pass
+    
+    url = generate_batch_review_url(
+        batch_id=batch_id,
+        started_after=started_at
+    )
+    
+    # Check if Weave is properly configured
+    is_configured = not url.startswith("#error:")
+    
+    return WeaveUrlResponse(
+        url=url,
+        batch_id=batch_id,
+        configured=is_configured
+    )

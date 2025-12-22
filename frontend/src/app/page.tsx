@@ -3,7 +3,6 @@
 import { useCallback } from "react";
 import {
   Layers,
-  MessageCircle,
   BarChart3,
   Cpu,
   Zap,
@@ -11,7 +10,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { AppProvider, useApp } from "./context/AppContext";
-import { ThreadsTab, TaxonomyTab, AgentsTab, SyntheticTab, SettingsTab } from "./components/tabs";
+import { TaxonomyTab, AgentsTab, SyntheticTab, SettingsTab } from "./components/tabs";
 import { Badge } from "./components/ui";
 import LandingPage from "./components/LandingPage";
 import SetupWizard from "./components/SetupWizard";
@@ -31,17 +30,11 @@ function AppLayout() {
     syntheticBatches,
     selectedAgent,
     executingBatch,
-    fetchSessions,
     fetchTaxonomy,
     fetchAgents,
     fetchDimensions,
     fetchBatches,
     setShowLandingPage,
-    // Session navigation for keyboard shortcuts
-    sessions,
-    selectedSession,
-    fetchSessionDetail,
-    markSessionReviewed,
   } = useApp();
 
   const handleLogoClick = () => {
@@ -54,9 +47,6 @@ function AppLayout() {
 
   const handleRefresh = useCallback(() => {
     switch (activeTab) {
-      case "threads":
-        fetchSessions();
-        break;
       case "taxonomy":
         fetchTaxonomy();
         break;
@@ -70,51 +60,20 @@ function AppLayout() {
         }
         break;
     }
-  }, [activeTab, fetchSessions, fetchTaxonomy, fetchAgents, fetchDimensions, fetchBatches, selectedAgent]);
-
-  // Keyboard shortcuts: navigate sessions in Threads tab
-  const navigateSession = useCallback((direction: "prev" | "next") => {
-    if (!sessions.length) return;
-    
-    const currentIndex = selectedSession 
-      ? sessions.findIndex(s => s.id === selectedSession.id)
-      : -1;
-    
-    let newIndex: number;
-    if (direction === "next") {
-      newIndex = currentIndex < sessions.length - 1 ? currentIndex + 1 : 0;
-    } else {
-      newIndex = currentIndex > 0 ? currentIndex - 1 : sessions.length - 1;
-    }
-    
-    fetchSessionDetail(sessions[newIndex].id);
-  }, [sessions, selectedSession, fetchSessionDetail]);
-
-  const markReviewedAndNext = useCallback(async () => {
-    if (!selectedSession) return;
-    
-    // Mark current as reviewed
-    await markSessionReviewed(selectedSession.id);
-    
-    // Move to next session
-    navigateSession("next");
-  }, [selectedSession, markSessionReviewed, navigateSession]);
+  }, [activeTab, fetchTaxonomy, fetchAgents, fetchDimensions, fetchBatches, selectedAgent]);
 
   // Register keyboard shortcuts
   useKeyboardShortcuts({
     activeTab,
     goToAgents: () => setActiveTab("agents"),
     goToSynthetic: () => setActiveTab("synthetic"),
-    goToThreads: () => setActiveTab("threads"),
+    goToThreads: () => {}, // No-op: Threads tab removed
     goToTaxonomy: () => setActiveTab("taxonomy"),
     refresh: handleRefresh,
-    markReviewedAndNext,
-    previousSession: () => navigateSession("prev"),
-    nextSession: () => navigateSession("next"),
-    deselectSession: () => {
-      // We don't have a direct setter, but clicking elsewhere works
-      // For now, just navigate to first session if any
-    },
+    markReviewedAndNext: () => {}, // No-op: Review in Weave
+    previousSession: () => {},
+    nextSession: () => {},
+    deselectSession: () => {},
   });
 
   return (
@@ -183,7 +142,6 @@ function AppLayout() {
       <main className="max-w-[1800px] mx-auto px-6 py-6">
         {activeTab === "agents" && <AgentsTab />}
         {activeTab === "synthetic" && <SyntheticTab />}
-        {activeTab === "threads" && <ThreadsTab />}
         {activeTab === "taxonomy" && <TaxonomyTab />}
         {activeTab === "settings" && <SettingsTab />}
       </main>
@@ -214,7 +172,8 @@ function TabNavigation({
   syntheticBatches,
   executingBatch,
 }: TabNavigationProps) {
-  // Tabs ordered by workflow: Connect → Generate/Run → Review → Categorize
+  // Tabs ordered by workflow: Connect → Generate/Run → Categorize
+  // Note: Threads tab removed - users review traces in Weave UI directly
   const tabs = [
     {
       id: "agents" as const,
@@ -234,17 +193,10 @@ function TabNavigation({
       showPulse: executingBatch,
     },
     {
-      id: "threads" as const,
-      label: "Threads",
-      icon: MessageCircle,
-      step: 3,
-      badge: null,
-    },
-    {
       id: "taxonomy" as const,
       label: "Taxonomy",
       icon: BarChart3,
-      step: 4,
+      step: 3,
       badge: taxonomy && taxonomy.stats.total_uncategorized > 0 
         ? taxonomy.stats.total_uncategorized 
         : null,

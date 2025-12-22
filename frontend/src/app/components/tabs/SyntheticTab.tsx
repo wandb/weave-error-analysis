@@ -64,9 +64,6 @@ export function SyntheticTab() {
     setSelectedBatch,
     deleteBatch,
     setActiveTab,
-    setFilterBatchId,
-    setFilterBatchName,
-    fetchSessionDetail,
   } = useApp();
 
   // ========== LOCAL STATE ==========
@@ -266,14 +263,8 @@ export function SyntheticTab() {
     [selectedAgent, deleteBatch, selectedBatch, setSelectedBatch]
   );
 
-  const handleViewInThreads = useCallback(
-    (batchId: string, batchName: string) => {
-      setFilterBatchId(batchId);
-      setFilterBatchName(batchName);
-    setActiveTab("threads");
-    },
-    [setFilterBatchId, setFilterBatchName, setActiveTab]
-  );
+  // Note: handleViewInThreads removed - users review traces in Weave UI directly
+  // via "Review in Weave" button in BatchCard
 
   const handleUpdateQuery = useCallback(
     async (queryId: string, newText: string) => {
@@ -316,17 +307,7 @@ export function SyntheticTab() {
     }
   }, [selectedAgent, selectedQueryIds, confirmDeleteQueries, setSelectedBatch, fetchBatches]);
 
-  const handleQueryViewInThreads = useCallback(
-    async (sessionId: string) => {
-      if (selectedBatch) {
-        setFilterBatchId(selectedBatch.id);
-        setFilterBatchName(selectedBatch.name);
-      }
-      setActiveTab("threads");
-      await fetchSessionDetail(sessionId);
-    },
-    [selectedBatch, setFilterBatchId, setFilterBatchName, setActiveTab, fetchSessionDetail]
-  );
+  // Note: handleQueryViewInThreads removed - review via Weave URL
 
   const copyQueryText = (queryId: string, text: string) => {
     navigator.clipboard.writeText(text);
@@ -532,7 +513,6 @@ export function SyntheticTab() {
               onStopExecution={execution.stopExecution}
               onResetBatch={handleResetBatch}
               onDeleteBatch={handleDeleteBatch}
-              onViewInThreads={handleViewInThreads}
             />
           </div>
         </div>
@@ -586,12 +566,6 @@ export function SyntheticTab() {
           onCopySelected={copySelectedQueries}
           onDeleteSelected={handleDeleteSelectedQueries}
           onUpdateQuery={handleUpdateQuery}
-          onViewInThreads={handleQueryViewInThreads}
-          onViewBatchInThreads={() => {
-            if (selectedBatch) {
-              handleViewInThreads(selectedBatch.id, selectedBatch.name);
-            }
-          }}
           dimensionsCollapsed={dimensionsCollapsed}
           batchesCollapsed={batchesCollapsed}
         />
@@ -950,8 +924,6 @@ interface BatchDataPreviewProps {
   onCopySelected: () => void;
   onDeleteSelected: () => void;
   onUpdateQuery: (queryId: string, newText: string) => void;
-  onViewInThreads: (sessionId: string) => void;
-  onViewBatchInThreads: () => void;
   dimensionsCollapsed: boolean;
   batchesCollapsed: boolean;
 }
@@ -970,8 +942,6 @@ function BatchDataPreview({
   onCopySelected,
   onDeleteSelected,
   onUpdateQuery,
-  onViewInThreads,
-  onViewBatchInThreads,
   dimensionsCollapsed,
   batchesCollapsed,
 }: BatchDataPreviewProps) {
@@ -997,21 +967,6 @@ function BatchDataPreview({
               )}
             </h2>
             <div className="flex items-center gap-3">
-          {/* View in Threads */}
-          {selectedBatch &&
-            selectedBatch.queries?.length > 0 &&
-            selectedBatch.queries.some(
-              (q) => q.response_text || q.execution_status === "success"
-            ) && (
-                <button
-                onClick={onViewBatchInThreads}
-                  className="flex items-center gap-2 text-sm transition-all hover:opacity-80 text-teal"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  View in Threads
-                </button>
-              )}
-
           {/* Selection actions */}
           {selectedBatch && selectedBatch.queries && selectedBatch.queries.length > 0 && selectedQueryIds.size > 0 && (
               <div className="flex items-center gap-2">
@@ -1062,7 +1017,6 @@ function BatchDataPreview({
               onToggleSelect={(selected) => onToggleQuerySelect(query.id, selected)}
               onToggleExpand={() => onToggleQueryExpand(query.id)}
               onEdit={(newText) => onUpdateQuery(query.id, newText)}
-              onViewInThreads={onViewInThreads}
             />
           ))}
             </div>

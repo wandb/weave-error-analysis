@@ -6,15 +6,17 @@ request/response model. Agents only need to implement POST /query.
 
 Endpoint Specification:
     POST /query
-    Request:  {"query": "...", "thread_id": "optional"}
-    Response: {"response": "...", "thread_id": "...", "error": null}
+    Request:  {"query": "..."}
+    Response: {"response": "...", "error": null}
+
+The agent is a black box: query in → response out. That's it.
+The error analysis application handles all the complexity of trace linkage.
 """
 
 import os
 import uuid
 import warnings
 import logging
-from typing import Optional
 
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
@@ -57,21 +59,18 @@ app.add_middleware(
 )
 
 
-# Global state for sessions
-sessions = {}
-
-
 class QueryRequest(BaseModel):
     """Request to query the agent."""
     query: str
-    thread_id: Optional[str] = None
+    # Optional: batch_id is passed by the error analysis backend but can be ignored.
+    # The backend handles batch attribution via weave.attributes() before calling us.
+    batch_id: str | None = None
 
 
 class QueryResponse(BaseModel):
     """Response from the agent."""
     response: str
-    thread_id: Optional[str] = None
-    error: Optional[str] = None
+    error: str | None = None
 
 
 @app.get("/health")
@@ -176,7 +175,10 @@ async def query(request: QueryRequest):
     Run a query against the agent.
     
     This is the main endpoint for interacting with the agent.
-    Simple request/response model - no streaming, no SSE.
+    Simple request/response model - query in, response out.
+    
+    The error analysis backend handles batch attribution via weave.attributes()
+    before calling this endpoint, so we don't need to do anything special here.
     
     Requires OPENAI_API_KEY environment variable to be set.
     """
@@ -185,36 +187,20 @@ async def query(request: QueryRequest):
         if not os.environ.get("OPENAI_API_KEY"):
             return QueryResponse(
                 response="",
-                thread_id=None,
                 error="OPENAI_API_KEY not set. Please add it to your .env file and restart."
             )
         
-        # Get or create thread ID
-        thread_id = request.thread_id or f"thread_{uuid.uuid4().hex[:12]}"
+        # Create a new session for each query (single-turn)
+        agent = create_support_agent()
+        runner = InMemoryRunner(agent=agent, app_name="taskflow_support")
+        user_id = f"user_{uuid.uuid4().hex[:8]}"
+        session_id = f"session_{uuid.uuid4().hex[:8]}"
         
-        # Get or create session
-        if thread_id not in sessions:
-            agent = create_support_agent()
-            runner = InMemoryRunner(agent=agent, app_name="taskflow_support")
-            user_id = f"user_{uuid.uuid4().hex[:8]}"
-            session_id = f"session_{uuid.uuid4().hex[:8]}"
-            
-            await runner.session_service.create_session(
-                app_name="taskflow_support",
-                user_id=user_id,
-                session_id=session_id,
-            )
-            
-            sessions[thread_id] = {
-                "runner": runner,
-                "user_id": user_id,
-                "session_id": session_id
-            }
-        
-        session = sessions[thread_id]
-        runner = session["runner"]
-        user_id = session["user_id"]
-        session_id = session["session_id"]
+        await runner.session_service.create_session(
+            app_name="taskflow_support",
+            user_id=user_id,
+            session_id=session_id,
+        )
         
         # Run the agent and collect the full response
         response_text = ""
@@ -238,14 +224,12 @@ async def query(request: QueryRequest):
         
         return QueryResponse(
             response=response_text,
-            thread_id=session_id,  # Return Weave session_id for filtering
             error=None
         )
         
     except Exception as e:
         return QueryResponse(
             response="",
-            thread_id=None,
             error=str(e)
         )
 
@@ -259,4 +243,3 @@ if __name__ == "__main__":
     print(f"   Query:  http://localhost:{port}/query (POST)")
     
     uvicorn.run(app, host="0.0.0.0", port=port)
-

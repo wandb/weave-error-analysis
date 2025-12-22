@@ -5,7 +5,6 @@ from .taxonomy import router as taxonomy_router
 from .agents import router as agents_router
 from .synthetic import router as synthetic_router
 from .settings import router as settings_router
-from .sessions import router as sessions_router
 from .suggestions import router as suggestions_router
 from .prompts import router as prompts_router
 
@@ -15,7 +14,6 @@ __all__ = [
     "agents_router",
     "synthetic_router",
     "settings_router",
-    "sessions_router",
     "suggestions_router",
     "prompts_router",
 ]

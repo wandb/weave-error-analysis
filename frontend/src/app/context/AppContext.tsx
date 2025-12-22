@@ -3,25 +3,20 @@
 /**
  * AppContext - Slim Coordinator Context
  * 
- * This context has been refactored from a 1009-line god object into a slim
- * coordinator that composes domain-specific contexts:
+ * This context composes domain-specific contexts:
  * 
- * - SessionContext: Sessions, filters, sync status
  * - AgentContext: Agents, connection testing  
  * - SyntheticContext: Dimensions, batches
  * - TaxonomyContext: Failure modes, categorization
  * 
- * This context now only manages:
+ * This context manages:
  * - Navigation (active tab)
  * - Setup/config status
  * - Landing page state
  * - Playground state
  * - Workflow progress computation
  * 
- * For backwards compatibility, useApp() returns a combined interface that
- * delegates to the child contexts. Components should gradually migrate to
- * use the domain-specific hooks (useSession, useAgent, etc.) for better
- * performance.
+ * Note: SessionContext removed - users review traces in Weave UI directly.
  */
 
 import {
@@ -43,7 +38,6 @@ import type {
 import * as api from "../lib/api";
 
 // Import child contexts
-import { SessionProvider, useSession } from "./SessionContext";
 import { AgentProvider, useAgent } from "./AgentContext";
 import { SyntheticProvider, useSynthetic } from "./SyntheticContext";
 import { TaxonomyProvider, useTaxonomy } from "./TaxonomyContext";
@@ -94,9 +88,8 @@ function CoreAppProvider({ children }: { children: ReactNode }) {
   
   // Landing Page State
   const [showLandingPage, setShowLandingPage] = useState<boolean>(true);
-  const [isHydrated, setIsHydrated] = useState(false);
 
-  // Navigation
+  // Navigation - default to agents tab (no threads tab anymore)
   const [activeTab, setActiveTab] = useState<TabType>("agents");
 
   // Playground state
@@ -148,7 +141,6 @@ function CoreAppProvider({ children }: { children: ReactNode }) {
     if (dismissed === 'true') {
       setShowLandingPage(false);
     }
-    setIsHydrated(true);
   }, []);
 
   const dismissLandingPage = useCallback(() => {
@@ -165,12 +157,12 @@ function CoreAppProvider({ children }: { children: ReactNode }) {
     setPlaygroundEvents([]);
   }, []);
 
-  // Workflow progress is computed from child context state - will be computed in useApp
+  // Workflow progress placeholder - computed in useApp
   const workflowProgress: WorkflowProgress = {
-    hasAgents: false, // Will be computed in useApp from useAgent
-    hasBatches: false, // Will be computed in useApp from useSynthetic
-    hasReviewedSessions: false, // Will be computed in useApp from useSession
-    hasFailureModes: false, // Will be computed in useApp from useTaxonomy
+    hasAgents: false,
+    hasBatches: false,
+    hasReviewedSessions: false, // Kept for type compat but always false now
+    hasFailureModes: false,
   };
 
   const value: CoreAppState = {
@@ -204,63 +196,7 @@ function CoreAppProvider({ children }: { children: ReactNode }) {
 // Combined AppState for backwards compatibility
 // ============================================================================
 
-// Re-export the full interface that components expect from useApp()
-// This combines CoreAppState with all child context states
 interface AppState extends CoreAppState {
-  // From SessionContext
-  sessions: ReturnType<typeof useSession>['sessions'];
-  selectedSession: ReturnType<typeof useSession>['selectedSession'];
-  syncStatus: ReturnType<typeof useSession>['syncStatus'];
-  batchReviewProgress: ReturnType<typeof useSession>['batchReviewProgress'];
-  loadingSessions: ReturnType<typeof useSession>['loadingSessions'];
-  loadingSessionDetail: ReturnType<typeof useSession>['loadingSessionDetail'];
-  
-  // Session Filters (individual for backwards compatibility)
-  sortBy: string;
-  setSortBy: (s: string) => void;
-  sortDirection: string;
-  setSortDirection: (s: string | ((prev: string) => string)) => void;
-  filterMinTurns: number | null;
-  setFilterMinTurns: (n: number | null) => void;
-  filterMaxTurns: number | null;
-  setFilterMaxTurns: (n: number | null) => void;
-  filterMinTokens: number | null;
-  setFilterMinTokens: (n: number | null) => void;
-  filterMaxTokens: number | null;
-  setFilterMaxTokens: (n: number | null) => void;
-  filterMinCost: number | null;
-  setFilterMinCost: (n: number | null) => void;
-  filterMaxCost: number | null;
-  setFilterMaxCost: (n: number | null) => void;
-  filterMinLatency: number | null;
-  setFilterMinLatency: (n: number | null) => void;
-  filterMaxLatency: number | null;
-  setFilterMaxLatency: (n: number | null) => void;
-  filterReviewed: boolean | null;
-  setFilterReviewed: (b: boolean | null) => void;
-  filterHasError: boolean | null;
-  setFilterHasError: (b: boolean | null) => void;
-  filterBatchId: string | null;
-  setFilterBatchId: (s: string | null) => void;
-  filterBatchName: string | null;
-  setFilterBatchName: (s: string | null) => void;
-  filterModel: string | null;
-  setFilterModel: (s: string | null) => void;
-  searchQuery: string;
-  setSearchQuery: (s: string) => void;
-  filterRanges: ReturnType<typeof useSession>['filterRanges'];
-  loadingFilterRanges: ReturnType<typeof useSession>['loadingFilterRanges'];
-  fetchFilterRanges: ReturnType<typeof useSession>['fetchFilterRanges'];
-  
-  // Session actions
-  fetchSessions: ReturnType<typeof useSession>['fetchSessions'];
-  fetchSessionDetail: ReturnType<typeof useSession>['fetchSessionDetail'];
-  markSessionReviewed: ReturnType<typeof useSession>['markSessionReviewed'];
-  unmarkSessionReviewed: ReturnType<typeof useSession>['unmarkSessionReviewed'];
-  addSessionNote: ReturnType<typeof useSession>['addSessionNote'];
-  triggerSync: ReturnType<typeof useSession>['triggerSync'];
-  refreshSyncStatus: ReturnType<typeof useSession>['refreshSyncStatus'];
-
   // From AgentContext
   agents: ReturnType<typeof useAgent>['agents'];
   selectedAgent: ReturnType<typeof useAgent>['selectedAgent'];
@@ -290,7 +226,7 @@ interface AppState extends CoreAppState {
   setSelectedBatch: ReturnType<typeof useSynthetic>['setSelectedBatch'];
   deleteBatch: ReturnType<typeof useSynthetic>['deleteBatch'];
   
-  // Execution state (was in AppContext, now component-local but exposed for compatibility)
+  // Execution state (placeholder)
   generatingBatch: boolean;
   generationProgress: { total: number; completed: number; percent: number; currentQuery?: string } | null;
   executingBatch: boolean;
@@ -309,21 +245,19 @@ interface AppState extends CoreAppState {
 }
 
 // ============================================================================
-// useApp - Backwards Compatible Combined Hook
+// useApp - Combined Hook
 // ============================================================================
 
 /**
- * Combined hook for backwards compatibility.
+ * Combined hook for accessing all app state.
  * 
- * Components should migrate to use domain-specific hooks for better performance:
- * - useSession() for session/thread state
+ * Components can also use domain-specific hooks for better performance:
  * - useAgent() for agent state
  * - useSynthetic() for synthetic data state
  * - useTaxonomy() for taxonomy state
  */
 export function useApp(): AppState {
   const core = useContext(CoreAppContext);
-  const session = useSession();
   const agent = useAgent();
   const synthetic = useSynthetic();
   const taxonomy = useTaxonomy();
@@ -334,92 +268,14 @@ export function useApp(): AppState {
   const workflowProgress: WorkflowProgress = {
     hasAgents: agent.agents.length > 0,
     hasBatches: synthetic.syntheticBatches.some(b => b.status === 'completed'),
-    hasReviewedSessions: session.sessions.some(s => s.is_reviewed),
+    hasReviewedSessions: false, // Sessions removed - review in Weave UI
     hasFailureModes: (taxonomy.taxonomy?.failure_modes?.length ?? 0) > 0,
   };
-
-  // Build backwards-compatible filter setters
-  const setSortBy = useCallback((s: string) => session.setFilters({ sortBy: s }), [session]);
-  const setSortDirection = useCallback((s: string | ((prev: string) => string)) => {
-    if (typeof s === 'function') {
-      session.setFilters({ sortDirection: s(session.filters.sortDirection) });
-      } else {
-      session.setFilters({ sortDirection: s });
-    }
-  }, [session]);
-  const setFilterMinTurns = useCallback((n: number | null) => session.setFilters({ minTurns: n }), [session]);
-  const setFilterMaxTurns = useCallback((n: number | null) => session.setFilters({ maxTurns: n }), [session]);
-  const setFilterMinTokens = useCallback((n: number | null) => session.setFilters({ minTokens: n }), [session]);
-  const setFilterMaxTokens = useCallback((n: number | null) => session.setFilters({ maxTokens: n }), [session]);
-  const setFilterMinCost = useCallback((n: number | null) => session.setFilters({ minCost: n }), [session]);
-  const setFilterMaxCost = useCallback((n: number | null) => session.setFilters({ maxCost: n }), [session]);
-  const setFilterMinLatency = useCallback((n: number | null) => session.setFilters({ minLatency: n }), [session]);
-  const setFilterMaxLatency = useCallback((n: number | null) => session.setFilters({ maxLatency: n }), [session]);
-  const setFilterReviewed = useCallback((b: boolean | null) => session.setFilters({ isReviewed: b }), [session]);
-  const setFilterHasError = useCallback((b: boolean | null) => session.setFilters({ hasError: b }), [session]);
-  const setFilterBatchId = useCallback((s: string | null) => session.setFilters({ batchId: s }), [session]);
-  const setFilterBatchName = useCallback((s: string | null) => session.setFilters({ batchName: s }), [session]);
-  const setFilterModel = useCallback((s: string | null) => session.setFilters({ model: s }), [session]);
-  const setSearchQuery = useCallback((s: string) => session.setFilters({ searchQuery: s }), [session]);
 
   return {
     // Core app state
     ...core,
-    workflowProgress, // Override with computed value
-    
-    // Session state (from SessionContext)
-    sessions: session.sessions,
-    selectedSession: session.selectedSession,
-    syncStatus: session.syncStatus,
-    batchReviewProgress: session.batchReviewProgress,
-    loadingSessions: session.loadingSessions,
-    loadingSessionDetail: session.loadingSessionDetail,
-    
-    // Filter state (backwards compatible individual accessors)
-    sortBy: session.filters.sortBy,
-    setSortBy,
-    sortDirection: session.filters.sortDirection,
-    setSortDirection,
-    filterMinTurns: session.filters.minTurns,
-    setFilterMinTurns,
-    filterMaxTurns: session.filters.maxTurns,
-    setFilterMaxTurns,
-    filterMinTokens: session.filters.minTokens,
-    setFilterMinTokens,
-    filterMaxTokens: session.filters.maxTokens,
-    setFilterMaxTokens,
-    filterMinCost: session.filters.minCost,
-    setFilterMinCost,
-    filterMaxCost: session.filters.maxCost,
-    setFilterMaxCost,
-    filterMinLatency: session.filters.minLatency,
-    setFilterMinLatency,
-    filterMaxLatency: session.filters.maxLatency,
-    setFilterMaxLatency,
-    filterReviewed: session.filters.isReviewed,
-    setFilterReviewed,
-    filterHasError: session.filters.hasError,
-    setFilterHasError,
-    filterBatchId: session.filters.batchId,
-    setFilterBatchId,
-    filterBatchName: session.filters.batchName,
-    setFilterBatchName,
-    filterModel: session.filters.model,
-    setFilterModel,
-    searchQuery: session.filters.searchQuery,
-    setSearchQuery,
-    filterRanges: session.filterRanges,
-    loadingFilterRanges: session.loadingFilterRanges,
-    fetchFilterRanges: session.fetchFilterRanges,
-
-    // Session actions
-    fetchSessions: session.fetchSessions,
-    fetchSessionDetail: session.fetchSessionDetail,
-    markSessionReviewed: session.markSessionReviewed,
-    unmarkSessionReviewed: session.unmarkSessionReviewed,
-    addSessionNote: session.addSessionNote,
-    triggerSync: session.triggerSync,
-    refreshSyncStatus: session.refreshSyncStatus,
+    workflowProgress,
 
     // Agent state (from AgentContext)
     agents: agent.agents,
@@ -450,7 +306,7 @@ export function useApp(): AppState {
     setSelectedBatch: synthetic.setSelectedBatch,
     deleteBatch: synthetic.deleteBatch,
     
-    // Generation/Execution state (placeholder - moved to component-local state)
+    // Generation/Execution state (placeholder)
     generatingBatch: false,
     generationProgress: null,
     executingBatch: false,
@@ -480,21 +336,20 @@ export function useApp(): AppState {
  * - SyntheticProvider (innermost - no deps)
  * - TaxonomyProvider (no deps)
  * - AgentProvider (depends on Synthetic for loadAgentData)
- * - SessionProvider (no deps)
  * - CoreAppProvider (outermost - navigation/setup)
+ * 
+ * Note: SessionProvider removed - users review traces in Weave UI directly.
  */
 export function AppProvider({ children }: { children: ReactNode }) {
   return (
     <SyntheticProvider>
       <TaxonomyProvider>
         <AgentProviderWithSynthetic>
-          <SessionProvider>
-            <CoreAppProvider>
-              <TabEffects>
-                {children}
-              </TabEffects>
-            </CoreAppProvider>
-          </SessionProvider>
+          <CoreAppProvider>
+            <TabEffects>
+              {children}
+            </TabEffects>
+          </CoreAppProvider>
         </AgentProviderWithSynthetic>
       </TaxonomyProvider>
     </SyntheticProvider>
@@ -516,32 +371,23 @@ function AgentProviderWithSynthetic({ children }: { children: ReactNode }) {
 
 /**
  * Handles tab-based data loading effects
- * 
- * Uses refs to track "has fetched" state instead of checking array lengths,
- * avoiding stale closure issues with useEffect dependencies.
  */
 function TabEffects({ children }: { children: ReactNode }) {
   const core = useContext(CoreAppContext);
-  const session = useSession();
   const taxonomy = useTaxonomy();
   const agent = useAgent();
   const synthetic = useSynthetic();
   
-  // Track which agent's synthetic data has been fetched (prevents stale dependency on array length)
+  // Track which agent's synthetic data has been fetched
   const fetchedAgentIdRef = useRef<string | null>(null);
   
   // Load data when switching tabs
   useEffect(() => {
     if (!core) return;
     
-    if (core.activeTab === "threads") {
-      session.fetchSessions();
-      session.refreshSyncStatus();
-      session.fetchFilterRanges();
-    } else if (core.activeTab === "taxonomy") {
+    if (core.activeTab === "taxonomy") {
       taxonomy.fetchTaxonomy();
     } else if (core.activeTab === "synthetic" && agent.selectedAgent) {
-      // Only fetch if we haven't already fetched for this agent
       const needsFetch = fetchedAgentIdRef.current !== agent.selectedAgent.id;
       if (needsFetch) {
         fetchedAgentIdRef.current = agent.selectedAgent.id;
@@ -551,9 +397,6 @@ function TabEffects({ children }: { children: ReactNode }) {
   }, [
     core?.activeTab,
     agent.selectedAgent?.id,
-    session.fetchSessions,
-    session.refreshSyncStatus,
-    session.fetchFilterRanges,
     taxonomy.fetchTaxonomy,
     synthetic.loadAgentData,
     agent.selectedAgent,

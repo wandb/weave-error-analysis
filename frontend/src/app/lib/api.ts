@@ -743,6 +743,24 @@ export async function bulkDeleteQueries(queryIds: string[]): Promise<void> {
 }
 
 // ============================================================================
+// Weave Integration API
+// ============================================================================
+
+export interface WeaveUrlResponse {
+  url: string;
+  batch_id: string;
+  configured: boolean;
+}
+
+/**
+ * Get a Weave deep link URL for reviewing batch traces.
+ * Opens Weave's trace viewer pre-filtered to show only traces from this batch.
+ */
+export async function getBatchWeaveUrl(batchId: string): Promise<WeaveUrlResponse> {
+  return apiCall(`${API_BASE}/synthetic/batches/${batchId}/weave-url`);
+}
+
+// ============================================================================
 // Streaming API helpers
 // ============================================================================
 

@@ -308,6 +308,7 @@ def init_db():
                     created_at TEXT NOT NULL,
                     started_at TEXT,
                     completed_at TEXT,
+                    weave_dataset_ref TEXT,
                     FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
                 )
             """)
@@ -383,6 +384,12 @@ def init_db():
             columns = [col[1] for col in cursor.fetchall()]
             if "thread_id" not in columns:
                 cursor.execute("ALTER TABLE synthetic_queries ADD COLUMN thread_id TEXT")
+            
+            # Migration: Add weave_dataset_ref column to synthetic_batches
+            cursor.execute("PRAGMA table_info(synthetic_batches)")
+            batch_columns = [col[1] for col in cursor.fetchall()]
+            if "weave_dataset_ref" not in batch_columns:
+                cursor.execute("ALTER TABLE synthetic_batches ADD COLUMN weave_dataset_ref TEXT")
             
             # Create index on thread_id (after ensuring the column exists)
             cursor.execute("""
@@ -630,6 +637,45 @@ def init_db():
             # Initialize sync_status with default row
             cursor.execute("""
                 INSERT OR IGNORE INTO sync_status (id, status) VALUES ('sessions', 'idle')
+            """)
+            
+            # =====================================================================
+            # Weave Feedback Table (for Clean Architecture - Weave-Native Review)
+            # =====================================================================
+            # 
+            # Stores feedback synced from Weave for taxonomy analysis.
+            # Users add feedback in Weave's native UI during trace review,
+            # and we sync it back here for categorization into failure modes.
+            #
+            # See: architecture_clean.md for full design
+            # =====================================================================
+            
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS weave_feedback (
+                    id TEXT PRIMARY KEY,
+                    trace_id TEXT NOT NULL,
+                    batch_id TEXT,
+                    feedback_type TEXT,
+                    payload TEXT,
+                    created_at TEXT,
+                    synced_at TEXT,
+                    
+                    FOREIGN KEY (batch_id) REFERENCES synthetic_batches(id) ON DELETE SET NULL
+                )
+            """)
+            
+            # Indexes for weave_feedback
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_weave_feedback_trace 
+                ON weave_feedback(trace_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_weave_feedback_batch 
+                ON weave_feedback(batch_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_weave_feedback_type 
+                ON weave_feedback(feedback_type)
             """)
             
             # Migration: Add conversation_json column if it doesn't exist

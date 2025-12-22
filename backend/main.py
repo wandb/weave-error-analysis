@@ -31,7 +31,6 @@ from routers import (
     agents_router,
     synthetic_router,
     settings_router,
-    sessions_router,
     suggestions_router,
     prompts_router,
 )
@@ -195,13 +194,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Failed to initialize WeaveClient: {e}")
     
-    # Trigger initial session sync in background (non-blocking)
-    try:
-        from services.session_sync import startup_sync
-        asyncio.create_task(startup_sync())
-        logger.info("Scheduled startup session sync")
-    except Exception as e:
-        logger.warning(f"Failed to schedule startup sync: {e}")
+    # Note: Session sync removed - using Weave-native trace review
     
     yield
     
@@ -258,7 +251,6 @@ app.include_router(taxonomy_router)
 app.include_router(agents_router)
 app.include_router(synthetic_router)
 app.include_router(settings_router)
-app.include_router(sessions_router)  # Local-first session management (replaces threads)
 app.include_router(suggestions_router)  # AI suggestion service for trace quality
 app.include_router(prompts_router)  # Prompt management
 

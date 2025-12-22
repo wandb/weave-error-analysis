@@ -407,39 +407,8 @@ class SuggestionService:
         
         return list(suggestions)
     
-    async def analyze_session(
-        self, 
-        agent_id: str,
-        session_id: str
-    ) -> Suggestion:
-        """Analyze a single session and return a suggestion."""
-        
-        context = self._get_context(agent_id)
-        trace_data = self._get_session_trace(session_id)
-        
-        if not trace_data:
-            return Suggestion(
-                id=generate_id(),
-                trace_id=session_id,
-                batch_id=None,
-                session_id=session_id,
-                has_issue=False,
-                suggested_note=None,
-                confidence=0.0,
-                thinking="Session not found or has no conversation data",
-                failure_mode_id=None,
-                failure_mode_name=None,
-                suggested_category=None,
-                status="error",
-                created_at=now_iso()
-            )
-        
-        return await self.analyze_trace(
-            trace_data=trace_data,
-            context=context,
-            batch_id=trace_data.get("batch_id"),
-            session_id=session_id
-        )
+    # Note: analyze_session removed - users review traces in Weave UI directly
+    # Use analyze_batch or analyze_trace for batch-based analysis
     
     # -------------------------------------------------------------------------
     # Trace Data Retrieval
@@ -452,14 +421,12 @@ class SuggestionService:
         with get_db_readonly() as conn:
             cursor = conn.cursor()
             
-            # Get queries with their session data
+            # Get queries directly - sessions table no longer used
             cursor.execute("""
                 SELECT 
                     sq.id, sq.query_text, sq.response_text, sq.trace_id,
-                    sq.execution_status, sq.error_message,
-                    s.id as session_id, s.has_error, s.error_summary
+                    sq.execution_status, sq.error_message
                 FROM synthetic_queries sq
-                LEFT JOIN sessions s ON s.query_id = sq.id
                 WHERE sq.batch_id = ? AND sq.execution_status = 'success'
             """, (batch_id,))
             
@@ -467,43 +434,15 @@ class SuggestionService:
                 traces.append({
                     "id": row["id"],
                     "trace_id": row["trace_id"],
-                    "session_id": row["session_id"],
                     "query": row["query_text"],
                     "response": row["response_text"],
-                    "has_error": bool(row["has_error"]) if row["has_error"] is not None else False,
-                    "error_summary": row["error_summary"],
+                    "has_error": bool(row["error_message"]),
+                    "error_summary": row["error_message"],
                 })
         
         return traces
     
-    def _get_session_trace(self, session_id: str) -> Optional[Dict]:
-        """Get trace data for a session."""
-        with get_db_readonly() as conn:
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                SELECT 
-                    s.id, s.batch_id, s.has_error, s.error_summary,
-                    sq.query_text, sq.response_text
-                FROM sessions s
-                LEFT JOIN synthetic_queries sq ON sq.id = s.query_id
-                WHERE s.id = ?
-            """, (session_id,))
-            
-            row = cursor.fetchone()
-            if not row:
-                return None
-            
-            return {
-                "id": row["id"],
-                "trace_id": row["id"],
-                "session_id": row["id"],
-                "batch_id": row["batch_id"],
-                "query": row["query_text"],
-                "response": row["response_text"],
-                "has_error": bool(row["has_error"]),
-                "error_summary": row["error_summary"],
-            }
+    # Note: _get_session_trace removed - sessions table no longer used
     
     # -------------------------------------------------------------------------
     # Database Operations

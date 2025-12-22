@@ -40,13 +40,12 @@ class QueryExecutionResult(BaseModel):
     query_id: str
     status: ExecutionStatus
     response_text: Optional[str] = None
-    tool_calls: List[Dict[str, Any]] = []
-    trace_id: Optional[str] = None
-    thread_id: Optional[str] = None
     error_message: Optional[str] = None
     started_at: str
     completed_at: Optional[str] = None
     duration_ms: Optional[int] = None
+    # NOTE: trace_id and thread_id removed - these are discovered after execution
+    # via input text matching against Weave traces (see trace_discovery.py)
 
 
 class BatchExecutionProgress(BaseModel):
@@ -135,6 +134,23 @@ class BatchExecutor:
                 progress_percent=100.0
             )
             return
+        
+        # =================================================================
+        # PUBLISH DATASET: Create Weave Dataset before execution
+        # =================================================================
+        # This makes the batch visible in user's Weave Datasets tab and
+        # creates a linkage point between our queries and agent traces.
+        try:
+            from services.dataset_publisher import publish_batch_dataset
+            dataset_ref = await publish_batch_dataset(self.batch_id)
+            log_event(logger, "batch.dataset_published",
+                correlation_id=self.correlation_id,
+                batch_id=self.batch_id,
+                dataset_ref=dataset_ref
+            )
+        except Exception as e:
+            # Dataset publishing is optional - don't fail the batch if it fails
+            logger.warning(f"Failed to publish batch dataset: {e}")
         
         # Update batch status to running
         self._update_batch_status("running")
@@ -328,55 +344,59 @@ class BatchExecutor:
         )
         
         # =================================================================
-        # AUTO-SYNC: Trigger delayed background sync for this batch's sessions
+        # AUTO-DISCOVERY: Match agent traces to our batch queries
         # =================================================================
-        # This ensures sessions are immediately available in local DB
-        # for fast filtering. We add a delay to give OTEL traces time to
-        # be flushed to Weave (especially important with concurrent execution).
+        # Uses trace discovery to link agent traces to synthetic queries
+        # via input text matching (since agent doesn't return trace_ids).
+        # Note: Session sync removed - users review traces in Weave UI directly.
         if final_status == "completed" and success_count > 0:
-            async def delayed_sync():
-                """Sync with retry to handle OTEL trace propagation delays."""
+            async def discover_traces():
+                """Discover traces with smart retry for OTEL flush delays."""
                 try:
-                    # Wait for OTEL traces to propagate to Weave
-                    # With concurrent execution, some traces may take longer to flush
-                    await asyncio.sleep(3)  # Initial delay
+                    from services.trace_discovery import trace_discovery_service
                     
-                    from services.session_sync import session_sync_service
-                    from database import get_db
-                    
-                    # Get expected session count from batch
+                    # Get expected count (successful queries)
                     with get_db() as conn:
                         cursor = conn.cursor()
                         cursor.execute(
-                            "SELECT COUNT(*) as cnt FROM synthetic_queries WHERE batch_id = ? AND thread_id IS NOT NULL",
+                            "SELECT COUNT(*) as cnt FROM synthetic_queries WHERE batch_id = ? AND execution_status = 'success'",
                             (self.batch_id,)
                         )
                         expected_count = cursor.fetchone()["cnt"]
                     
-                    # Try syncing up to 3 times with increasing delays
-                    for attempt in range(3):
-                        result = await session_sync_service.sync_batch_sessions(self.batch_id)
-                        synced_count = result.sessions_added + result.sessions_updated
+                    # Small delay to let traces propagate to Weave
+                    await asyncio.sleep(2.0)
+                    
+                    # Discover traces via input text matching
+                    discovered = await trace_discovery_service.discover_traces_for_batch(self.batch_id)
+                    
+                    log_event(logger, "batch.trace_discovery_complete",
+                        correlation_id=self.correlation_id,
+                        batch_id=self.batch_id,
+                        discovered_count=len(discovered),
+                        expected_count=expected_count
+                    )
+                    
+                    # Retry if not all traces discovered (OTEL flush delays)
+                    for attempt in range(2, 5):  # Attempts 2, 3, 4
+                        if len(discovered) >= expected_count:
+                            break
                         
-                        log_event(logger, "batch.session_sync_attempt",
+                        await asyncio.sleep(2.0)
+                        discovered = await trace_discovery_service.discover_traces_for_batch(self.batch_id)
+                        
+                        log_event(logger, "batch.trace_discovery_retry",
                             correlation_id=self.correlation_id,
                             batch_id=self.batch_id,
-                            attempt=attempt + 1,
-                            expected=expected_count,
-                            synced=synced_count
+                            attempt=attempt,
+                            discovered_count=len(discovered)
                         )
-                        
-                        if synced_count >= expected_count:
-                            break  # All sessions synced
-                        
-                        if attempt < 2:
-                            await asyncio.sleep(2 * (attempt + 1))  # Progressive delay: 2s, 4s
                     
                 except Exception as e:
-                    logger.warning(f"Failed session sync for batch {self.batch_id}: {e}")
+                    logger.warning(f"Failed trace discovery for batch {self.batch_id}: {e}")
             
-            # Start sync in background without blocking
-            asyncio.create_task(delayed_sync())
+            # Start discovery in background immediately - no blocking
+            asyncio.create_task(discover_traces())
         
         yield BatchExecutionProgress(
             batch_id=self.batch_id,
@@ -398,7 +418,11 @@ class BatchExecutor:
         
         try:
             # Run the query through the agent using simple HTTP
-            result = await self.client.query(query_text)
+            # Pass batch_id so backend sets Weave attributes for trace filtering
+            result = await self.client.query(
+                query_text,
+                batch_id=self.batch_id  # Enables batch filtering in Weave UI
+            )
             
             completed_at = now_iso()
             duration_ms = int((datetime.utcnow() - start_time).total_seconds() * 1000)
@@ -420,22 +444,17 @@ class BatchExecutor:
                     duration_ms=duration_ms
                 )
             else:
-                # Query succeeded
+                # Query succeeded - store response, trace discovery happens later
                 self._update_query_status(
                     query_id,
                     ExecutionStatus.SUCCESS,
                     completed_at=completed_at,
-                    response_text=result.response,
-                    trace_id=None,  # Simple HTTP doesn't return trace_id
-                    thread_id=result.thread_id
+                    response_text=result.response
                 )
                 return QueryExecutionResult(
                     query_id=query_id,
                     status=ExecutionStatus.SUCCESS,
                     response_text=result.response,
-                    tool_calls=[],  # Simple HTTP doesn't return tool calls
-                    trace_id=None,
-                    thread_id=result.thread_id,
                     started_at=started_at,
                     completed_at=completed_at,
                     duration_ms=duration_ms
@@ -515,11 +534,13 @@ class BatchExecutor:
         started_at: Optional[str] = None,
         completed_at: Optional[str] = None,
         response_text: Optional[str] = None,
-        trace_id: Optional[str] = None,
-        thread_id: Optional[str] = None,
         error_message: Optional[str] = None
     ):
-        """Update a query's execution status in the database."""
+        """
+        Update a query's execution status in the database.
+        
+        Note: trace_id is set later by TraceDiscoveryService after batch execution.
+        """
         with get_db() as conn:
             cursor = conn.cursor()
             
@@ -537,14 +558,6 @@ class BatchExecutor:
             if response_text is not None:
                 updates.append("response_text = ?")
                 params.append(response_text)
-            
-            if trace_id is not None:
-                updates.append("trace_id = ?")
-                params.append(trace_id)
-            
-            if thread_id is not None:
-                updates.append("thread_id = ?")
-                params.append(thread_id)
             
             if error_message is not None:
                 updates.append("error_message = ?")

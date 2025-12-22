@@ -6,12 +6,21 @@ Users define the full endpoint URL where queries should be sent.
 
 Endpoint Specification:
     POST <user-defined-endpoint>
-    Request:  {"query": "...", "thread_id": "optional"}
-    Response: {"response": "...", "thread_id": "...", "error": null}
+    Request:  {"query": "..."}
+    Response: {"response": "...", "error": null}
+
+The agent is a black box: query in → response out. That's it.
+Our application handles all the complexity of trace linkage via Weave attributes.
+
+Batch Attribution:
+When executing batch queries, we use weave.attributes({'batch_id': ...}) to
+log a trace with the batch_id to the user's Weave project. This allows filtering
+in Weave UI by batch_id without requiring anything special from the user's agent.
 """
 
+import weave
 import httpx
-from typing import Optional, Dict, Any
+from typing import Any
 from datetime import datetime
 from pydantic import BaseModel
 
@@ -24,14 +33,15 @@ logger = get_logger("agent")
 class QueryRequest(BaseModel):
     """Request to send a query to the agent."""
     query: str
-    thread_id: Optional[str] = None
+    # Optional: For batch filtering in Weave UI
+    # Backend sets weave.attributes({'batch_id': ...}) to enable "Review in Weave" workflow
+    batch_id: str | None = None
 
 
 class QueryResponse(BaseModel):
     """Response from the agent."""
     response: str
-    thread_id: Optional[str] = None
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class AgentClient:
@@ -42,7 +52,7 @@ class AgentClient:
     No streaming, no SSE, just plain request/response.
     """
     
-    def __init__(self, endpoint_url: str, timeout: Optional[float] = None):
+    def __init__(self, endpoint_url: str, timeout: float | None = None):
         """
         Initialize the agent client.
         
@@ -67,7 +77,7 @@ class AgentClient:
         # Return just scheme + netloc (e.g., http://localhost:9000)
         return urlunparse((parsed.scheme, parsed.netloc, '', '', '', ''))
     
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """
         Check if the agent endpoint is reachable and healthy.
         
@@ -117,16 +127,20 @@ class AgentClient:
     async def query(
         self,
         query: str,
-        thread_id: Optional[str] = None,
-        correlation_id: Optional[str] = None
+        correlation_id: str | None = None,
+        batch_id: str | None = None
     ) -> QueryResponse:
         """
         Send a query to the agent and get the response.
         
+        If batch_id is provided, we use weave.attributes() to log a trace
+        with batch_id to the user's Weave project. This enables filtering
+        by batch_id in Weave UI without requiring anything from the agent.
+        
         Args:
             query: The user query to send to the agent
-            thread_id: Optional thread ID for conversation continuity
             correlation_id: Optional correlation ID for tracing
+            batch_id: Optional batch ID for batch filtering in Weave UI
             
         Returns:
             QueryResponse with the agent's response or error
@@ -138,14 +152,67 @@ class AgentClient:
             correlation_id=request_id,
             endpoint=self.endpoint_url,
             query_length=len(query),
-            has_thread_id=bool(thread_id)
+            batch_id=batch_id
         )
         
+        # Build request body
+        request_body = {"query": query}
+        if batch_id:
+            request_body["batch_id"] = batch_id
+        
+        # Build weave attributes for this call
+        attrs = {}
+        if batch_id:
+            attrs["batch_id"] = batch_id
+        
+        # Execute the HTTP call, optionally with weave attributes for tracing
+        return await self._execute_http_query(
+            request_body=request_body,
+            attrs=attrs,
+            request_id=request_id,
+            start_time=start_time
+        )
+    
+    async def _execute_http_query(
+        self,
+        request_body: dict,
+        attrs: dict,
+        request_id: str,
+        start_time: datetime
+    ) -> QueryResponse:
+        """
+        Execute the HTTP query, wrapped in weave.attributes if attrs provided.
+        
+        This logs a trace to the user's Weave project with batch_id attribute,
+        making it filterable in Weave UI.
+        """
+        # Execute with weave attributes (logs a trace to user's project)
+        if attrs:
+            with weave.attributes(attrs):
+                return await self._do_http_request(
+                    request_body, request_id, start_time
+                )
+        else:
+            return await self._do_http_request(
+                request_body, request_id, start_time
+            )
+    
+    @weave.op(name="agent_query")
+    async def _do_http_request(
+        self,
+        request_body: dict,
+        request_id: str,
+        start_time: datetime
+    ) -> QueryResponse:
+        """
+        The actual HTTP call to the agent - decorated with @weave.op so
+        it gets traced when called within weave.attributes() context.
+        """
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.post(
                     self.endpoint_url,
-                    json={"query": query, "thread_id": thread_id},
+                    json=request_body,
                     timeout=httpx.Timeout(self.timeout, connect=10.0)
                 )
                 
@@ -164,7 +231,6 @@ class AgentClient:
                 
                 data = response.json()
                 
-                # Handle error in response body
                 if data.get("error"):
                     log_event(logger, "agent.query_failed", level="error",
                         correlation_id=request_id,
@@ -174,21 +240,18 @@ class AgentClient:
                     )
                     return QueryResponse(
                         response=data.get("response", ""),
-                        thread_id=data.get("thread_id"),
                         error=data["error"]
                     )
                 
                 log_event(logger, "agent.query_complete",
                     correlation_id=request_id,
                     endpoint=self.endpoint_url,
-                    thread_id=data.get("thread_id"),
                     response_length=len(data.get("response", "")),
                     duration_ms=duration_ms
                 )
                 
                 return QueryResponse(
                     response=data.get("response", ""),
-                    thread_id=data.get("thread_id"),
                     error=None
                 )
                 
@@ -225,7 +288,7 @@ class AgentClient:
                 )
                 return QueryResponse(response="", error=error_msg)
     
-    async def get_agent_info(self) -> Dict[str, Any]:
+    async def get_agent_info(self) -> dict[str, Any]:
         """
         Fetch AGENT_INFO from the agent endpoint.
         
@@ -268,8 +331,7 @@ class AgentClient:
 async def query_agent(
     endpoint_url: str,
     query: str,
-    thread_id: Optional[str] = None,
-    timeout: Optional[float] = None
+    timeout: float | None = None
 ) -> QueryResponse:
     """
     Convenience function to run a query against an agent.
@@ -277,12 +339,11 @@ async def query_agent(
     Args:
         endpoint_url: The full agent query endpoint URL (e.g., http://localhost:9000/query)
         query: The query to send
-        thread_id: Optional thread ID for conversation continuity
         timeout: Request timeout in seconds. If None, uses configured agent_query_timeout.
         
     Returns:
         QueryResponse with the agent's response or error
     """
     client = AgentClient(endpoint_url, timeout=timeout)
-    return await client.query(query, thread_id)
+    return await client.query(query)
 

@@ -57,7 +57,7 @@ Then: Settings → Add API key → Agents → Start Example Agent → Generate q
 | Feature | Description |
 |---------|-------------|
 | **Agent Registry** | Register agents with a simple HTTP endpoint. Auto-extracts testing dimensions from AGENT_INFO.md |
-| **Synthetic Generation** | LLM-guided test query generation across configurable dimensions (personas, scenarios, complexity) |
+| **Synthetic Generation** | Test query generation with heuristic tuple sampling and LLM query generation across configurable dimensions (personas, scenarios, complexity) |
 | **Batch Execution** | Execute queries against your agent with real-time streaming progress |
 | **Session Review** | Browse Weave traces locally (SQLite cache), add notes, mark reviewed. Rich filtering by batch, model, latency, tokens |
 | **AI Suggestions** | Analyze sessions to surface potential issues. Accept, edit, or reject suggestions with human-in-the-loop |

@@ -1,12 +1,18 @@
 """Services package for Weave API interactions and data processing."""
 
-from .weave_client import WeaveClient
-from .conversation import process_thread_calls, extract_conversation, detect_framework
+from .weave_client import weave_client, WeaveClient
+from .trace_discovery import trace_discovery_service, TraceDiscoveryService
+from .dataset_publisher import publish_batch_dataset, get_batch_dataset_ref
 
 __all__ = [
+    # Weave Client (Python SDK wrapper)
+    "weave_client",
     "WeaveClient",
-    "process_thread_calls",  # Deprecated - use extract_conversation
-    "extract_conversation",
-    "detect_framework",
+    # Trace Discovery (matches batch queries to Weave traces)
+    "trace_discovery_service",
+    "TraceDiscoveryService",
+    # Dataset Publishing (publishes batches as Weave Datasets)
+    "publish_batch_dataset",
+    "get_batch_dataset_ref",
 ]
 

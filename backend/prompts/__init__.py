@@ -11,7 +11,7 @@ Usage:
     await prompt_manager.initialize()
     
     # Get a prompt
-    prompt = prompt_manager.get_prompt("trace_analysis")
+    prompt = prompt_manager.get_prompt("category_suggestion")
     
     # Format with variables
     messages = []

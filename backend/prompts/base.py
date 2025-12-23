@@ -12,10 +12,10 @@ from pydantic import BaseModel, Field
 class PromptConfig(BaseModel):
     """Configuration for a single prompt."""
     
-    id: str = Field(description="Unique identifier, e.g., 'trace_analysis'")
+    id: str = Field(description="Unique identifier, e.g., 'category_suggestion'")
     name: str = Field(description="Human-readable name")
     description: str = Field(description="What this prompt does")
-    feature: str = Field(description="Which feature uses this: 'suggestions', 'synthetic', 'taxonomy'")
+    feature: str = Field(description="Which feature uses this: 'synthetic', 'taxonomy'")
     
     # The actual prompt content
     system_prompt: Optional[str] = Field(default=None, description="System message")

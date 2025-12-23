@@ -542,7 +542,7 @@ class LLMClient:
         Example:
             from prompts import prompt_manager
             
-            prompt = prompt_manager.get_prompt("trace_analysis")
+            prompt = prompt_manager.get_prompt("category_suggestion")
             client = LLMClient.for_prompt(prompt)
             result = await client.complete(messages=[...])
         """

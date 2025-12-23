@@ -334,56 +334,6 @@ export interface TestConnectionResult {
 export type TabType = "taxonomy" | "agents" | "synthetic" | "settings";
 
 // ============================================================================
-// AI Suggestion Types (Sprint 2 - Suggestion Service UI)
-// ============================================================================
-
-export interface TraceSuggestion {
-  id: string;
-  trace_id: string;
-  batch_id: string | null;
-  
-  has_issue: boolean;
-  suggested_note: string | null;
-  confidence: number;
-  thinking: string | null;
-  
-  // Category - either existing failure mode or new suggestion
-  failure_mode_id: string | null;
-  failure_mode_name: string | null;
-  suggested_category: string | null;
-  
-  status: 'pending' | 'accepted' | 'edited' | 'rejected' | 'skipped';
-  created_at: string;
-}
-
-export interface SuggestionAnalysisResponse {
-  batch_id: string | null;
-  total_traces: number;
-  issues_found: number;
-  suggestions: TraceSuggestion[];
-}
-
-export interface SuggestionStats {
-  total: number;
-  issues_found: number;
-  pending: number;
-  accepted: number;
-  edited: number;
-  rejected: number;
-  skipped: number;
-  error: number;
-  accept_rate: number;  // (accepted + edited) / reviewed_total
-  reviewed_total: number;
-}
-
-export interface AcceptSuggestionResult {
-  note_id: string;
-  content: string;
-  failure_mode_id: string | null;
-  created_at: string;
-}
-
-// ============================================================================
 // Workflow Progress Types
 // ============================================================================
 
@@ -401,7 +351,7 @@ export interface PromptConfig {
   id: string;
   name: string;
   description: string;
-  feature: 'suggestions' | 'synthetic' | 'taxonomy';
+  feature: 'synthetic' | 'taxonomy';
   system_prompt: string | null;
   user_prompt_template: string;
   available_variables: string[];

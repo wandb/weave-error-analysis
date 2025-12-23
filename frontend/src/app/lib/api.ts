@@ -14,10 +14,6 @@ import type {
   TestConnectionResult,
   FailureMode,
   FailureModeStatus,
-  TraceSuggestion,
-  SuggestionAnalysisResponse,
-  SuggestionStats,
-  AcceptSuggestionResult,
 } from "../types";
 import { createLogger } from "./logger";
 
@@ -872,122 +868,6 @@ export async function testLLMConnection(): Promise<TestConnectionResult> {
 
 export async function testWeaveConnection(): Promise<TestConnectionResult> {
   return apiCall(`${API_BASE}/settings/test-weave`, { method: "POST" });
-}
-
-// ============================================================================
-// AI Suggestions API (Sprint 2 - Suggestion Service)
-// ============================================================================
-
-export async function analyzeBatch(
-  batchId: string,
-  maxConcurrent: number = 10,
-  model?: string
-): Promise<SuggestionAnalysisResponse> {
-  return apiCall(`${API_BASE}/suggestions/batches/${batchId}/analyze`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ max_concurrent: maxConcurrent, model }),
-  });
-}
-
-export async function fetchBatchSuggestions(batchId: string): Promise<TraceSuggestion[]> {
-  return apiCall(`${API_BASE}/suggestions/batches/${batchId}`);
-}
-
-export async function fetchPendingSuggestions(
-  batchId?: string,
-  minConfidence: number = 0.6
-): Promise<TraceSuggestion[]> {
-  const params = new URLSearchParams();
-  if (batchId) params.append("batch_id", batchId);
-  params.append("min_confidence", String(minConfidence));
-  
-  return apiCall(`${API_BASE}/suggestions/pending?${params}`);
-}
-
-export async function fetchSuggestionStats(batchId?: string): Promise<SuggestionStats> {
-  const params = batchId ? `?batch_id=${batchId}` : "";
-  return apiCall(`${API_BASE}/suggestions/stats${params}`);
-}
-
-export async function acceptSuggestion(
-  suggestionId: string,
-  editedText?: string,
-  failureModeId?: string
-): Promise<AcceptSuggestionResult> {
-  return apiCall(`${API_BASE}/suggestions/${suggestionId}/accept`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ 
-      edited_text: editedText,
-      failure_mode_id: failureModeId 
-    }),
-  });
-}
-
-export async function skipSuggestion(suggestionId: string): Promise<void> {
-  await apiCall(`${API_BASE}/suggestions/${suggestionId}/skip`, { method: "POST" });
-}
-
-export async function rejectSuggestion(suggestionId: string): Promise<void> {
-  await apiCall(`${API_BASE}/suggestions/${suggestionId}/reject`, { method: "POST" });
-}
-
-export async function bulkAcceptSuggestions(suggestionIds: string[]): Promise<{
-  accepted: number;
-  failed: number;
-  notes_created: AcceptSuggestionResult[];
-}> {
-  return apiCall(`${API_BASE}/suggestions/bulk-accept`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ suggestion_ids: suggestionIds }),
-  });
-}
-
-export async function bulkRejectSuggestions(suggestionIds: string[]): Promise<{
-  rejected: number;
-  failed: number;
-}> {
-  return apiCall(`${API_BASE}/suggestions/bulk-reject`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ suggestion_ids: suggestionIds }),
-  });
-}
-
-export async function bulkSkipSuggestions(suggestionIds: string[]): Promise<{
-  skipped: number;
-  failed: number;
-}> {
-  return apiCall(`${API_BASE}/suggestions/bulk-skip`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ suggestion_ids: suggestionIds }),
-  });
-}
-
-export interface SuggestionHistoryResponse {
-  suggestions: TraceSuggestion[];
-  total_count: number;
-  limit: number;
-  offset: number;
-  has_more: boolean;
-}
-
-export async function fetchSuggestionHistory(
-  batchId?: string,
-  status?: string,
-  limit: number = 50,
-  offset: number = 0
-): Promise<SuggestionHistoryResponse> {
-  const params = new URLSearchParams();
-  if (batchId) params.append("batch_id", batchId);
-  if (status) params.append("status", status);
-  params.append("limit", String(limit));
-  params.append("offset", String(offset));
-  
-  return apiCall(`${API_BASE}/suggestions/history?${params}`);
 }
 
 // ============================================================================

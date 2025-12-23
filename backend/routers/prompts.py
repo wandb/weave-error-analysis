@@ -48,7 +48,7 @@ async def get_prompts_by_feature(feature: str):
     """
     Get prompts for a specific feature.
     
-    Features: suggestions, taxonomy, synthetic
+    Features: taxonomy, synthetic
     """
     prompts = prompt_manager.get_prompts_by_feature(feature)
     return {"prompts": [p.model_dump() for p in prompts]}

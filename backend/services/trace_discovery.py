@@ -1,11 +1,17 @@
 """
 Trace Discovery Service - Link batch queries to Weave traces via attributes.
 
-This module provides attribute-based discovery of traces belonging to batches.
+This module provides granular query-to-trace linking:
 
-When batch executor sets Weave attributes (batch_id) before calling the agent,
-traces automatically get these attributes. We query traces by batch_id to find
-all traces from a batch execution.
+1. BatchExecutor passes batch_id + query_id to the agent
+2. Agent sets weave.attributes({"batch_id": ..., "query_id": ...})
+3. After batch completion, this service:
+   - Queries Weave for traces with matching batch_id attribute
+   - Extracts query_id from each trace's attributes
+   - Updates synthetic_queries.trace_id in the database
+
+This enables granular linking where each synthetic query maps to its specific
+Weave trace, allowing FeedbackSyncService to work correctly.
 
 Note: Users review traces in Weave UI directly via "Review in Weave" deep links.
 """
@@ -154,13 +160,64 @@ class TraceDiscoveryService:
             trace: The trace dict from Weave
             
         Returns:
-            Dict with batch_id (if present)
+            Dict with batch_id and query_id (if present)
         """
         attrs = trace.get("attributes", {})
         return {
             "batch_id": attrs.get("batch_id"),
+            "query_id": attrs.get("query_id"),
         }
-
+    
+    async def link_batch_traces(self, batch_id: str) -> Dict[str, str]:
+        """
+        Link batch traces to their corresponding synthetic queries.
+        
+        Discovers traces for the batch, extracts query_id from each trace's
+        attributes, and updates synthetic_queries.trace_id in the database.
+        
+        Args:
+            batch_id: The batch to link traces for
+            
+        Returns:
+            Dict mapping query_id -> trace_id for all linked queries
+        """
+        # Get traces for this batch
+        traces = await self.get_traces_for_batch(batch_id)
+        
+        if not traces:
+            logger.info(f"No traces found for batch {batch_id}")
+            return {}
+        
+        # Build mapping from query_id -> trace_id
+        query_trace_map: Dict[str, str] = {}
+        for trace in traces:
+            info = self.extract_batch_info_from_trace(trace)
+            query_id = info.get("query_id")
+            trace_id = trace.get("id")
+            
+            if query_id and trace_id:
+                query_trace_map[query_id] = trace_id
+        
+        if not query_trace_map:
+            logger.warning(f"Found {len(traces)} traces but none had query_id attribute")
+            return {}
+        
+        # Update the database with trace_ids
+        linked_count = 0
+        with get_db() as conn:
+            cursor = conn.cursor()
+            for query_id, trace_id in query_trace_map.items():
+                cursor.execute("""
+                    UPDATE synthetic_queries 
+                    SET trace_id = ?
+                    WHERE id = ? AND batch_id = ?
+                """, (trace_id, query_id, batch_id))
+                if cursor.rowcount > 0:
+                    linked_count += 1
+            conn.commit()
+        
+        logger.info(f"Linked {linked_count}/{len(query_trace_map)} traces for batch {batch_id}")
+        return query_trace_map
 
 # Singleton instance
 trace_discovery_service = TraceDiscoveryService()

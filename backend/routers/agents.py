@@ -706,8 +706,6 @@ class AgentRunResponse(BaseModel):
     """Response from running an agent query."""
     response: str = ""
     error: str | None = None
-    # NOTE: thread_id removed - agent doesn't return this anymore.
-    # Trace linkage is handled via input text matching by TraceDiscoveryService.
 
 
 @router.post("/agents/{agent_id}/run", response_model=AgentRunResponse)
@@ -736,5 +734,3 @@ async def run_agent_query(agent_id: str, request: AgentRunRequest):
         response=result.response,
         error=result.error
     )
-
-

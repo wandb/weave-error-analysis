@@ -3,13 +3,12 @@ Batch Executor Service for running synthetic queries through connected agents.
 
 This service orchestrates:
 1. Fetching synthetic queries from a batch
-2. Running each query through the agent
+2. Running each query through the agent with batch_id + query_id attributes
 3. Tracking execution status and results
-4. Linking generated traces back to the batch
-5. **Auto-syncing sessions after batch completion** (Phase 2)
+4. Linking traces back to queries via Weave attribute-based discovery
 
-The auto-sync integration ensures that after a batch completes, all sessions
-are immediately available in the local database for fast filtering.
+After batch completion, TraceDiscoveryService links each query to its Weave trace
+using the query_id attribute, enabling granular trace-to-query mapping.
 """
 
 import asyncio
@@ -44,8 +43,8 @@ class QueryExecutionResult(BaseModel):
     started_at: str
     completed_at: Optional[str] = None
     duration_ms: Optional[int] = None
-    # NOTE: trace_id and thread_id removed - these are discovered after execution
-    # via input text matching against Weave traces (see trace_discovery.py)
+    # NOTE: trace_id is discovered after execution via query_id attribute matching
+    # (see trace_discovery.py). thread_id is deprecated and unused.
 
 
 class BatchExecutionProgress(BaseModel):
@@ -344,14 +343,13 @@ class BatchExecutor:
         )
         
         # =================================================================
-        # AUTO-DISCOVERY: Match agent traces to our batch queries
+        # TRACE LINKING: Link agent traces to synthetic queries
         # =================================================================
-        # Uses trace discovery to link agent traces to synthetic queries
-        # via input text matching (since agent doesn't return trace_ids).
-        # Note: Session sync removed - users review traces in Weave UI directly.
+        # Discovers traces via batch_id/query_id attributes and writes
+        # trace_ids back to synthetic_queries table for granular linking.
         if final_status == "completed" and success_count > 0:
-            async def discover_traces():
-                """Discover traces with smart retry for OTEL flush delays."""
+            async def link_traces():
+                """Link traces with smart retry for OTEL flush delays."""
                 try:
                     from services.trace_discovery import trace_discovery_service
                     
@@ -367,36 +365,36 @@ class BatchExecutor:
                     # Small delay to let traces propagate to Weave
                     await asyncio.sleep(2.0)
                     
-                    # Discover traces via input text matching
-                    discovered = await trace_discovery_service.discover_traces_for_batch(self.batch_id)
+                    # Link traces via query_id attribute
+                    linked = await trace_discovery_service.link_batch_traces(self.batch_id)
                     
-                    log_event(logger, "batch.trace_discovery_complete",
+                    log_event(logger, "batch.trace_linking_complete",
                         correlation_id=self.correlation_id,
                         batch_id=self.batch_id,
-                        discovered_count=len(discovered),
+                        linked_count=len(linked),
                         expected_count=expected_count
                     )
                     
-                    # Retry if not all traces discovered (OTEL flush delays)
+                    # Retry if not all traces linked (OTEL flush delays)
                     for attempt in range(2, 5):  # Attempts 2, 3, 4
-                        if len(discovered) >= expected_count:
+                        if len(linked) >= expected_count:
                             break
                         
                         await asyncio.sleep(2.0)
-                        discovered = await trace_discovery_service.discover_traces_for_batch(self.batch_id)
+                        linked = await trace_discovery_service.link_batch_traces(self.batch_id)
                         
-                        log_event(logger, "batch.trace_discovery_retry",
+                        log_event(logger, "batch.trace_linking_retry",
                             correlation_id=self.correlation_id,
                             batch_id=self.batch_id,
                             attempt=attempt,
-                            discovered_count=len(discovered)
+                            linked_count=len(linked)
                         )
                     
                 except Exception as e:
-                    logger.warning(f"Failed trace discovery for batch {self.batch_id}: {e}")
+                    logger.warning(f"Failed trace linking for batch {self.batch_id}: {e}")
             
-            # Start discovery in background immediately - no blocking
-            asyncio.create_task(discover_traces())
+            # Start linking in background immediately - no blocking
+            asyncio.create_task(link_traces())
         
         yield BatchExecutionProgress(
             batch_id=self.batch_id,
@@ -418,10 +416,11 @@ class BatchExecutor:
         
         try:
             # Run the query through the agent using simple HTTP
-            # Pass batch_id so backend sets Weave attributes for trace filtering
+            # Pass batch_id and query_id for granular trace linking
             result = await self.client.query(
                 query_text,
-                batch_id=self.batch_id  # Enables batch filtering in Weave UI
+                batch_id=self.batch_id,
+                query_id=query_id  # Enables granular query-to-trace linking
             )
             
             completed_at = now_iso()
@@ -769,4 +768,3 @@ def reset_batch_queries(batch_id: str, only_failed: bool = False):
                 completed_at = NULL
             WHERE id = ?
         """, (batch_id,))
-

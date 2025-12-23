@@ -6,16 +6,16 @@ Users define the full endpoint URL where queries should be sent.
 
 Endpoint Specification:
     POST <user-defined-endpoint>
-    Request:  {"query": "..."}
+    Request:  {"query": "...", "batch_id": "...", "query_id": "..."}
     Response: {"response": "...", "error": null}
 
 The agent is a black box: query in → response out. That's it.
 Our application handles all the complexity of trace linkage via Weave attributes.
 
-Batch Attribution:
-When executing batch queries, we use weave.attributes({'batch_id': ...}) to
-log a trace with the batch_id to the user's Weave project. This allows filtering
-in Weave UI by batch_id without requiring anything special from the user's agent.
+Trace Linking:
+When executing batch queries, we pass batch_id and query_id to the agent.
+The agent sets weave.attributes({"batch_id": ..., "query_id": ...}) which
+allows granular query-to-trace linking after batch execution.
 """
 
 import httpx
@@ -32,9 +32,8 @@ logger = get_logger("agent")
 class QueryRequest(BaseModel):
     """Request to send a query to the agent."""
     query: str
-    # Optional: For batch filtering in Weave UI
-    # Backend sets weave.attributes({'batch_id': ...}) to enable "Review in Weave" workflow
     batch_id: str | None = None
+    query_id: str | None = None
 
 
 class QueryResponse(BaseModel):
@@ -127,19 +126,21 @@ class AgentClient:
         self,
         query: str,
         correlation_id: str | None = None,
-        batch_id: str | None = None
+        batch_id: str | None = None,
+        query_id: str | None = None
     ) -> QueryResponse:
         """
         Send a query to the agent and get the response.
         
-        If batch_id is provided, it's passed to the agent server which wraps
-        the agent execution in weave.attributes(). This ensures ALL agent traces
-        (LLM calls, tool calls, etc.) inherit the batch_id for Weave filtering.
+        If batch_id and query_id are provided, they're passed to the agent server
+        which wraps the execution in weave.attributes(). This enables granular
+        trace linking - each synthetic query maps to its specific Weave trace.
         
         Args:
             query: The user query to send to the agent
             correlation_id: Optional correlation ID for tracing
             batch_id: Optional batch ID for batch filtering in Weave UI
+            query_id: Optional query ID for granular query-to-trace linking
             
         Returns:
             QueryResponse with the agent's response or error
@@ -151,13 +152,16 @@ class AgentClient:
             correlation_id=request_id,
             endpoint=self.endpoint_url,
             query_length=len(query),
-            batch_id=batch_id
+            batch_id=batch_id,
+            query_id=query_id
         )
         
-        # Build request body - batch_id is passed to agent for weave attribution
+        # Build request body with trace linking attributes
         request_body = {"query": query}
         if batch_id:
             request_body["batch_id"] = batch_id
+        if query_id:
+            request_body["query_id"] = query_id
         
         # Execute the HTTP call to the agent
         return await self._execute_http_query(

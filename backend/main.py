@@ -32,7 +32,6 @@ from routers import (
     agents_router,
     synthetic_router,
     settings_router,
-    suggestions_router,
     prompts_router,
 )
 
@@ -252,7 +251,6 @@ app.include_router(taxonomy_router)
 app.include_router(agents_router)
 app.include_router(synthetic_router)
 app.include_router(settings_router)
-app.include_router(suggestions_router)  # AI suggestion service for trace quality
 app.include_router(prompts_router)  # Prompt management
 
 

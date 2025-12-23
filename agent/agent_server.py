@@ -72,9 +72,9 @@ app.add_middleware(
 class QueryRequest(BaseModel):
     """Request to query the agent."""
     query: str
-    # Optional: batch_id is passed by the error analysis backend but can be ignored.
-    # The backend handles batch attribution via weave.attributes() before calling us.
+    # For granular trace linking - allows linking each query to its specific trace
     batch_id: str | None = None
+    query_id: str | None = None
 
 
 class QueryResponse(BaseModel):
@@ -250,10 +250,12 @@ async def query(request: QueryRequest):
                 error="OPENAI_API_KEY not set. Please add it to your .env file and restart."
             )
         
-        # Run agent with optional batch_id attribute
+        # Run agent with trace linking attributes
         if request.batch_id:
-            # All agent traces will inherit batch_id attribute
-            with weave.attributes({"batch_id": request.batch_id}):
+            attrs = {"batch_id": request.batch_id}
+            if request.query_id:
+                attrs["query_id"] = request.query_id
+            with weave.attributes(attrs):
                 response_text = await run_agent(request.query)
         else:
             response_text = await run_agent(request.query)

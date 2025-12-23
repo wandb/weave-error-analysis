@@ -8,7 +8,7 @@ __all__ = [
     # Weave Client (Python SDK wrapper)
     "weave_client",
     "WeaveClient",
-    # Trace Discovery (matches batch queries to Weave traces)
+    # Trace Discovery (links batch queries to Weave traces via query_id attribute)
     "trace_discovery_service",
     "TraceDiscoveryService",
     # Dataset Publishing (publishes batches as Weave Datasets)

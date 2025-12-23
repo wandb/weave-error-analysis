@@ -167,16 +167,23 @@ class TaxonomyService:
     # Failure Mode CRUD
     # ------------------------------------------------------------------------
     
-    def get_all_failure_modes(self) -> list[FailureMode]:
-        """Get all failure modes with their associated notes."""
+    def get_all_failure_modes(self, agent_id: Optional[str] = None) -> list[FailureMode]:
+        """Get all failure modes with their associated notes, optionally filtered by agent."""
         with get_db() as conn:
             cursor = conn.cursor()
             
-            # Get all failure modes
-            cursor.execute("""
-                SELECT * FROM failure_modes 
-                ORDER BY times_seen DESC, last_seen_at DESC
-            """)
+            # Get failure modes, optionally filtered by agent_id
+            if agent_id:
+                cursor.execute("""
+                    SELECT * FROM failure_modes 
+                    WHERE agent_id = ? OR agent_id IS NULL
+                    ORDER BY times_seen DESC, last_seen_at DESC
+                """, (agent_id,))
+            else:
+                cursor.execute("""
+                    SELECT * FROM failure_modes 
+                    ORDER BY times_seen DESC, last_seen_at DESC
+                """)
             rows = cursor.fetchall()
             
             failure_modes = []
@@ -239,9 +246,10 @@ class TaxonomyService:
         name: str,
         description: str,
         severity: str = "medium",
-        suggested_fix: Optional[str] = None
+        suggested_fix: Optional[str] = None,
+        agent_id: Optional[str] = None
     ) -> FailureMode:
-        """Create a new failure mode."""
+        """Create a new failure mode, optionally associated with an agent."""
         mode_id = generate_id()
         now = now_iso()
         
@@ -249,9 +257,9 @@ class TaxonomyService:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO failure_modes 
-                (id, name, description, severity, suggested_fix, created_at, last_seen_at, times_seen)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 1)
-            """, (mode_id, name, description, severity, suggested_fix, now, now))
+                (id, name, description, severity, suggested_fix, created_at, last_seen_at, times_seen, agent_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+            """, (mode_id, name, description, severity, suggested_fix, now, now, agent_id))
         
         return FailureMode(
             id=mode_id,
@@ -390,11 +398,19 @@ class TaxonomyService:
     # Note Management
     # ------------------------------------------------------------------------
     
-    def get_all_notes(self) -> list[TaxonomyNote]:
-        """Get all notes."""
+    def get_all_notes(self, agent_id: Optional[str] = None) -> list[TaxonomyNote]:
+        """Get all notes, optionally filtered by agent."""
         with get_db() as conn:
             cursor = conn.cursor()
-            cursor.execute("SELECT * FROM notes ORDER BY created_at DESC")
+            
+            if agent_id:
+                cursor.execute("""
+                    SELECT * FROM notes 
+                    WHERE agent_id = ? OR agent_id IS NULL
+                    ORDER BY created_at DESC
+                """, (agent_id,))
+            else:
+                cursor.execute("SELECT * FROM notes ORDER BY created_at DESC")
             rows = cursor.fetchall()
             
             return [TaxonomyNote(
@@ -412,15 +428,23 @@ class TaxonomyService:
                 source_type=row["source_type"] if "source_type" in row.keys() else "weave_feedback"
             ) for row in rows]
     
-    def get_uncategorized_notes(self) -> list[TaxonomyNote]:
-        """Get notes that haven't been assigned to a failure mode."""
+    def get_uncategorized_notes(self, agent_id: Optional[str] = None) -> list[TaxonomyNote]:
+        """Get notes that haven't been assigned to a failure mode, optionally filtered by agent."""
         with get_db() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
-                SELECT * FROM notes 
-                WHERE failure_mode_id IS NULL 
-                ORDER BY created_at DESC
-            """)
+            
+            if agent_id:
+                cursor.execute("""
+                    SELECT * FROM notes 
+                    WHERE failure_mode_id IS NULL AND (agent_id = ? OR agent_id IS NULL)
+                    ORDER BY created_at DESC
+                """, (agent_id,))
+            else:
+                cursor.execute("""
+                    SELECT * FROM notes 
+                    WHERE failure_mode_id IS NULL 
+                    ORDER BY created_at DESC
+                """)
             rows = cursor.fetchall()
             
             return [TaxonomyNote(
@@ -442,50 +466,18 @@ class TaxonomyService:
         """
         Get the session info for a note if it came from a session.
         
+        Note: Sessions are now managed in Weave, not locally.
+        This method is deprecated and always returns None.
+        
         Returns:
-            Session info dict with id, query, created_at, etc. or None if not a session note
+            None (sessions no longer stored locally)
         """
-        with get_db() as conn:
-            cursor = conn.cursor()
-            
-            # First get the note to check if it has a session_id
-            cursor.execute("SELECT session_id, source_type FROM notes WHERE id = ?", (note_id,))
-            note_row = cursor.fetchone()
-            
-            if not note_row:
-                return None
-            
-            session_id = note_row["session_id"] if "session_id" in note_row.keys() else None
-            
-            if not session_id:
-                return None
-            
-            # Fetch the session details
-            cursor.execute("""
-                SELECT id, query, first_message, is_error, is_reviewed, 
-                       turn_count, created_at, batch_id
-                FROM sessions 
-                WHERE id = ?
-            """, (session_id,))
-            session_row = cursor.fetchone()
-            
-            if not session_row:
-                return None
-            
-            return {
-                "id": session_row["id"],
-                "query": session_row["query"],
-                "first_message": session_row["first_message"],
-                "is_error": bool(session_row["is_error"]),
-                "is_reviewed": bool(session_row["is_reviewed"]),
-                "turn_count": session_row["turn_count"],
-                "created_at": session_row["created_at"],
-                "batch_id": session_row["batch_id"]
-            }
+        return None
     
-    def sync_notes_from_weave(self, weave_notes: list[dict]) -> dict:
+    def sync_notes_from_weave(self, weave_notes: list[dict], agent_id: Optional[str] = None) -> dict:
         """
         Sync notes from Weave feedback into our local database.
+        Optionally associates notes with a specific agent.
         Returns stats about new vs existing notes.
         """
         new_count = 0
@@ -514,8 +506,8 @@ class TaxonomyService:
                     note_id = generate_id()
                     cursor.execute("""
                         INSERT INTO notes 
-                        (id, weave_feedback_id, content, trace_id, weave_ref, weave_url, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        (id, weave_feedback_id, content, trace_id, weave_ref, weave_url, created_at, agent_id)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         note_id,
                         note.get("weave_feedback_id", ""),
@@ -523,7 +515,8 @@ class TaxonomyService:
                         note.get("call_id", note.get("trace_id", "")),
                         note.get("weave_ref", ""),
                         note.get("weave_url", ""),
-                        note.get("created_at", now_iso())
+                        note.get("created_at", now_iso()),
+                        agent_id
                     ))
                     new_count += 1
         
@@ -574,10 +567,11 @@ class TaxonomyService:
     # AI Categorization
     # ------------------------------------------------------------------------
     
-    async def suggest_category_for_note(self, note_id: str) -> dict:
+    async def suggest_category_for_note(self, note_id: str, agent_id: Optional[str] = None) -> dict:
         """
         Use AI to suggest which failure mode a note belongs to.
         Returns either a match to existing mode or suggests a new one.
+        Optionally filter failure modes by agent.
         """
         # Get the note
         with get_db() as conn:
@@ -590,8 +584,8 @@ class TaxonomyService:
         
         note_content = note_row["content"]
         
-        # Get existing failure modes
-        failure_modes = self.get_all_failure_modes()
+        # Get existing failure modes (optionally filtered by agent)
+        failure_modes = self.get_all_failure_modes(agent_id=agent_id)
         
         if not failure_modes:
             # No existing modes, suggest a new one
@@ -655,10 +649,11 @@ class TaxonomyService:
             result_dict["note_id"] = note_id
         return result_dict
     
-    async def auto_categorize_notes(self, note_ids: Optional[list[str]] = None) -> dict:
+    async def auto_categorize_notes(self, note_ids: Optional[list[str]] = None, agent_id: Optional[str] = None) -> dict:
         """
         Automatically categorize multiple notes.
         Tracks saturation by counting new vs matched categories.
+        Optionally filter by agent.
         """
         if note_ids:
             # Get specific notes
@@ -670,8 +665,8 @@ class TaxonomyService:
                 """, note_ids)
                 notes = cursor.fetchall()
         else:
-            # Get all uncategorized notes
-            notes = self.get_uncategorized_notes()
+            # Get all uncategorized notes (optionally filtered by agent)
+            notes = self.get_uncategorized_notes(agent_id=agent_id)
         
         results = {
             "processed": 0,
@@ -772,13 +767,16 @@ class TaxonomyService:
         """
         Record a snapshot for the saturation discovery curve.
         Called after categorization or review events.
+        
+        Note: Uses total notes reviewed (categorized) as the x-axis metric,
+        since we no longer track sessions locally.
         """
         with get_db() as conn:
             cursor = conn.cursor()
             
-            # Get current counts
-            cursor.execute("SELECT COUNT(*) as count FROM sessions WHERE is_reviewed = 1")
-            threads_reviewed = cursor.fetchone()["count"]
+            # Get current counts - use total notes as the review metric
+            cursor.execute("SELECT COUNT(*) as count FROM notes")
+            total_notes = cursor.fetchone()["count"]
             
             cursor.execute("SELECT COUNT(*) as count FROM failure_modes")
             failure_modes_count = cursor.fetchone()["count"]
@@ -786,16 +784,12 @@ class TaxonomyService:
             cursor.execute("SELECT COUNT(*) as count FROM notes WHERE failure_mode_id IS NOT NULL")
             categorized_notes = cursor.fetchone()["count"]
             
-            cursor.execute("SELECT COUNT(*) as count FROM notes")
-            total_notes = cursor.fetchone()["count"]
-            
             # Calculate saturation score
             saturation_score = 0.0
             if total_notes > 0:
                 saturation_score = categorized_notes / total_notes
             
-            # Insert snapshot (use threads_reviewed as a natural key to avoid duplicates)
-            # We upsert to handle the case where we're at the same thread count
+            # Insert snapshot (use total_notes as the x-axis metric)
             snapshot_id = generate_id()
             cursor.execute("""
                 INSERT INTO saturation_snapshots 
@@ -805,7 +799,7 @@ class TaxonomyService:
                     failure_modes_count = excluded.failure_modes_count,
                     categorized_notes = excluded.categorized_notes,
                     saturation_score = excluded.saturation_score
-            """, (snapshot_id, now_iso(), threads_reviewed, failure_modes_count, 
+            """, (snapshot_id, now_iso(), total_notes, failure_modes_count, 
                   categorized_notes, saturation_score))
     
     def get_saturation_stats(self, window_size: int = 20) -> dict:
@@ -888,41 +882,50 @@ class TaxonomyService:
                 ]
             }
     
-    def get_saturation_history(self) -> dict:
+    def get_saturation_history(self, agent_id: Optional[str] = None) -> dict:
         """
         Get the full saturation history for the discovery curve chart.
         
         Returns snapshots showing failure mode discovery over time,
         plus recommendations based on current saturation status.
+        
+        Note: Uses total notes as the x-axis metric (threads_reviewed field),
+        since we now use Weave-native trace review.
         """
         with get_db() as conn:
             cursor = conn.cursor()
             
-            # Get all snapshots ordered by threads reviewed
+            # Get all snapshots ordered by notes count (stored as threads_reviewed)
             cursor.execute("""
                 SELECT * FROM saturation_snapshots 
                 ORDER BY threads_reviewed ASC
             """)
             snapshot_rows = cursor.fetchall()
             
-            # Get current counts
-            cursor.execute("SELECT COUNT(*) as count FROM sessions WHERE is_reviewed = 1")
-            current_threads = cursor.fetchone()["count"]
+            # Get current counts - optionally filtered by agent
+            if agent_id:
+                cursor.execute("SELECT COUNT(*) as count FROM notes WHERE agent_id = ? OR agent_id IS NULL", (agent_id,))
+            else:
+                cursor.execute("SELECT COUNT(*) as count FROM notes")
+            total_notes = cursor.fetchone()["count"]
             
-            cursor.execute("SELECT COUNT(*) as count FROM failure_modes")
+            if agent_id:
+                cursor.execute("SELECT COUNT(*) as count FROM failure_modes WHERE agent_id = ? OR agent_id IS NULL", (agent_id,))
+            else:
+                cursor.execute("SELECT COUNT(*) as count FROM failure_modes")
             current_modes = cursor.fetchone()["count"]
             
-            cursor.execute("SELECT COUNT(*) as count FROM notes WHERE failure_mode_id IS NOT NULL")
+            if agent_id:
+                cursor.execute("SELECT COUNT(*) as count FROM notes WHERE failure_mode_id IS NOT NULL AND (agent_id = ? OR agent_id IS NULL)", (agent_id,))
+            else:
+                cursor.execute("SELECT COUNT(*) as count FROM notes WHERE failure_mode_id IS NOT NULL")
             current_notes = cursor.fetchone()["count"]
-            
-            cursor.execute("SELECT COUNT(*) as count FROM notes")
-            total_notes = cursor.fetchone()["count"]
             
             # Build snapshots list
             snapshots = []
             for row in snapshot_rows:
                 snapshots.append({
-                    "threads_reviewed": row["threads_reviewed"],
+                    "threads_reviewed": row["threads_reviewed"],  # Actually total notes count
                     "failure_modes_count": row["failure_modes_count"],
                     "categorized_notes": row["categorized_notes"],
                     "saturation_score": row["saturation_score"],
@@ -931,17 +934,17 @@ class TaxonomyService:
             
             # Find when the last new failure mode was discovered
             # by looking at where failure_modes_count increased
-            last_discovery_at_threads = 0
+            last_discovery_at = 0
             prev_count = 0
             for snap in snapshots:
                 if snap["failure_modes_count"] > prev_count:
-                    last_discovery_at_threads = snap["threads_reviewed"]
+                    last_discovery_at = snap["threads_reviewed"]
                     prev_count = snap["failure_modes_count"]
             
-            threads_since_last_discovery = current_threads - last_discovery_at_threads
+            notes_since_last_discovery = total_notes - last_discovery_at
             
-            # Calculate recent discoveries (in last ~20 threads)
-            recent_threshold = max(0, current_threads - 20)
+            # Calculate recent discoveries (in last ~20 notes)
+            recent_threshold = max(0, total_notes - 20)
             recent_discoveries = 0
             modes_at_threshold = 0
             for snap in snapshots:
@@ -955,21 +958,21 @@ class TaxonomyService:
                 saturation_score = current_notes / total_notes
             
             # Determine status and recommendation
-            if current_threads == 0:
+            if total_notes == 0:
                 status = "no_data"
-                recommendation = "Start by reviewing some threads to begin building your failure taxonomy."
+                recommendation = "Start by syncing notes from Weave to begin building your failure taxonomy."
                 recommendation_type = "info"
             elif current_modes == 0:
                 status = "discovering"
-                recommendation = "No failure modes yet. Review more threads and add notes to identify failure patterns."
+                recommendation = "No failure modes yet. Categorize notes to identify failure patterns."
                 recommendation_type = "action"
-            elif threads_since_last_discovery >= 20:
+            elif notes_since_last_discovery >= 20:
                 status = "saturated"
-                recommendation = f"Taxonomy appears stable. No new failure modes discovered in the last {threads_since_last_discovery} threads. You can focus on addressing existing issues."
+                recommendation = f"Taxonomy appears stable. No new failure modes discovered in the last {notes_since_last_discovery} notes. You can focus on addressing existing issues."
                 recommendation_type = "success"
-            elif threads_since_last_discovery >= 10:
+            elif notes_since_last_discovery >= 10:
                 status = "approaching_saturation"
-                recommendation = f"Approaching saturation. Only {recent_discoveries} new modes in recent reviews. Consider reviewing {20 - threads_since_last_discovery} more threads to confirm stability."
+                recommendation = f"Approaching saturation. Only {recent_discoveries} new modes in recent notes. Continue reviewing to confirm stability."
                 recommendation_type = "info"
             else:
                 status = "discovering"
@@ -977,9 +980,9 @@ class TaxonomyService:
                 recommendation_type = "action"
             
             # If we don't have snapshots but do have data, create initial point
-            if len(snapshots) == 0 and (current_threads > 0 or current_modes > 0):
+            if len(snapshots) == 0 and (total_notes > 0 or current_modes > 0):
                 snapshots.append({
-                    "threads_reviewed": current_threads,
+                    "threads_reviewed": total_notes,
                     "failure_modes_count": current_modes,
                     "categorized_notes": current_notes,
                     "saturation_score": saturation_score,
@@ -988,11 +991,11 @@ class TaxonomyService:
             
             return {
                 "snapshots": snapshots,
-                "current_threads": current_threads,
+                "current_threads": total_notes,  # Renamed but kept for API compatibility
                 "current_modes": current_modes,
                 "current_notes": current_notes,
-                "last_discovery_at_threads": last_discovery_at_threads,
-                "threads_since_last_discovery": threads_since_last_discovery,
+                "last_discovery_at_threads": last_discovery_at,
+                "threads_since_last_discovery": notes_since_last_discovery,
                 "saturation_score": round(saturation_score, 3),
                 "saturation_status": status,
                 "recommendation": recommendation,
@@ -1004,12 +1007,13 @@ class TaxonomyService:
     # Batch Categorization (Phase 2)
     # ------------------------------------------------------------------------
     
-    async def batch_suggest_categories(self, note_ids: Optional[list[str]] = None) -> dict:
+    async def batch_suggest_categories(self, note_ids: Optional[list[str]] = None, agent_id: Optional[str] = None) -> dict:
         """
         Get AI suggestions for multiple notes WITHOUT applying them.
         
         Returns a list of suggestions that the user can review before applying.
         This is for the "batch categorization review" workflow.
+        Optionally filter by agent.
         """
         if note_ids:
             # Get specific notes
@@ -1035,15 +1039,15 @@ class TaxonomyService:
                     source_type=row["source_type"] if "source_type" in row.keys() else "weave_feedback"
                 ) for row in rows]
         else:
-            # Get all uncategorized notes
-            notes = self.get_uncategorized_notes()
+            # Get all uncategorized notes (optionally filtered by agent)
+            notes = self.get_uncategorized_notes(agent_id=agent_id)
         
         suggestions = []
         errors = []
         
         for note in notes:
             try:
-                suggestion = await self.suggest_category_for_note(note.id)
+                suggestion = await self.suggest_category_for_note(note.id, agent_id=agent_id)
                 suggestions.append({
                     "note_id": note.id,
                     "note_content": note.content[:200] + "..." if len(note.content) > 200 else note.content,
@@ -1063,7 +1067,7 @@ class TaxonomyService:
             "errors": errors
         }
     
-    def batch_apply_categories(self, assignments: list[dict]) -> dict:
+    def batch_apply_categories(self, assignments: list[dict], agent_id: Optional[str] = None) -> dict:
         """
         Apply multiple category assignments at once.
         
@@ -1073,6 +1077,7 @@ class TaxonomyService:
         - failure_mode_id: str (if action is "existing")
         - new_category: dict with name, description, severity, suggested_fix (if action is "new")
         
+        Optionally associates new failure modes with an agent.
         Returns stats about what was applied.
         """
         results = {
@@ -1119,12 +1124,13 @@ class TaxonomyService:
                         results["errors"].append({"note_id": note_id, "error": "Missing new_category"})
                         continue
                     
-                    # Create the new failure mode
+                    # Create the new failure mode (associate with agent if provided)
                     new_mode = self.create_failure_mode(
                         name=new_category["name"],
                         description=new_category.get("description", ""),
                         severity=new_category.get("severity", "medium"),
-                        suggested_fix=new_category.get("suggested_fix")
+                        suggested_fix=new_category.get("suggested_fix"),
+                        agent_id=agent_id
                     )
                     
                     # Assign the note to it
@@ -1205,11 +1211,11 @@ class TaxonomyService:
         
         return result.model_dump()
     
-    def get_taxonomy_summary(self) -> dict:
-        """Get a full summary of the taxonomy."""
-        failure_modes = self.get_all_failure_modes()
-        uncategorized = self.get_uncategorized_notes()
-        all_notes = self.get_all_notes()
+    def get_taxonomy_summary(self, agent_id: Optional[str] = None) -> dict:
+        """Get a full summary of the taxonomy, optionally filtered by agent."""
+        failure_modes = self.get_all_failure_modes(agent_id=agent_id)
+        uncategorized = self.get_uncategorized_notes(agent_id=agent_id)
+        all_notes = self.get_all_notes(agent_id=agent_id)
         saturation = self.get_saturation_stats()
         
         return {
@@ -1228,24 +1234,34 @@ class TaxonomyService:
     # Batch-Based Saturation Tracking
     # ------------------------------------------------------------------------
     
-    def get_saturation_by_batch(self) -> dict:
+    def get_saturation_by_batch(self, agent_id: Optional[str] = None) -> dict:
         """
         Compute saturation stats grouped by batch.
         
-        Returns batch-level metrics for the three charts:
-        1. Review progress per batch
-        2. New vs matched modes per batch
+        Returns batch-level metrics showing:
+        1. Query count per batch
+        2. New vs matched modes per batch (based on failure mode creation times)
         3. Cumulative mode count over batches
+        
+        Optionally filtered by agent.
         """
         with get_db() as conn:
             cursor = conn.cursor()
             
-            # Get all batches ordered by creation
-            cursor.execute("""
-                SELECT id, name, created_at 
-                FROM synthetic_batches 
-                ORDER BY created_at ASC
-            """)
+            # Get all batches ordered by creation, optionally filtered by agent
+            if agent_id:
+                cursor.execute("""
+                    SELECT id, name, created_at 
+                    FROM synthetic_batches 
+                    WHERE agent_id = ?
+                    ORDER BY created_at ASC
+                """, (agent_id,))
+            else:
+                cursor.execute("""
+                    SELECT id, name, created_at 
+                    FROM synthetic_batches 
+                    ORDER BY created_at ASC
+                """)
             batches = cursor.fetchall()
             
             if not batches:
@@ -1253,8 +1269,7 @@ class TaxonomyService:
                     "batches": [],
                     "summary": {
                         "total_batches": 0,
-                        "total_sessions": 0,
-                        "total_reviewed": 0,
+                        "total_queries": 0,
                         "total_modes": 0,
                         "saturation_status": "discovering"
                     }
@@ -1267,46 +1282,37 @@ class TaxonomyService:
             for batch_order, batch in enumerate(batches):
                 batch_id = batch["id"]
                 batch_name = batch["name"] or f"Batch {batch_order + 1}"
+                batch_created_at = batch["created_at"]
                 
-                # Get session stats for this batch
+                # Get query count for this batch
                 cursor.execute("""
-                    SELECT 
-                        COUNT(*) as total,
-                        SUM(CASE WHEN is_reviewed = 1 THEN 1 ELSE 0 END) as reviewed
-                    FROM sessions 
+                    SELECT COUNT(*) as count
+                    FROM synthetic_queries 
                     WHERE batch_id = ?
                 """, (batch_id,))
-                session_stats = cursor.fetchone()
+                query_count = cursor.fetchone()["count"] or 0
                 
-                total_sessions = session_stats["total"] or 0
-                reviewed_sessions = session_stats["reviewed"] or 0
+                # Get failure modes created around this batch's time
+                # We consider modes created between this batch and the next batch
+                next_batch_idx = batch_order + 1
+                if next_batch_idx < len(batches):
+                    next_batch_created = batches[next_batch_idx]["created_at"]
+                    cursor.execute("""
+                        SELECT id FROM failure_modes
+                        WHERE created_at >= ? AND created_at < ?
+                    """, (batch_created_at, next_batch_created))
+                else:
+                    cursor.execute("""
+                        SELECT id FROM failure_modes
+                        WHERE created_at >= ?
+                    """, (batch_created_at,))
                 
-                # Get notes from this batch's sessions that are assigned to modes
-                cursor.execute("""
-                    SELECT n.failure_mode_id, fm.created_at as mode_created_at
-                    FROM notes n
-                    JOIN sessions s ON n.session_id = s.id
-                    JOIN failure_modes fm ON n.failure_mode_id = fm.id
-                    WHERE s.batch_id = ? AND n.failure_mode_id IS NOT NULL
-                """, (batch_id,))
-                assigned_notes = cursor.fetchall()
+                new_mode_rows = cursor.fetchall()
+                new_mode_ids = set(row["id"] for row in new_mode_rows)
                 
-                # Count new vs matched
-                new_modes = 0
-                matched_modes = 0
-                new_mode_ids = set()
-                
-                for note in assigned_notes:
-                    mode_id = note["failure_mode_id"]
-                    if mode_id in mode_ids_before_batch:
-                        matched_modes += 1
-                    elif mode_id not in new_mode_ids:
-                        # First time seeing this mode in this batch
-                        new_modes += 1
-                        new_mode_ids.add(mode_id)
-                    else:
-                        # Same new mode, but already counted
-                        matched_modes += 1
+                # Count modes
+                new_modes = len(new_mode_ids - mode_ids_before_batch)
+                matched_modes = len(new_mode_ids & mode_ids_before_batch)
                 
                 # Update cumulative tracking
                 mode_ids_before_batch.update(new_mode_ids)
@@ -1316,16 +1322,14 @@ class TaxonomyService:
                     "batch_id": batch_id,
                     "batch_name": batch_name,
                     "batch_order": batch_order,
-                    "total_sessions": total_sessions,
-                    "reviewed_sessions": reviewed_sessions,
+                    "query_count": query_count,
                     "new_modes_discovered": new_modes,
                     "existing_modes_matched": matched_modes,
                     "cumulative_modes": cumulative_modes
                 })
             
             # Compute summary
-            total_reviewed = sum(b["reviewed_sessions"] for b in result)
-            total_sessions = sum(b["total_sessions"] for b in result)
+            total_queries = sum(b["query_count"] for b in result)
             
             # Saturation status based on recent batches
             recent_batches = result[-3:] if len(result) >= 3 else result
@@ -1342,8 +1346,7 @@ class TaxonomyService:
                 "batches": result,
                 "summary": {
                     "total_batches": len(result),
-                    "total_sessions": total_sessions,
-                    "total_reviewed": total_reviewed,
+                    "total_queries": total_queries,
                     "total_modes": cumulative_modes,
                     "saturation_status": status
                 }

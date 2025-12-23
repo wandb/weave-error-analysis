@@ -60,11 +60,20 @@ def generate_batch_review_url(
     
     # Time filter (optional) - helps narrow down to just this batch's traces
     if started_after:
+        # Format date correctly: use Z suffix for UTC, not both offset and Z
+        # If datetime is timezone-aware, convert to UTC and use isoformat without offset
+        if started_after.tzinfo is not None:
+            # Replace timezone with UTC notation (Z suffix)
+            iso_str = started_after.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        else:
+            # Naive datetime, assume UTC
+            iso_str = started_after.strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+        
         items.append({
             "id": filter_id,
             "field": "started_at",
             "operator": "(date): after",
-            "value": started_after.isoformat() + "Z"
+            "value": iso_str
         })
         filter_id += 1
     

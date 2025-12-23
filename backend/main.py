@@ -5,9 +5,10 @@ Uses Weave Trace API (https://trace.wandb.ai) to query traces and feedback.
 
 Key Features:
 - Weave integration for tracing and prompt versioning
-- Background session sync from Weave to local SQLite
-- Fast, local-first session browsing
-- Auto-sync after batch execution
+- Synthetic batch generation and execution with batch_id attribution
+- Deep links to Weave UI for trace review
+- Feedback sync from Weave for taxonomy building
+- AI-assisted failure mode categorization
 """
 
 import os

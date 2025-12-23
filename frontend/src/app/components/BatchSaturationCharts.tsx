@@ -31,6 +31,7 @@ import { fetchBatchSaturation, BatchSaturationResponse, BatchSaturationData } fr
 interface BatchSaturationChartsProps {
   onRefresh?: () => void;
   defaultExpanded?: boolean;
+  agentId?: string;
 }
 
 // Theme colors matching the app
@@ -45,6 +46,7 @@ const COLORS = {
 export function BatchSaturationCharts({
   onRefresh,
   defaultExpanded = false,
+  agentId,
 }: BatchSaturationChartsProps) {
   const [data, setData] = useState<BatchSaturationResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -55,7 +57,7 @@ export function BatchSaturationCharts({
     try {
       setLoading(true);
       setError(null);
-      const result = await fetchBatchSaturation();
+      const result = await fetchBatchSaturation(agentId);
       setData(result);
     } catch (err) {
       setError("Failed to load batch saturation data");
@@ -67,7 +69,7 @@ export function BatchSaturationCharts({
 
   useEffect(() => {
     fetchData();
-  }, []);
+  }, [agentId]);
 
   const handleRefresh = () => {
     fetchData();

@@ -104,8 +104,8 @@ class DefaultSettings(BaseModel):
         internal=True
     )
     agent_query_timeout: SettingDefinition = SettingDefinition(
-        value="120",
-        description="Timeout in seconds for agent query requests (increase for slow agents)",
+        value="300",
+        description="Timeout in seconds for agent query requests (5 min default - increase for very slow agents)",
         internal=True
     )
     weave_api_timeout: SettingDefinition = SettingDefinition(

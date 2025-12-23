@@ -10,7 +10,7 @@ Provides:
 
 from typing import Optional, List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from services.taxonomy import taxonomy_service
@@ -30,6 +30,7 @@ class CreateFailureModeRequest(BaseModel):
     description: str
     severity: str = "medium"
     suggested_fix: Optional[str] = None
+    agent_id: Optional[str] = None
 
 
 class UpdateFailureModeRequest(BaseModel):
@@ -59,6 +60,7 @@ class AssignNoteRequest(BaseModel):
 
 class AutoCategorizeRequest(BaseModel):
     note_ids: Optional[List[str]] = None  # If None, categorize all uncategorized
+    agent_id: Optional[str] = None  # Filter by agent
 
 
 # ============================================================================
@@ -66,18 +68,23 @@ class AutoCategorizeRequest(BaseModel):
 # ============================================================================
 
 @router.get("")
-async def get_taxonomy():
+async def get_taxonomy(
+    agent_id: Optional[str] = Query(None, description="Filter by agent ID")
+):
     """
     Get the full taxonomy with failure modes, uncategorized notes, and saturation stats.
+    Optionally filter by agent_id to see agent-specific taxonomy.
     """
     try:
-        return taxonomy_service.get_taxonomy_summary()
+        return taxonomy_service.get_taxonomy_summary(agent_id=agent_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/saturation-history")
-async def get_saturation_history():
+async def get_saturation_history(
+    agent_id: Optional[str] = Query(None, description="Filter by agent ID")
+):
     """
     Get the full saturation discovery history for the chart visualization.
     
@@ -92,13 +99,15 @@ async def get_saturation_history():
     - recommendation_type: "info", "action", or "success"
     """
     try:
-        return taxonomy_service.get_saturation_history()
+        return taxonomy_service.get_saturation_history(agent_id=agent_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/saturation-by-batch")
-async def get_saturation_by_batch():
+async def get_saturation_by_batch(
+    agent_id: Optional[str] = Query(None, description="Filter by agent ID")
+):
     """
     Get saturation statistics grouped by batch for charts.
     
@@ -110,7 +119,7 @@ async def get_saturation_by_batch():
     All data comes from real database records - no mock data.
     """
     try:
-        return taxonomy_service.get_saturation_by_batch()
+        return taxonomy_service.get_saturation_by_batch(agent_id=agent_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -121,13 +130,14 @@ async def get_saturation_by_batch():
 
 @router.post("/failure-modes")
 async def create_failure_mode(request: CreateFailureModeRequest):
-    """Create a new failure mode."""
+    """Create a new failure mode, optionally associated with an agent."""
     try:
         mode = taxonomy_service.create_failure_mode(
             name=request.name,
             description=request.description,
             severity=request.severity,
-            suggested_fix=request.suggested_fix
+            suggested_fix=request.suggested_fix,
+            agent_id=request.agent_id
         )
         return mode.to_dict()
     except Exception as e:
@@ -204,12 +214,15 @@ async def merge_failure_modes(request: MergeFailureModesRequest):
 # ============================================================================
 
 @router.post("/notes/sync")
-async def sync_notes_from_weave():
+async def sync_notes_from_weave(
+    agent_id: Optional[str] = Query(None, description="Associate synced notes with agent ID")
+):
     """
     Sync notes from Weave feedback into the local taxonomy database.
     
     This pulls all notes from Weave and adds any new ones to our local DB.
     Existing notes (matched by content and trace) are skipped.
+    Optionally associates notes with a specific agent.
     """
     try:
         # Fetch notes from Weave
@@ -235,7 +248,7 @@ async def sync_notes_from_weave():
                     })
         
         # Sync to local DB
-        result = taxonomy_service.sync_notes_from_weave(weave_notes)
+        result = taxonomy_service.sync_notes_from_weave(weave_notes, agent_id=agent_id)
         
         return {
             "status": "synced",
@@ -265,7 +278,10 @@ async def assign_note(request: AssignNoteRequest):
 # ============================================================================
 
 @router.post("/notes/{note_id}/suggest")
-async def suggest_category_for_note(note_id: str):
+async def suggest_category_for_note(
+    note_id: str,
+    agent_id: Optional[str] = Query(None, description="Filter failure modes by agent ID")
+):
     """
     Use AI to suggest which failure mode a note belongs to.
     
@@ -273,7 +289,7 @@ async def suggest_category_for_note(note_id: str):
     or suggests creating a new failure mode.
     """
     try:
-        return await taxonomy_service.suggest_category_for_note(note_id)
+        return await taxonomy_service.suggest_category_for_note(note_id, agent_id=agent_id)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except RuntimeError as e:
@@ -294,7 +310,7 @@ async def auto_categorize(request: AutoCategorizeRequest):
     Returns saturation metrics showing new vs matched categories.
     """
     try:
-        result = await taxonomy_service.auto_categorize_notes(request.note_ids)
+        result = await taxonomy_service.auto_categorize_notes(request.note_ids, agent_id=request.agent_id)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -306,6 +322,7 @@ async def auto_categorize(request: AutoCategorizeRequest):
 
 class BatchSuggestRequest(BaseModel):
     note_ids: Optional[List[str]] = None  # If None, suggest for all uncategorized
+    agent_id: Optional[str] = None  # Filter by agent
 
 
 class BatchApplyAssignment(BaseModel):
@@ -317,6 +334,7 @@ class BatchApplyAssignment(BaseModel):
 
 class BatchApplyRequest(BaseModel):
     assignments: List[BatchApplyAssignment]
+    agent_id: Optional[str] = None  # Associate new failure modes with agent
 
 
 @router.post("/batch-suggest")
@@ -333,7 +351,7 @@ async def batch_suggest_categories(request: BatchSuggestRequest):
     Returns a list of suggestions with confidence scores for human review.
     """
     try:
-        result = await taxonomy_service.batch_suggest_categories(request.note_ids)
+        result = await taxonomy_service.batch_suggest_categories(request.note_ids, agent_id=request.agent_id)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -356,7 +374,7 @@ async def batch_apply_categories(request: BatchApplyRequest):
     try:
         # Convert to list of dicts
         assignments = [a.model_dump() for a in request.assignments]
-        result = taxonomy_service.batch_apply_categories(assignments)
+        result = taxonomy_service.batch_apply_categories(assignments, agent_id=request.agent_id)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

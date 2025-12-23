@@ -179,8 +179,8 @@ def get_feedback_query_limit() -> int:
 # =============================================================================
 
 def get_agent_query_timeout() -> float:
-    """Get timeout in seconds for agent query requests."""
-    return float(get_config_value("agent_query_timeout", "AGENT_QUERY_TIMEOUT", "120"))
+    """Get timeout in seconds for agent query requests (5 min default)."""
+    return float(get_config_value("agent_query_timeout", "AGENT_QUERY_TIMEOUT", "300"))
 
 
 def get_weave_api_timeout() -> float:

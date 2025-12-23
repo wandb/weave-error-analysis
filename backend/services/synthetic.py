@@ -23,6 +23,8 @@ from collections import defaultdict
 from pydantic import BaseModel
 from enum import Enum
 
+import weave
+
 from services.agent_info import AgentInfo, TestingDimension
 from services.llm import LLMClient
 from logger import get_logger, log_event, LOG_LLM_CONTENT
@@ -48,6 +50,7 @@ class SuggestedDimension(BaseModel):
     values: list[SuggestedDimensionValue]
 
 
+@weave.op(name="suggest_dimensions")
 async def suggest_dimensions_llm(
     agent_name: str | None = None,
     agent_purpose: str | None = None,
@@ -61,6 +64,8 @@ async def suggest_dimensions_llm(
     Works in two modes:
     - Cold start (no agent info): Generate generic but useful dimensions
     - Agent-aware: Generate dimensions relevant to agent's capabilities
+    
+    Decorated with @weave.op so dimension suggestions appear as traces.
     
     Args:
         agent_name: Name of the agent (optional)
@@ -157,6 +162,7 @@ async def suggest_dimensions_llm(
     return dimensions
 
 
+@weave.op(name="suggest_bucket_values")
 async def suggest_values_for_bucket(
     dimension_name: str,
     existing_values: list[str],
@@ -167,6 +173,8 @@ async def suggest_values_for_bucket(
 ) -> list[SuggestedDimensionValue]:
     """
     Use LLM to suggest additional values for an existing dimension.
+    
+    Decorated with @weave.op so value suggestions appear as traces.
     
     Args:
         dimension_name: Name of the bucket to expand
@@ -462,12 +470,15 @@ class SyntheticGenerator:
         
         return tuples
     
+    @weave.op(name="generate_query")
     async def tuple_to_query(self, dimension_tuple: DimensionTuple) -> str:
         """
         Convert a dimension tuple to a natural language query.
         
         Uses LLM to generate a realistic user message that matches
         the characteristics defined by the tuple.
+        
+        Decorated with @weave.op so each query generation appears as a trace.
         
         Args:
             dimension_tuple: The tuple to convert
@@ -544,6 +555,7 @@ class SyntheticGenerator:
         
         return query_text
 
+    @weave.op(name="generate_batch_streaming")
     async def generate_batch_streaming(
         self,
         n: int = 20,
@@ -559,6 +571,9 @@ class SyntheticGenerator:
         
         Yields progress events as queries are generated, allowing real-time UI updates.
         Uses heuristic tuple generation with user-defined dimensions.
+        
+        Note: For weave tracing, use generate_batch() instead which wraps all
+        query generations under a single parent trace.
         
         Args:
             n: Number of queries to generate

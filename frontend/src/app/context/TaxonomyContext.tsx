@@ -11,6 +11,7 @@
  * - Sync from Weave
  * - Auto-categorization
  * - Failure mode CRUD
+ * - Agent-specific taxonomy filtering
  */
 
 import {
@@ -34,12 +35,12 @@ interface TaxonomyContextState {
   syncing: boolean;
   categorizing: boolean;
   
-  // Actions
-  fetchTaxonomy: () => Promise<void>;
-  syncNotesFromWeave: () => Promise<void>;
-  autoCategorize: () => Promise<void>;
-  createFailureMode: (name: string, desc: string, severity: string) => Promise<{ id: string }>;
-  deleteFailureMode: (modeId: string) => Promise<void>;
+  // Actions - now accept optional agentId for filtering
+  fetchTaxonomy: (agentId?: string) => Promise<void>;
+  syncNotesFromWeave: (agentId?: string) => Promise<void>;
+  autoCategorize: (agentId?: string) => Promise<void>;
+  createFailureMode: (name: string, desc: string, severity: string, agentId?: string) => Promise<{ id: string }>;
+  deleteFailureMode: (modeId: string, agentId?: string) => Promise<void>;
 }
 
 const TaxonomyContext = createContext<TaxonomyContextState | null>(null);
@@ -63,15 +64,18 @@ export function TaxonomyProvider({ children }: TaxonomyProviderProps) {
   const [loadingTaxonomy, setLoadingTaxonomy] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [categorizing, setCategorizing] = useState(false);
+  // Track current agentId for refetching
+  const [currentAgentId, setCurrentAgentId] = useState<string | undefined>(undefined);
   
   // ============================================================================
   // Actions
   // ============================================================================
   
-  const fetchTaxonomy = useCallback(async () => {
+  const fetchTaxonomy = useCallback(async (agentId?: string) => {
     setLoadingTaxonomy(true);
+    setCurrentAgentId(agentId);
     try {
-      const data = await api.fetchTaxonomy();
+      const data = await api.fetchTaxonomy(agentId);
       setTaxonomy(data);
     } catch (error) {
       console.error("Error fetching taxonomy:", error);
@@ -80,44 +84,45 @@ export function TaxonomyProvider({ children }: TaxonomyProviderProps) {
     }
   }, []);
   
-  const syncNotesFromWeave = useCallback(async () => {
+  const syncNotesFromWeave = useCallback(async (agentId?: string) => {
     setSyncing(true);
     try {
-      await api.syncNotesFromWeave();
-      await fetchTaxonomy();
+      await api.syncNotesFromWeave(agentId);
+      await fetchTaxonomy(agentId || currentAgentId);
     } catch (error) {
       console.error("Error syncing notes:", error);
     } finally {
       setSyncing(false);
     }
-  }, [fetchTaxonomy]);
+  }, [fetchTaxonomy, currentAgentId]);
   
-  const autoCategorize = useCallback(async () => {
+  const autoCategorize = useCallback(async (agentId?: string) => {
     setCategorizing(true);
     try {
-      await api.autoCategorize();
-      await fetchTaxonomy();
+      await api.autoCategorize(agentId);
+      await fetchTaxonomy(agentId || currentAgentId);
     } catch (error) {
       console.error("Error categorizing:", error);
     } finally {
       setCategorizing(false);
     }
-  }, [fetchTaxonomy]);
+  }, [fetchTaxonomy, currentAgentId]);
   
   const createFailureMode = useCallback(async (
     name: string,
     desc: string,
-    severity: string
+    severity: string,
+    agentId?: string
   ) => {
-    const result = await api.createFailureMode(name, desc, severity);
-    await fetchTaxonomy();
+    const result = await api.createFailureMode(name, desc, severity, undefined, agentId);
+    await fetchTaxonomy(agentId || currentAgentId);
     return result;
-  }, [fetchTaxonomy]);
+  }, [fetchTaxonomy, currentAgentId]);
   
-  const deleteFailureMode = useCallback(async (modeId: string) => {
+  const deleteFailureMode = useCallback(async (modeId: string, agentId?: string) => {
     await api.deleteFailureMode(modeId);
-    await fetchTaxonomy();
-  }, [fetchTaxonomy]);
+    await fetchTaxonomy(agentId || currentAgentId);
+  }, [fetchTaxonomy, currentAgentId]);
   
   // ============================================================================
   // Context Value

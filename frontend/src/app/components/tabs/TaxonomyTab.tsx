@@ -25,6 +25,7 @@ import {
   MoreVertical,
   GitMerge,
   Edit3,
+  Cpu,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import {
@@ -65,7 +66,9 @@ export function TaxonomyTab() {
     createFailureMode,
     deleteFailureMode,
     syntheticBatches,
+    agents,
     selectedAgent,
+    fetchAgentDetail,
     fetchBatches,
     setActiveTab,
   } = useApp();
@@ -144,6 +147,13 @@ export function TaxonomyTab() {
     }
   }, [selectedAgent, syntheticBatches.length, fetchBatches]);
 
+  // Refetch taxonomy when agent changes
+  useEffect(() => {
+    if (selectedAgent) {
+      fetchTaxonomy(selectedAgent.id);
+    }
+  }, [selectedAgent, fetchTaxonomy]);
+
   const toggleModeExpanded = (modeId: string) => {
     const newExpanded = new Set(expandedModes);
     if (newExpanded.has(modeId)) {
@@ -160,7 +170,7 @@ export function TaxonomyTab() {
   const handleStatusUpdate = async (modeId: string, newStatus: FailureModeStatus) => {
     try {
       await api.updateFailureModeStatus(modeId, newStatus);
-      await fetchTaxonomy();
+      await fetchTaxonomy(selectedAgent?.id);
     } catch (error) {
       console.error("Failed to update status:", error);
     }
@@ -196,7 +206,7 @@ export function TaxonomyTab() {
         status: editStatus,
         suggested_fix: editSuggestedFix || undefined,
       });
-      await fetchTaxonomy();
+      await fetchTaxonomy(selectedAgent?.id);
       cancelEditing();
     } catch (error) {
       console.error("Failed to save:", error);
@@ -219,7 +229,7 @@ export function TaxonomyTab() {
     setMerging(true);
     try {
       await api.mergeFailureModes(mergeSourceId, mergeTargetId, mergeName || undefined);
-      await fetchTaxonomy();
+      await fetchTaxonomy(selectedAgent?.id);
       setShowMergeModal(false);
       setMergeSourceId(null);
       setMergeTargetId(null);
@@ -239,7 +249,7 @@ export function TaxonomyTab() {
     setBatchAssignments(new Map());
     
     try {
-      const result = await api.batchSuggestCategories();
+      const result = await api.batchSuggestCategories(undefined, selectedAgent?.id);
       setBatchSuggestions(result.suggestions);
       
       // Initialize assignments with AI suggestions
@@ -285,9 +295,9 @@ export function TaxonomyTab() {
     setApplyingBatch(true);
     try {
       const assignments = Array.from(batchAssignments.values());
-      await api.batchApplyCategories(assignments);
+      await api.batchApplyCategories(assignments, selectedAgent?.id);
       setShowBatchModal(false);
-      fetchTaxonomy();
+      fetchTaxonomy(selectedAgent?.id);
     } catch (error) {
       console.error("Failed to apply batch categorization:", error);
     } finally {
@@ -334,7 +344,7 @@ export function TaxonomyTab() {
   const handleCreateMode = async () => {
     if (!newModeName.trim()) return;
     try {
-      const result = await createFailureMode(newModeName, newModeDescription, newModeSeverity);
+      const result = await createFailureMode(newModeName, newModeDescription, newModeSeverity, selectedAgent?.id);
       setShowCreateModal(false);
       setNewModeName("");
       setNewModeDescription("");
@@ -343,7 +353,7 @@ export function TaxonomyTab() {
       if (selectedNote) {
         await api.assignNoteToMode(selectedNote.id, result.id, "manual");
         setSelectedNote(null);
-        await fetchTaxonomy();
+        await fetchTaxonomy(selectedAgent?.id);
       }
     } catch (error) {
       console.error("Error creating failure mode:", error);
@@ -353,7 +363,7 @@ export function TaxonomyTab() {
   const suggestCategoryForNote = async (noteId: string) => {
     setLoadingSuggestion(true);
     try {
-      const data = await api.suggestCategoryForNote(noteId);
+      const data = await api.suggestCategoryForNote(noteId, selectedAgent?.id);
       setNoteSuggestion(data);
     } catch (error) {
       console.error("Error getting suggestion:", error);
@@ -367,7 +377,7 @@ export function TaxonomyTab() {
       await api.assignNoteToMode(noteId, modeId, method);
       setSelectedNote(null);
       setNoteSuggestion(null);
-      await fetchTaxonomy();
+      await fetchTaxonomy(selectedAgent?.id);
     } catch (error) {
       console.error("Error assigning note:", error);
     }
@@ -382,7 +392,8 @@ export function TaxonomyTab() {
       const result = await createFailureMode(
         noteSuggestion.new_category.name,
         noteSuggestion.new_category.description,
-        noteSuggestion.new_category.severity
+        noteSuggestion.new_category.severity,
+        selectedAgent?.id
       );
       await assignNoteToMode(selectedNote.id, result.id, "ai_suggested");
     }
@@ -415,13 +426,35 @@ export function TaxonomyTab() {
             </div>
           </div>
 
+          {/* Right side: Agent Selector */}
+          <div className="flex items-center gap-2">
+            <Cpu className="w-4 h-4 text-moon-450" />
+            <select
+              value={selectedAgent?.id || ""}
+              onChange={(e) => {
+                const agent = agents.find((a) => a.id === e.target.value);
+                if (agent) fetchAgentDetail(agent.id);
+              }}
+              className="px-3 py-2 rounded-md text-sm min-w-[200px] bg-moon-900 border border-moon-700 text-moon-50"
+            >
+              {agents.length === 0 ? (
+                <option value="">No agents registered</option>
+              ) : (
+                agents.map((agent) => (
+                  <option key={agent.id} value={agent.id}>
+                    {agent.name}
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
         </div>
       </div>
 
       {/* ========================================================================= */}
       {/* Batch Saturation Charts (Collapsible) */}
       {/* ========================================================================= */}
-      <BatchSaturationCharts onRefresh={fetchTaxonomy} />
+      <BatchSaturationCharts onRefresh={() => fetchTaxonomy(selectedAgent?.id)} agentId={selectedAgent?.id} />
 
       {/* ========================================================================= */}
       {/* Status Filter Bar */}
@@ -539,7 +572,7 @@ export function TaxonomyTab() {
             <PanelHeader icon={<Zap className="w-4 h-4 text-teal" />} title="Actions" />
             <div className="space-y-2">
                       <button
-                onClick={syncNotesFromWeave}
+                onClick={() => syncNotesFromWeave(selectedAgent?.id)}
                 disabled={syncing}
                 className="w-full btn-ghost text-sm flex items-center gap-2 justify-start px-3 py-2"
                       >
@@ -548,7 +581,7 @@ export function TaxonomyTab() {
                       </button>
                       <div className="flex items-center gap-1">
                 <button
-                  onClick={autoCategorize}
+                  onClick={() => autoCategorize(selectedAgent?.id)}
                   disabled={categorizing || !taxonomy?.uncategorized_notes.length}
                   className="flex-1 btn-ghost text-sm flex items-center gap-2 justify-start px-3 py-2"
                 >
@@ -573,7 +606,7 @@ export function TaxonomyTab() {
                 New Failure Mode
                   </button>
               <button
-                onClick={fetchTaxonomy}
+                onClick={() => fetchTaxonomy(selectedAgent?.id)}
                 disabled={loadingTaxonomy}
                 className="w-full btn-ghost text-sm flex items-center gap-2 justify-start px-3 py-2"
               >
@@ -925,7 +958,7 @@ export function TaxonomyTab() {
         open={!!deletingModeId}
         onConfirm={() => {
           if (deletingModeId) {
-            deleteFailureMode(deletingModeId);
+            deleteFailureMode(deletingModeId, selectedAgent?.id);
             setDeletingModeId(null);
           }
         }}

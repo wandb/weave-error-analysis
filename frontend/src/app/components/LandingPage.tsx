@@ -76,9 +76,9 @@ export default function LandingPage({ onSkipToAgents }: LandingPageProps) {
     },
     {
       icon: <MessageCircle className="w-7 h-7" />,
-      title: "Review Threads",
+      title: "Review in Weave",
       subtitle: "Step 3",
-      description: "Review agent responses, identify issues, and add notes. Each note captures an observation about agent behavior.",
+      description: "Review agent traces in Weave's native UI. Add feedback and notes directly in Weave to capture observations about agent behavior.",
     },
     {
       icon: <BarChart3 className="w-7 h-7" />,

@@ -8,9 +8,11 @@ Stores:
 - Agents and their configurations (AGENT_INFO)
 - Synthetic batches and queries
 - Auto-review results
-- Sessions (local cache of Weave sessions for fast filtering)
-- Session notes (local notes with Weave sync)
-- Sync status (background sync state tracking)
+- Weave feedback (synced from Weave for taxonomy analysis)
+- AI suggestions for trace quality issues
+
+Note: Users review traces directly in Weave's native UI. Feedback and notes
+are synced back from Weave for taxonomy building.
 
 Optimizations:
 - Connection pooling via thread-local storage
@@ -158,6 +160,8 @@ def init_db():
                 cursor.execute("ALTER TABLE failure_modes ADD COLUMN status TEXT DEFAULT 'active'")
             if "status_changed_at" not in fm_columns:
                 cursor.execute("ALTER TABLE failure_modes ADD COLUMN status_changed_at TEXT")
+            if "agent_id" not in fm_columns:
+                cursor.execute("ALTER TABLE failure_modes ADD COLUMN agent_id TEXT")
             
             # Notes table - tracks which Weave notes are assigned to which failure mode
             cursor.execute("""
@@ -179,13 +183,15 @@ def init_db():
                 )
             """)
             
-            # Migration: Add session_id and source_type columns if they don't exist
+            # Migration: Add session_id, source_type, and agent_id columns if they don't exist
             cursor.execute("PRAGMA table_info(notes)")
             columns = [col[1] for col in cursor.fetchall()]
             if "session_id" not in columns:
                 cursor.execute("ALTER TABLE notes ADD COLUMN session_id TEXT")
             if "source_type" not in columns:
                 cursor.execute("ALTER TABLE notes ADD COLUMN source_type TEXT DEFAULT 'weave_feedback'")
+            if "agent_id" not in columns:
+                cursor.execute("ALTER TABLE notes ADD COLUMN agent_id TEXT")
             
             # Saturation log - tracks discovery of new failure modes over time
             cursor.execute("""

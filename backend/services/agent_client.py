@@ -18,7 +18,6 @@ log a trace with the batch_id to the user's Weave project. This allows filtering
 in Weave UI by batch_id without requiring anything special from the user's agent.
 """
 
-import weave
 import httpx
 from typing import Any
 from datetime import datetime
@@ -133,9 +132,9 @@ class AgentClient:
         """
         Send a query to the agent and get the response.
         
-        If batch_id is provided, we use weave.attributes() to log a trace
-        with batch_id to the user's Weave project. This enables filtering
-        by batch_id in Weave UI without requiring anything from the agent.
+        If batch_id is provided, it's passed to the agent server which wraps
+        the agent execution in weave.attributes(). This ensures ALL agent traces
+        (LLM calls, tool calls, etc.) inherit the batch_id for Weave filtering.
         
         Args:
             query: The user query to send to the agent
@@ -155,20 +154,14 @@ class AgentClient:
             batch_id=batch_id
         )
         
-        # Build request body
+        # Build request body - batch_id is passed to agent for weave attribution
         request_body = {"query": query}
         if batch_id:
             request_body["batch_id"] = batch_id
         
-        # Build weave attributes for this call
-        attrs = {}
-        if batch_id:
-            attrs["batch_id"] = batch_id
-        
-        # Execute the HTTP call, optionally with weave attributes for tracing
+        # Execute the HTTP call to the agent
         return await self._execute_http_query(
             request_body=request_body,
-            attrs=attrs,
             request_id=request_id,
             start_time=start_time
         )
@@ -176,37 +169,15 @@ class AgentClient:
     async def _execute_http_query(
         self,
         request_body: dict,
-        attrs: dict,
         request_id: str,
         start_time: datetime
     ) -> QueryResponse:
         """
-        Execute the HTTP query, wrapped in weave.attributes if attrs provided.
+        Execute the HTTP query to the agent.
         
-        This logs a trace to the user's Weave project with batch_id attribute,
-        making it filterable in Weave UI.
-        """
-        # Execute with weave attributes (logs a trace to user's project)
-        if attrs:
-            with weave.attributes(attrs):
-                return await self._do_http_request(
-                    request_body, request_id, start_time
-                )
-        else:
-            return await self._do_http_request(
-                request_body, request_id, start_time
-            )
-    
-    @weave.op(name="agent_query")
-    async def _do_http_request(
-        self,
-        request_body: dict,
-        request_id: str,
-        start_time: datetime
-    ) -> QueryResponse:
-        """
-        The actual HTTP call to the agent - decorated with @weave.op so
-        it gets traced when called within weave.attributes() context.
+        The agent server handles weave tracing - we just pass batch_id in the request
+        and the agent sets weave.attributes() on its side. This ensures ALL agent
+        traces (LLM calls, tool calls, etc.) inherit the batch_id attribute.
         """
         async with httpx.AsyncClient() as client:
             try:

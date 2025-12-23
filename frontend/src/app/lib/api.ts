@@ -12,13 +12,6 @@ import type {
   SettingsGroup,
   ConfigStatus,
   TestConnectionResult,
-  SessionDetail,
-  SessionListResponse,
-  SessionStats,
-  SyncStatus,
-  BatchReviewProgress,
-  SessionFilters,
-  FilterRanges,
   FailureMode,
   FailureModeStatus,
   TraceSuggestion,
@@ -406,19 +399,21 @@ export async function resetDatabase(
 // Taxonomy API
 // ============================================================================
 
-export async function fetchTaxonomy(): Promise<Taxonomy> {
-  return cachedGet(`${API_BASE}/taxonomy`, { ttl: CACHE_TTL.SHORT });
+export async function fetchTaxonomy(agentId?: string): Promise<Taxonomy> {
+  const params = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : "";
+  return cachedGet(`${API_BASE}/taxonomy${params}`, { ttl: CACHE_TTL.SHORT });
 }
 
-export async function syncNotesFromWeave(): Promise<{ synced: number }> {
-  return apiCall(`${API_BASE}/taxonomy/notes/sync`, { method: "POST" });
+export async function syncNotesFromWeave(agentId?: string): Promise<{ synced: number }> {
+  const params = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : "";
+  return apiCall(`${API_BASE}/taxonomy/notes/sync${params}`, { method: "POST" });
 }
 
-export async function autoCategorize(): Promise<{ categorized: number }> {
+export async function autoCategorize(agentId?: string): Promise<{ categorized: number }> {
   return apiCall(`${API_BASE}/taxonomy/auto-categorize`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({}),
+    body: JSON.stringify({ agent_id: agentId || null }),
   });
 }
 
@@ -445,8 +440,9 @@ export interface SaturationHistory {
   recent_discoveries: number;
 }
 
-export async function fetchSaturationHistory(): Promise<SaturationHistory> {
-  return apiCall(`${API_BASE}/taxonomy/saturation-history`);
+export async function fetchSaturationHistory(agentId?: string): Promise<SaturationHistory> {
+  const params = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : "";
+  return apiCall(`${API_BASE}/taxonomy/saturation-history${params}`);
 }
 
 // Batch Saturation API (new batch-centric charts)
@@ -472,12 +468,14 @@ export interface BatchSaturationResponse {
   };
 }
 
-export async function fetchBatchSaturation(): Promise<BatchSaturationResponse> {
-  return apiCall(`${API_BASE}/taxonomy/saturation-by-batch`);
+export async function fetchBatchSaturation(agentId?: string): Promise<BatchSaturationResponse> {
+  const params = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : "";
+  return apiCall(`${API_BASE}/taxonomy/saturation-by-batch${params}`);
 }
 
-export async function suggestCategoryForNote(noteId: string): Promise<AISuggestion> {
-  return apiCall(`${API_BASE}/taxonomy/notes/${noteId}/suggest`, { method: "POST" });
+export async function suggestCategoryForNote(noteId: string, agentId?: string): Promise<AISuggestion> {
+  const params = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : "";
+  return apiCall(`${API_BASE}/taxonomy/notes/${noteId}/suggest${params}`, { method: "POST" });
 }
 
 export async function assignNoteToMode(
@@ -496,7 +494,8 @@ export async function createFailureMode(
   name: string,
   description: string,
   severity: string,
-  suggestedFix?: string
+  suggestedFix?: string,
+  agentId?: string
 ): Promise<{ id: string }> {
   const result = await apiCall<{ id: string }>(`${API_BASE}/taxonomy/failure-modes`, {
     method: "POST",
@@ -506,6 +505,7 @@ export async function createFailureMode(
       description,
       severity,
       suggested_fix: suggestedFix,
+      agent_id: agentId || null,
     }),
   });
   invalidateCache(/\/taxonomy/);
@@ -604,21 +604,22 @@ export interface BatchApplyResult {
   errors: Array<{ note_id?: string; error: string }>;
 }
 
-export async function batchSuggestCategories(noteIds?: string[]): Promise<BatchSuggestResult> {
+export async function batchSuggestCategories(noteIds?: string[], agentId?: string): Promise<BatchSuggestResult> {
   return apiCall(`${API_BASE}/taxonomy/batch-suggest`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ note_ids: noteIds || null }),
+    body: JSON.stringify({ note_ids: noteIds || null, agent_id: agentId || null }),
   });
 }
 
 export async function batchApplyCategories(
-  assignments: BatchApplyAssignment[]
+  assignments: BatchApplyAssignment[],
+  agentId?: string
 ): Promise<BatchApplyResult> {
   return apiCall(`${API_BASE}/taxonomy/batch-apply`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ assignments }),
+    body: JSON.stringify({ assignments, agent_id: agentId || null }),
   });
 }
 
@@ -871,127 +872,6 @@ export async function testLLMConnection(): Promise<TestConnectionResult> {
 
 export async function testWeaveConnection(): Promise<TestConnectionResult> {
   return apiCall(`${API_BASE}/settings/test-weave`, { method: "POST" });
-}
-
-// ============================================================================
-// Sessions API (Phase 5 - Local-First Sessions)
-// ============================================================================
-
-export interface FetchSessionsParams extends SessionFilters {
-  limit?: number;
-  offset?: number;
-  sort_by?: string;
-  direction?: string;
-}
-
-export async function fetchSessions(params: FetchSessionsParams = {}): Promise<SessionListResponse> {
-  const urlParams = new URLSearchParams();
-  
-  // Pagination
-  if (params.limit != null) urlParams.append("limit", String(params.limit));
-  if (params.offset != null) urlParams.append("offset", String(params.offset));
-  
-  // Sorting
-  if (params.sort_by) urlParams.append("sort_by", params.sort_by);
-  if (params.direction) urlParams.append("direction", params.direction);
-  
-  // Filters
-  if (params.batch_id) urlParams.append("batch_id", params.batch_id);
-  if (params.exclude_batches) urlParams.append("exclude_batches", "true");
-  if (params.min_turns != null) urlParams.append("min_turns", String(params.min_turns));
-  if (params.max_turns != null) urlParams.append("max_turns", String(params.max_turns));
-  if (params.is_reviewed != null) urlParams.append("is_reviewed", String(params.is_reviewed));
-  if (params.has_error != null) urlParams.append("has_error", String(params.has_error));
-  if (params.min_tokens != null) urlParams.append("min_tokens", String(params.min_tokens));
-  if (params.max_tokens != null) urlParams.append("max_tokens", String(params.max_tokens));
-  if (params.min_cost != null) urlParams.append("min_cost", String(params.min_cost));
-  if (params.max_cost != null) urlParams.append("max_cost", String(params.max_cost));
-  if (params.min_latency != null) urlParams.append("min_latency", String(params.min_latency));
-  if (params.max_latency != null) urlParams.append("max_latency", String(params.max_latency));
-  if (params.started_after) urlParams.append("started_after", params.started_after);
-  if (params.started_before) urlParams.append("started_before", params.started_before);
-  if (params.primary_model) urlParams.append("primary_model", params.primary_model);
-  if (params.note_search) urlParams.append("note_search", params.note_search);
-  if (params.random_sample != null) urlParams.append("random_sample", String(params.random_sample));
-  if (params.id_prefix) urlParams.append("id_prefix", params.id_prefix);
-
-  return apiCall(`${API_BASE}/sessions?${urlParams}`);
-}
-
-export async function fetchSessionDetail(sessionId: string): Promise<SessionDetail> {
-  return apiCall(`${API_BASE}/sessions/${sessionId}`);
-}
-
-export async function fetchSyncStatus(): Promise<SyncStatus> {
-  return apiCall(`${API_BASE}/sessions/sync-status`);
-}
-
-export async function triggerSync(fullSync: boolean = false, batchId?: string): Promise<{ status: string; message: string }> {
-  const params = new URLSearchParams();
-  if (fullSync) params.append("full_sync", "true");
-  if (batchId) params.append("batch_id", batchId);
-  
-  return apiCall(`${API_BASE}/sessions/sync?${params}`, { method: "POST" });
-}
-
-export async function fetchSessionStats(batchId?: string): Promise<SessionStats> {
-  const params = new URLSearchParams();
-  if (batchId) params.append("batch_id", batchId);
-  
-  return apiCall(`${API_BASE}/sessions/stats/summary?${params}`);
-}
-
-export async function markSessionReviewed(sessionId: string, notes?: string): Promise<void> {
-  await apiCall(`${API_BASE}/sessions/${sessionId}/mark-reviewed`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ notes }),
-  });
-  invalidateCache(new RegExp(`/sessions/${sessionId}`));
-  invalidateCache(/\/sessions\?/); // Invalidate list queries
-}
-
-export async function unmarkSessionReviewed(sessionId: string): Promise<void> {
-  await apiCall(`${API_BASE}/sessions/${sessionId}/mark-reviewed`, { method: "DELETE" });
-  invalidateCache(new RegExp(`/sessions/${sessionId}`));
-  invalidateCache(/\/sessions\?/);
-}
-
-export async function fetchSessionNotes(sessionId: string): Promise<SessionDetail["notes"]> {
-  return apiCall(`${API_BASE}/sessions/${sessionId}/notes`);
-}
-
-export async function createSessionNote(
-  sessionId: string,
-  content: string,
-  noteType: string = "observation",
-  callId?: string
-): Promise<void> {
-  await apiCall(`${API_BASE}/sessions/${sessionId}/notes`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ content, note_type: noteType, call_id: callId }),
-  });
-}
-
-export async function deleteSessionNote(sessionId: string, noteId: string): Promise<void> {
-  await apiCall(`${API_BASE}/sessions/${sessionId}/notes/${noteId}`, { method: "DELETE" });
-}
-
-export async function fetchBatchReviewProgress(batchId: string): Promise<BatchReviewProgress> {
-  return apiCall(`${API_BASE}/sessions/batches/${batchId}/review-progress`);
-}
-
-export async function fetchModelOptions(): Promise<{ models: string[] }> {
-  return cachedGet(`${API_BASE}/sessions/options/models`, { ttl: CACHE_TTL.LONG });
-}
-
-export async function fetchBatchOptions(): Promise<{ batches: { id: string; name: string }[] }> {
-  return cachedGet(`${API_BASE}/sessions/options/batches`, { ttl: CACHE_TTL.MEDIUM });
-}
-
-export async function fetchFilterRanges(): Promise<FilterRanges> {
-  return cachedGet(`${API_BASE}/sessions/options/filter-ranges`, { ttl: CACHE_TTL.MEDIUM });
 }
 
 // ============================================================================

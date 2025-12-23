@@ -67,13 +67,8 @@ function AppLayout() {
     activeTab,
     goToAgents: () => setActiveTab("agents"),
     goToSynthetic: () => setActiveTab("synthetic"),
-    goToThreads: () => {}, // No-op: Threads tab removed
     goToTaxonomy: () => setActiveTab("taxonomy"),
     refresh: handleRefresh,
-    markReviewedAndNext: () => {}, // No-op: Review in Weave
-    previousSession: () => {},
-    nextSession: () => {},
-    deselectSession: () => {},
   });
 
   return (
@@ -157,7 +152,7 @@ function AppLayout() {
 
 interface TabNavigationProps {
   activeTab: string;
-  setActiveTab: (tab: "threads" | "taxonomy" | "agents" | "synthetic" | "settings") => void;
+  setActiveTab: (tab: "taxonomy" | "agents" | "synthetic" | "settings") => void;
   taxonomy: ReturnType<typeof useApp>["taxonomy"];
   agents: ReturnType<typeof useApp>["agents"];
   syntheticBatches: ReturnType<typeof useApp>["syntheticBatches"];

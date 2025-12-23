@@ -19,7 +19,6 @@ import {
   Link,
   CheckCircle2,
   AlertTriangle,
-  Target,
   Zap,
   Layers,
   FileText,
@@ -28,12 +27,11 @@ import {
   TrendingUp,
   Clock,
   ArrowRight,
-  Wrench,
   Square,
   Settings,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
-import { Panel, Badge, NoAgentsRegistered, SelectPrompt, ConfirmDialog } from "../ui";
+import { Panel, NoAgentsRegistered, SelectPrompt, ConfirmDialog } from "../ui";
 import type { AgentStats } from "../../types";
 import * as api from "../../lib/api";
 
@@ -65,7 +63,7 @@ export function AgentsTab() {
   const [newAgentName, setNewAgentName] = useState("");
   const [newAgentEndpoint, setNewAgentEndpoint] = useState("");
   const [newAgentWeaveProject, setNewAgentWeaveProject] = useState("");
-  const [newAgentInfo, setNewAgentInfo] = useState("");
+  const [newAgentContext, setNewAgentContext] = useState("");
   const [testingConnection, setTestingConnection] = useState(false);
   const [savingAgent, setSavingAgent] = useState(false);
 
@@ -87,23 +85,23 @@ export function AgentsTab() {
     setNewAgentName("");
     setNewAgentEndpoint("");
     setNewAgentWeaveProject("");
-    setNewAgentInfo("");
+    setNewAgentContext("");
   };
 
-  const getAgentInfoTemplate = async () => {
+  const getAgentContextTemplate = async () => {
     try {
       const template = await api.getAgentInfoTemplate(newAgentName || "My Agent");
-      setNewAgentInfo(template);
+      setNewAgentContext(template);
     } catch (error) {
       console.error("Error fetching template:", error);
     }
   };
 
   const handleCreateAgent = async () => {
-    if (!newAgentName || !newAgentEndpoint || !newAgentInfo) return;
+    if (!newAgentName || !newAgentEndpoint) return;
     setSavingAgent(true);
     try {
-      await createAgent(newAgentName, newAgentEndpoint, newAgentInfo);
+      await createAgent(newAgentName, newAgentEndpoint, newAgentContext, newAgentWeaveProject || undefined);
       resetAgentForm();
     } catch (error) {
       console.error("Error creating agent:", error);
@@ -117,7 +115,7 @@ export function AgentsTab() {
     if (!selectedAgent) return;
     setSavingAgent(true);
     try {
-      await updateAgent(selectedAgent.id, newAgentName, newAgentEndpoint, newAgentInfo);
+      await updateAgent(selectedAgent.id, newAgentName, newAgentEndpoint, newAgentContext, newAgentWeaveProject || undefined);
       resetAgentForm();
     } catch (error) {
       console.error("Error updating agent:", error);
@@ -201,10 +199,7 @@ export function AgentsTab() {
                 <div className="flex items-center gap-3 flex-1 min-w-0">
                   <Cpu className="w-5 h-5 text-accent-teal flex-shrink-0" />
                   <div className="flex-1 min-w-0 text-left">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-sand-100 truncate">{selectedAgent.name}</span>
-                      <span className="text-xs text-ink-400">v{selectedAgent.version}</span>
-                    </div>
+                    <span className="font-medium text-sand-100 truncate">{selectedAgent.name}</span>
                     <div className="flex items-center gap-2 mt-0.5">
                       <ConnectionStatusIcon status={selectedAgent.connection_status} />
                     </div>
@@ -235,15 +230,9 @@ export function AgentsTab() {
                     <div className="flex items-center gap-3">
                       <Cpu className="w-4 h-4 text-accent-teal flex-shrink-0" />
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-sand-100 truncate">{agent.name}</span>
-                          <span className="text-xs text-ink-400">v{agent.version}</span>
-                        </div>
+                        <span className="font-medium text-sand-100 truncate">{agent.name}</span>
                         <div className="flex items-center gap-2 mt-0.5">
                           <ConnectionStatusIcon status={agent.connection_status} />
-                          {agent.testing_dimensions_count > 0 && (
-                            <span className="text-xs text-ink-500">{agent.testing_dimensions_count} dimensions</span>
-                          )}
                         </div>
                       </div>
                     </div>
@@ -294,13 +283,13 @@ export function AgentsTab() {
           name={newAgentName}
           endpoint={newAgentEndpoint}
           weaveProject={newAgentWeaveProject}
-          info={newAgentInfo}
+          agentContext={newAgentContext}
           saving={savingAgent}
           onNameChange={setNewAgentName}
           onEndpointChange={setNewAgentEndpoint}
           onWeaveProjectChange={setNewAgentWeaveProject}
-          onInfoChange={setNewAgentInfo}
-          onLoadTemplate={getAgentInfoTemplate}
+          onAgentContextChange={setNewAgentContext}
+          onLoadTemplate={getAgentContextTemplate}
           onSave={agentFormMode === "create" ? handleCreateAgent : handleUpdateAgent}
           onCancel={resetAgentForm}
         />
@@ -335,7 +324,7 @@ export function AgentsTab() {
               setNewAgentName(selectedAgent.name);
               setNewAgentEndpoint(selectedAgent.endpoint_url);
               setNewAgentWeaveProject(selectedAgent.weave_project || "");
-              setNewAgentInfo(selectedAgent.agent_info_raw);
+              setNewAgentContext(selectedAgent.agent_context || "");
               setShowAgentForm(true);
             }}
             onDelete={() => setDeleteConfirmOpen(true)}
@@ -739,12 +728,12 @@ function AgentForm({
   name,
   endpoint,
   weaveProject,
-  info,
+  agentContext,
   saving,
   onNameChange,
   onEndpointChange,
   onWeaveProjectChange,
-  onInfoChange,
+  onAgentContextChange,
   onLoadTemplate,
   onSave,
   onCancel,
@@ -753,12 +742,12 @@ function AgentForm({
   name: string;
   endpoint: string;
   weaveProject: string;
-  info: string;
+  agentContext: string;
   saving: boolean;
   onNameChange: (v: string) => void;
   onEndpointChange: (v: string) => void;
   onWeaveProjectChange: (v: string) => void;
-  onInfoChange: (v: string) => void;
+  onAgentContextChange: (v: string) => void;
   onLoadTemplate: () => void;
   onSave: () => void;
   onCancel: () => void;
@@ -806,26 +795,26 @@ function AgentForm({
             className="w-full"
           />
           <p className="text-xs text-ink-500 mt-1">
-            The Weave project where this agent logs traces (optional). Leave empty if not using Weave tracing.
+            The Weave project where this agent logs traces. Leave empty if not using Weave tracing.
           </p>
         </div>
 
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="text-sm text-ink-400">AGENT_INFO.md Content *</label>
+            <label className="text-sm text-ink-400">Agent Context</label>
             <button onClick={onLoadTemplate} className="text-xs text-accent-teal hover:text-accent-teal/80">
-              Load Template
+              Load Example
             </button>
           </div>
           <textarea
-            value={info}
-            onChange={(e) => onInfoChange(e.target.value)}
-            placeholder="Paste your AGENT_INFO.md content here..."
-            rows={12}
-            className="w-full font-mono text-sm"
+            value={agentContext}
+            onChange={(e) => onAgentContextChange(e.target.value)}
+            placeholder="Describe what your agent does, its capabilities, and limitations. This context helps LLMs generate better queries and suggestions."
+            rows={8}
+            className="w-full text-sm"
           />
           <p className="text-xs text-ink-500 mt-1">
-            Document your agent&apos;s purpose, capabilities, tools, and testing dimensions
+            Free-form description of your agent. This is optional but helps with context-aware generation.
           </p>
         </div>
 
@@ -835,7 +824,7 @@ function AgentForm({
           </button>
           <button
             onClick={onSave}
-            disabled={!name || !endpoint || !info || saving}
+            disabled={!name || !endpoint || saving}
             className="btn-primary flex items-center gap-2"
           >
             {saving ? (
@@ -899,12 +888,9 @@ function AgentDetailView({
       <div className="flex items-start justify-between mb-6">
         <div>
           <h2 className="font-display text-xl text-sand-100">{agent.name}</h2>
-          <p className="text-sm text-ink-400 mt-1">{agent.purpose}</p>
-          <div className="flex items-center gap-4 mt-2 text-xs">
-            <span className="text-ink-500">v{agent.version}</span>
-            {agent.framework && <Badge variant="plum">{agent.framework}</Badge>}
-            {agent.agent_type && <Badge variant="gold">{agent.agent_type}</Badge>}
-          </div>
+          {agent.weave_project && (
+            <p className="text-sm text-ink-400 mt-1">Weave: {agent.weave_project}</p>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -977,90 +963,16 @@ function AgentDetailView({
         </div>
       </div>
 
-      {/* Capabilities */}
-      {agent.capabilities?.length > 0 && (
+      {/* Agent Context */}
+      {agent.agent_context && (
         <div className="mb-6">
-          <h3 className="text-sm font-medium text-ink-400 mb-2">Capabilities</h3>
-          <ul className="space-y-1">
-            {agent.capabilities.map((cap, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-sand-300">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
-                {cap}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Limitations */}
-      {agent.limitations?.length > 0 && (
-        <div className="mb-6">
-          <h3 className="text-sm font-medium text-ink-400 mb-2">Limitations</h3>
-          <ul className="space-y-1">
-            {agent.limitations.map((lim, i) => (
-              <li key={i} className="flex items-start gap-2 text-sm text-sand-300">
-                <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
-                {lim}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {/* Tools */}
-      {agent.tools?.length > 0 && (
-        <div className="mb-6">
-          <h3 className="text-sm font-medium text-ink-400 mb-2">Tools ({agent.tools.length})</h3>
-          <div className="space-y-2">
-            {agent.tools.map((tool, i) => (
-              <div key={i} className="bg-ink-800/50 rounded-lg p-3">
-                <div className="flex items-center gap-2 mb-1">
-                  <Wrench className="w-4 h-4 text-accent-plum" />
-                  <span className="font-mono text-sm text-sand-200">{tool.name}</span>
-                </div>
-                <p className="text-sm text-ink-400">{tool.purpose}</p>
-              </div>
-            ))}
+          <h3 className="text-sm font-medium text-ink-400 mb-2 flex items-center gap-2">
+            <FileText className="w-4 h-4" />
+            Agent Context
+          </h3>
+          <div className="bg-ink-800/50 rounded-lg p-4">
+            <p className="text-sm text-sand-300 whitespace-pre-wrap">{agent.agent_context}</p>
           </div>
-        </div>
-      )}
-
-      {/* Testing Dimensions */}
-      {agent.testing_dimensions?.length > 0 && (
-        <div className="mb-6">
-          <h3 className="text-sm font-medium text-ink-400 mb-2">Testing Dimensions ({agent.testing_dimensions.length})</h3>
-          <div className="space-y-3">
-            {agent.testing_dimensions.map((dim, i) => (
-              <div key={i} className="bg-ink-800/50 rounded-lg p-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <Target className="w-4 h-4 text-accent-teal" />
-                  <span className="font-medium text-sand-200">{dim.name}</span>
-                  <span className="text-xs text-ink-400">({dim.values?.length || 0} values)</span>
-                </div>
-                <div className="flex flex-wrap gap-1">
-                  {dim.values?.map((val, j) => (
-                    <Badge key={j} variant="plum" className="text-xs">
-                      {val}
-                    </Badge>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Success Criteria */}
-      {agent.success_criteria?.length > 0 && (
-        <div className="mb-6">
-          <h3 className="text-sm font-medium text-ink-400 mb-2">Success Criteria</h3>
-          <ol className="space-y-1 list-decimal list-inside">
-            {agent.success_criteria.map((crit, i) => (
-              <li key={i} className="text-sm text-sand-300">
-                {crit}
-              </li>
-            ))}
-          </ol>
         </div>
       )}
 

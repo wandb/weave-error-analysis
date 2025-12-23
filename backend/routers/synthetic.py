@@ -112,8 +112,8 @@ class BatchResponse(BaseModel):
 # =============================================================================
 
 async def get_agent_info_for_generation(agent_id: str):
-    """Get parsed AgentInfo for synthetic generation."""
-    from services.agent_info import AgentInfo, TestingDimension, parse_agent_info
+    """Get AgentInfo for synthetic generation."""
+    from services.agent_info import AgentInfo, TestingDimension
     
     with get_db() as conn:
         cursor = conn.cursor()
@@ -130,7 +130,9 @@ async def get_agent_info_for_generation(agent_id: str):
         """, (agent_id,))
         dim_rows = cursor.fetchall()
     
-    # Build AgentInfo
+    row_keys = agent_row.keys()
+    
+    # Build dimensions from database
     dimensions = []
     for row in dim_rows:
         dimensions.append(TestingDimension(
@@ -139,34 +141,14 @@ async def get_agent_info_for_generation(agent_id: str):
             descriptions=json.loads(row["descriptions"]) if row["descriptions"] else None
         ))
     
-    # If no dimensions in DB, try to parse from agent_info_raw
-    if not dimensions and agent_row["agent_info_raw"]:
-        try:
-            parsed = parse_agent_info(agent_row["agent_info_raw"])
-            dimensions = parsed.testing_dimensions
-        except Exception as e:
-            logger.warning(f"Failed to parse agent_info_raw for dimensions: {e}")
-    
-    # Build minimal AgentInfo for generation
-    # Parse purpose from agent_info_parsed if available
-    purpose = "AI assistant"
-    if agent_row["agent_info_parsed"]:
-        try:
-            parsed = json.loads(agent_row["agent_info_parsed"])
-            purpose = parsed.get("purpose", purpose)
-        except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse agent_info_parsed JSON: {e}")
+    agent_context = ""
+    if "agent_context" in row_keys and agent_row["agent_context"]:
+        agent_context = agent_row["agent_context"]
     
     agent_info = AgentInfo(
         name=agent_row["name"] or "Unknown Agent",
-        version=agent_row["version"] or "1.0.0",
-        purpose=purpose,
+        agent_context=agent_context,
         testing_dimensions=dimensions,
-        system_prompt="",
-        capabilities=[],
-        limitations=[],
-        target_audience=[],
-        success_criteria=[]
     )
     
     return agent_info
@@ -324,7 +306,7 @@ async def suggest_dimensions(
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT name, agent_info_parsed FROM agents WHERE id = ?
+            SELECT name, agent_context FROM agents WHERE id = ?
         """, (agent_id,))
         row = cursor.fetchone()
         
@@ -333,22 +315,12 @@ async def suggest_dimensions(
     
     # Extract agent info
     agent_name = row["name"]
-    agent_purpose = None
-    agent_capabilities = []
-    
-    if row["agent_info_parsed"]:
-        try:
-            parsed = json.loads(row["agent_info_parsed"])
-            agent_purpose = parsed.get("purpose")
-            agent_capabilities = parsed.get("capabilities", [])
-        except json.JSONDecodeError:
-            pass
+    agent_context = row["agent_context"] or ""
     
     # Call LLM to suggest dimensions
     suggestions = await suggest_dimensions_llm(
         agent_name=agent_name,
-        agent_purpose=agent_purpose,
-        agent_capabilities=agent_capabilities,
+        agent_context=agent_context,
         testing_goals=request.testing_goals,
         count=request.count,
     )
@@ -406,7 +378,7 @@ async def suggest_dimension_values(
         
         # Get agent
         cursor.execute("""
-            SELECT name, agent_info_parsed FROM agents WHERE id = ?
+            SELECT name, agent_context FROM agents WHERE id = ?
         """, (agent_id,))
         agent_row = cursor.fetchone()
         
@@ -425,14 +397,7 @@ async def suggest_dimension_values(
     
     # Extract agent info
     agent_name = agent_row["name"]
-    agent_purpose = None
-    
-    if agent_row["agent_info_parsed"]:
-        try:
-            parsed = json.loads(agent_row["agent_info_parsed"])
-            agent_purpose = parsed.get("purpose")
-        except json.JSONDecodeError:
-            pass
+    agent_context = agent_row["agent_context"] or ""
     
     # Get existing values
     existing_values = []
@@ -455,7 +420,7 @@ async def suggest_dimension_values(
         dimension_name=dimension_name,
         existing_values=existing_values,
         agent_name=agent_name,
-        agent_purpose=agent_purpose,
+        agent_context=agent_context,
         dimension_description=dimension_description,
         count=request.count,
     )
@@ -473,23 +438,22 @@ async def suggest_dimension_values(
 @router.post("/agents/{agent_id}/dimensions/import-from-agent")
 async def import_dimensions_from_agent(agent_id: str):
     """
-    Import testing dimensions from the agent's AGENT_INFO.
+    Import testing dimensions from the remote agent.
     
-    This fetches the AGENT_INFO from the remote agent and extracts
-    the testing dimensions, saving them to the database.
+    This fetches dimension configuration from the remote agent endpoint
+    and saves them to the database.
     """
     from services.agent_client import AgentClient
-    from services.agent_info import parse_agent_info
     
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT endpoint_url, agent_info_raw FROM agents WHERE id = ?", (agent_id,))
+        cursor.execute("SELECT endpoint_url FROM agents WHERE id = ?", (agent_id,))
         row = cursor.fetchone()
         
         if not row:
             raise HTTPException(status_code=404, detail="Agent not found")
     
-    # Try to get from remote agent first
+    # Try to get from remote agent
     dimensions = []
     if row["endpoint_url"]:
         try:
@@ -506,21 +470,11 @@ async def import_dimensions_from_agent(agent_id: str):
         except Exception as e:
             logger.warning(f"Failed to fetch dimensions from remote agent: {e}")
     
-    # Fallback to stored agent_info_raw
-    if not dimensions and row["agent_info_raw"]:
-        try:
-            parsed = parse_agent_info(row["agent_info_raw"])
-            for dim in parsed.testing_dimensions:
-                dimensions.append({
-                    "name": dim.name,
-                    "values": dim.values,
-                    "descriptions": dim.descriptions
-                })
-        except Exception as e:
-            logger.warning(f"Failed to parse agent_info_raw for dimensions: {e}")
-    
     if not dimensions:
-        raise HTTPException(status_code=400, detail="No testing dimensions found in AGENT_INFO")
+        raise HTTPException(
+            status_code=400, 
+            detail="No testing dimensions found. The remote agent must provide dimensions or use AI-suggested dimensions."
+        )
     
     # Save dimensions to database
     imported = []

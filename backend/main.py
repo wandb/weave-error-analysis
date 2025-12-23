@@ -76,13 +76,20 @@ def register_example_agent():
     This ensures users see the Example Agent in the Agents tab on first run,
     even before they've configured API keys or generated any data.
     """
-    import json
-    from pathlib import Path
     from database import get_db, generate_id, now_iso
-    from services.agent_info import validate_agent_info
     
-    AGENT_DIR = Path(__file__).parent.parent / "agent"
-    AGENT_INFO_PATH = AGENT_DIR / "AGENT_INFO.md"
+    # Example agent context - simple description
+    EXAMPLE_AGENT_CONTEXT = """TaskFlow Support Agent is a customer support bot for TaskFlow, a productivity and task management application.
+
+The agent can:
+- Answer pricing questions using the get_product_info tool
+- Check subscription status for users
+- Process refund requests with eligibility verification
+- Help users compare plans and upgrade
+
+Target users are free tier explorers, pro users with billing questions, and business admins managing teams. The agent cannot access real payment systems (demo mode), modify accounts directly, or make promises about unreleased features.
+
+The system prompt emphasizes using tools for accurate information rather than making up prices or policies."""
     
     try:
         with get_db() as conn:
@@ -94,57 +101,24 @@ def register_example_agent():
                 logger.debug("Example Agent already registered")
                 return
             
-            # Read AGENT_INFO.md
-            if not AGENT_INFO_PATH.exists():
-                logger.warning(f"AGENT_INFO.md not found at {AGENT_INFO_PATH}")
-                return
-            
-            agent_info_content = AGENT_INFO_PATH.read_text()
-            
-            # Validate and parse
-            validation = validate_agent_info(agent_info_content)
-            if not validation["valid"]:
-                logger.warning(f"Invalid AGENT_INFO.md: {validation['errors']}")
-                return
-            
-            parsed = validation["parsed"]
             agent_id = generate_id()
             now = now_iso()
             
-            # Insert Example Agent
+            # Insert Example Agent with simplified schema
             cursor.execute("""
                 INSERT INTO agents (
-                    id, name, version, agent_type, framework, endpoint_url,
-                    weave_project, agent_info_raw, agent_info_parsed, 
+                    id, name, endpoint_url, weave_project, agent_context,
                     connection_status, is_example, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'unknown', 1, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, 'unknown', 1, ?, ?)
             """, (
                 agent_id,
                 "Example Agent (TaskFlow Support)",
-                parsed.get("version", "1.0.0"),
-                parsed.get("agent_type"),
-                parsed.get("framework"),
                 "http://localhost:9000/query",
-                "error-analysis-demo",  # Example agent's Weave project
-                agent_info_content,
-                json.dumps(parsed),
+                "error-analysis-demo",
+                EXAMPLE_AGENT_CONTEXT,
                 now,
                 now
             ))
-            
-            # Insert testing dimensions
-            for dim in parsed.get("testing_dimensions", []):
-                cursor.execute("""
-                    INSERT INTO agent_dimensions (id, agent_id, name, dimension_values, descriptions, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                """, (
-                    generate_id(),
-                    agent_id,
-                    dim.get("name"),
-                    json.dumps(dim.get("values", [])),
-                    json.dumps(dim.get("descriptions")) if dim.get("descriptions") else None,
-                    now
-                ))
             
             logger.info("Registered Example Agent (TaskFlow Support)")
             

@@ -18,8 +18,8 @@ QUERY_GENERATION_PROMPT = PromptConfig(
     user_prompt_template="""You are generating a realistic user message for testing an AI agent.
 
 Agent: {agent_name}
-Purpose: {agent_purpose}
-Capabilities: {agent_capabilities}
+
+{agent_context}
 
 Generate a user message matching these characteristics:
 {dimension_values}
@@ -37,8 +37,7 @@ Return ONLY the user message, nothing else. No quotes around it.""",
 
     available_variables=[
         "agent_name",
-        "agent_purpose",
-        "agent_capabilities",
+        "agent_context",
         "dimension_values"
     ]
 )

@@ -245,6 +245,8 @@ def init_db():
             # =====================================================================
             
             # Registered agents table
+            # Note: agent_info_raw and agent_info_parsed are deprecated.
+            # Use agent_context (free-form text) instead.
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS agents (
                     id TEXT PRIMARY KEY,
@@ -253,8 +255,9 @@ def init_db():
                     agent_type TEXT,
                     framework TEXT,
                     endpoint_url TEXT NOT NULL,
-                    agent_info_raw TEXT NOT NULL,
+                    agent_info_raw TEXT,
                     agent_info_parsed JSON,
+                    agent_context TEXT,
                     connection_status TEXT DEFAULT 'unknown',
                     last_connection_test TEXT,
                     is_example BOOLEAN DEFAULT FALSE,
@@ -272,6 +275,10 @@ def init_db():
             # Migration: Add weave_project column for tracking agent's trace project
             if "weave_project" not in agent_columns:
                 cursor.execute("ALTER TABLE agents ADD COLUMN weave_project TEXT")
+            
+            # Migration: Add agent_context column (replaces agent_info_raw/agent_info_parsed)
+            if "agent_context" not in agent_columns:
+                cursor.execute("ALTER TABLE agents ADD COLUMN agent_context TEXT")
             
             # Testing dimensions extracted from AGENT_INFO
             cursor.execute("""

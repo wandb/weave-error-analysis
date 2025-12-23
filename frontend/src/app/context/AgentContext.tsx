@@ -50,8 +50,8 @@ interface AgentContextState {
   fetchAgentStats: (agentId: string) => Promise<void>;
   selectAgentWithData: (agent: Agent) => Promise<void>;
   testAgentConnection: (agentId: string) => Promise<void>;
-  createAgent: (name: string, endpoint: string, info: string) => Promise<void>;
-  updateAgent: (id: string, name: string, endpoint: string, info: string) => Promise<void>;
+  createAgent: (name: string, endpoint: string, agentContext: string, weaveProject?: string) => Promise<void>;
+  updateAgent: (id: string, name: string, endpoint: string, agentContext: string, weaveProject?: string) => Promise<void>;
   deleteAgent: (agentId: string) => Promise<void>;
   setSelectedAgent: (agent: AgentDetail | null) => void;
 }
@@ -192,9 +192,14 @@ export function AgentProvider({ children, onAgentSelected }: AgentProviderProps)
     }
   }, []);
   
-  const createAgent = useCallback(async (name: string, endpoint: string, info: string) => {
-    if (!name || !endpoint || !info) return;
-    await api.createAgent(name, endpoint, info);
+  const createAgent = useCallback(async (
+    name: string, 
+    endpoint: string, 
+    agentContext: string,
+    weaveProject?: string
+  ) => {
+    if (!name || !endpoint) return;
+    await api.createAgent(name, endpoint, agentContext, weaveProject);
     await fetchAgents();
   }, [fetchAgents]);
   
@@ -202,12 +207,14 @@ export function AgentProvider({ children, onAgentSelected }: AgentProviderProps)
     id: string,
     name: string,
     endpoint: string,
-    info: string
+    agentContext: string,
+    weaveProject?: string
   ) => {
-    const updates: Record<string, string> = {};
+    const updates: Record<string, string | undefined> = {};
     if (name) updates.name = name;
     if (endpoint) updates.endpoint_url = endpoint;
-    if (info) updates.agent_info_content = info;
+    if (agentContext !== undefined) updates.agent_context = agentContext;
+    if (weaveProject !== undefined) updates.weave_project = weaveProject;
     await api.updateAgent(id, updates);
     await fetchAgents();
     if (selectedAgent?.id === id) {

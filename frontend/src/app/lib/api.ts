@@ -290,7 +290,8 @@ export async function testAgentConnection(agentId: string): Promise<ConnectionTe
 export async function createAgent(
   name: string,
   endpointUrl: string,
-  agentInfoContent: string
+  agentContext: string,
+  weaveProject?: string
 ): Promise<Agent> {
   const result = await apiCall<Agent>(`${API_BASE}/agents`, {
     method: "POST",
@@ -298,7 +299,8 @@ export async function createAgent(
     body: JSON.stringify({
       name,
       endpoint_url: endpointUrl,
-      agent_info_content: agentInfoContent,
+      agent_context: agentContext,
+      weave_project: weaveProject || null,
     }),
   });
   invalidateCache(/\/agents/);
@@ -307,7 +309,12 @@ export async function createAgent(
 
 export async function updateAgent(
   agentId: string,
-  updates: { name?: string; endpoint_url?: string; agent_info_content?: string }
+  updates: { 
+    name?: string; 
+    endpoint_url?: string; 
+    agent_context?: string;
+    weave_project?: string;
+  }
 ): Promise<Agent> {
   const result = await apiCall<Agent>(`${API_BASE}/agents/${agentId}`, {
     method: "PUT",

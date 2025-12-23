@@ -53,8 +53,7 @@ class SuggestedDimension(BaseModel):
 @weave.op(name="suggest_dimensions")
 async def suggest_dimensions_llm(
     agent_name: str | None = None,
-    agent_purpose: str | None = None,
-    agent_capabilities: list[str] | None = None,
+    agent_context: str | None = None,
     testing_goals: str | None = None,
     count: int = 4,
 ) -> list[SuggestedDimension]:
@@ -63,14 +62,13 @@ async def suggest_dimensions_llm(
     
     Works in two modes:
     - Cold start (no agent info): Generate generic but useful dimensions
-    - Agent-aware: Generate dimensions relevant to agent's capabilities
+    - Agent-aware: Generate dimensions relevant to agent's context
     
     Decorated with @weave.op so dimension suggestions appear as traces.
     
     Args:
         agent_name: Name of the agent (optional)
-        agent_purpose: What the agent does (optional)
-        agent_capabilities: List of agent capabilities (optional)
+        agent_context: Free-form description of the agent (optional)
         testing_goals: User-specified testing focus areas (optional)
         count: Number of dimensions to suggest (default: 4)
     
@@ -78,15 +76,13 @@ async def suggest_dimensions_llm(
         List of SuggestedDimension objects
     """
     # Build agent context section
-    if agent_name or agent_purpose:
-        context_lines = ["## Agent Context"]
+    if agent_name or agent_context:
+        context_lines = []
         if agent_name:
-            context_lines.append(f"**Name:** {agent_name}")
-        if agent_purpose:
-            context_lines.append(f"**Purpose:** {agent_purpose}")
-        if agent_capabilities:
-            context_lines.append(f"**Capabilities:** {', '.join(agent_capabilities[:10])}")
-        agent_context_section = "\n".join(context_lines)
+            context_lines.append(f"**Agent:** {agent_name}")
+        if agent_context:
+            context_lines.append(agent_context)
+        agent_context_section = "\n\n".join(context_lines)
     else:
         agent_context_section = "No specific agent context provided. Generate generic testing dimensions suitable for any conversational AI agent."
     
@@ -118,7 +114,7 @@ async def suggest_dimensions_llm(
     
     log_event(logger, "llm.dimension_suggestion_start",
         operation="suggest_dimensions",
-        has_agent_context=bool(agent_name or agent_purpose),
+        has_agent_context=bool(agent_name or agent_context),
         has_testing_goals=bool(testing_goals),
         requested_count=count
     )
@@ -167,7 +163,7 @@ async def suggest_values_for_bucket(
     dimension_name: str,
     existing_values: list[str],
     agent_name: str | None = None,
-    agent_purpose: str | None = None,
+    agent_context: str | None = None,
     dimension_description: str | None = None,
     count: int = 5,
 ) -> list[SuggestedDimensionValue]:
@@ -180,7 +176,7 @@ async def suggest_values_for_bucket(
         dimension_name: Name of the bucket to expand
         existing_values: Current values in the bucket
         agent_name: Agent name for context (optional)
-        agent_purpose: Agent purpose for context (optional)
+        agent_context: Free-form description of the agent (optional)
         dimension_description: Description of what this dimension tests (optional)
         count: Number of values to suggest (default: 5)
     
@@ -188,13 +184,13 @@ async def suggest_values_for_bucket(
         List of SuggestedDimensionValue objects
     """
     # Build agent context section
-    if agent_name or agent_purpose:
-        context_lines = ["## Agent Context"]
+    if agent_name or agent_context:
+        context_lines = []
         if agent_name:
-            context_lines.append(f"**Name:** {agent_name}")
-        if agent_purpose:
-            context_lines.append(f"**Purpose:** {agent_purpose}")
-        agent_context_section = "\n".join(context_lines)
+            context_lines.append(f"**Agent:** {agent_name}")
+        if agent_context:
+            context_lines.append(agent_context)
+        agent_context_section = "\n\n".join(context_lines)
     else:
         agent_context_section = ""
     
@@ -502,8 +498,7 @@ class SyntheticGenerator:
         
         # Use custom prompt if provided, otherwise use default
         custom_prompt = getattr(self, '_custom_query_prompt', None)
-        agent_purpose = self.agent_info.purpose or "AI assistant"
-        agent_capabilities = ', '.join(self.agent_info.capabilities[:5]) if self.agent_info.capabilities else "General assistance"
+        agent_context = self.agent_info.agent_context or "AI assistant"
         
         # Get the prompt config for query generation
         prompt_config = prompt_manager.get_prompt("query_generation")
@@ -511,14 +506,12 @@ class SyntheticGenerator:
         if custom_prompt:
             # Replace placeholders in custom prompt
             prompt = custom_prompt.replace("{agent_name}", self.agent_info.name)
-            prompt = prompt.replace("{agent_purpose}", agent_purpose)
-            prompt = prompt.replace("{agent_capabilities}", agent_capabilities)
+            prompt = prompt.replace("{agent_context}", agent_context)
             prompt = prompt.replace("{dimension_values}", chr(10).join(value_context))
         else:
             variables = {
                 "agent_name": self.agent_info.name,
-                "agent_purpose": agent_purpose,
-                "agent_capabilities": agent_capabilities,
+                "agent_context": agent_context,
                 "dimension_values": chr(10).join(value_context),
             }
             prompt = prompt_config.user_prompt_template.format(**variables)

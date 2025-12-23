@@ -22,29 +22,14 @@ export interface FeedbackSummary {
 export interface Agent {
   id: string;
   name: string;
-  version: string;
-  agent_type: string | null;
-  framework: string | null;
   endpoint_url: string;
-  weave_project: string | null;  // Weave project where agent logs traces
+  weave_project: string | null;
+  agent_context: string;
   connection_status: string;
   last_connection_test: string | null;
+  is_example: boolean;
   created_at: string;
   updated_at: string;
-  purpose: string | null;
-  capabilities: string[];
-  testing_dimensions_count: number;
-}
-
-/**
- * Represents a tool/capability that an agent can use.
- * Defined in the AGENT_INFO file and parsed by the backend.
- */
-export interface AgentTool {
-  name: string;
-  purpose: string;
-  inputs: string;
-  outputs: string;
 }
 
 /**
@@ -57,20 +42,8 @@ export interface TestingDimension {
   descriptions: Record<string, string> | null;
 }
 
-/**
- * User-defined content from AGENT_INFO file.
- * Structure varies based on what the user defines, so we keep this flexible.
- * Common fields include: name, description, purpose, capabilities, etc.
- */
-export type AgentInfoParsed = Record<string, unknown> | null;
-
 export interface AgentDetail extends Agent {
-  agent_info_raw: string;
-  agent_info_parsed: AgentInfoParsed;
-  limitations: string[];
-  success_criteria: string[];
-  tools: AgentTool[];
-  testing_dimensions: TestingDimension[];
+  // AgentDetail has the same fields as Agent
 }
 
 export interface AgentStats {

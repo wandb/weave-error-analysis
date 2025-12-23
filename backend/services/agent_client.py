@@ -263,43 +263,6 @@ class AgentClient:
                 )
                 return QueryResponse(response="", error=error_msg)
     
-    async def get_agent_info(self) -> dict[str, Any]:
-        """
-        Fetch AGENT_INFO from the agent endpoint.
-        
-        Returns:
-            Dict with agent info including 'raw_content' or 'error'
-        """
-        base_url = self._get_base_url()
-        
-        async with httpx.AsyncClient() as client:
-            endpoints_to_try = [
-                (f"{base_url}/agent-info/json", "json"),
-                (f"{base_url}/agent-info", "markdown"),
-                (f"{base_url}/api/agent-info/json", "json"),
-                (f"{base_url}/api/agent-info", "markdown"),
-            ]
-            
-            info_timeout = get_health_check_timeout()  # Use health check timeout for metadata fetches
-            for endpoint, format_type in endpoints_to_try:
-                try:
-                    response = await client.get(endpoint, timeout=info_timeout)
-                    
-                    if response.status_code == 200:
-                        if format_type == "json":
-                            return response.json()
-                        else:
-                            return {
-                                "raw_content": response.text,
-                                "format": "markdown"
-                            }
-                except:
-                    continue
-            
-            return {
-                "error": "Agent does not expose AGENT_INFO",
-                "raw_content": None
-            }
 
 
 # Convenience function for one-off queries

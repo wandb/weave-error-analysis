@@ -24,8 +24,7 @@ import logging
 
 import weave
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import PlainTextResponse
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -36,9 +35,7 @@ warnings.filterwarnings("ignore", message="App name mismatch detected")
 # Suppress OpenTelemetry context detachment errors that occur on generator cleanup
 logging.getLogger("opentelemetry").setLevel(logging.ERROR)
 
-# Path to AGENT_INFO.md
 AGENT_DIR = Path(__file__).parent
-AGENT_INFO_PATH = AGENT_DIR / "AGENT_INFO.md"
 
 # Load .env from project root (one directory up from agent/)
 load_dotenv(AGENT_DIR.parent / ".env")
@@ -89,81 +86,6 @@ async def health_check():
     return {"status": "healthy", "agent": "TaskFlow Support"}
 
 
-@app.get("/agent-info")
-async def get_agent_info():
-    """
-    Get the AGENT_INFO.md content.
-    This provides context about the agent for the Error Analysis application.
-    """
-    if not AGENT_INFO_PATH.exists():
-        raise HTTPException(status_code=404, detail="AGENT_INFO.md not found")
-    
-    content = AGENT_INFO_PATH.read_text()
-    return PlainTextResponse(content, media_type="text/markdown")
-
-
-@app.get("/agent-info/json")
-async def get_agent_info_json():
-    """
-    Get the AGENT_INFO as parsed JSON (basic parsing).
-    Extracts key sections for programmatic access.
-    """
-    if not AGENT_INFO_PATH.exists():
-        raise HTTPException(status_code=404, detail="AGENT_INFO.md not found")
-    
-    content = AGENT_INFO_PATH.read_text()
-    
-    # Basic parsing of AGENT_INFO.md
-    info = {
-        "name": "TaskFlow Support Agent",
-        "version": "1.0.0",
-        "type": "Customer Support",
-        "framework": "Google ADK",
-        "raw_content": content
-    }
-    
-    # Extract sections
-    sections = {}
-    current_section = None
-    current_content = []
-    
-    for line in content.split('\n'):
-        if line.startswith('## '):
-            if current_section:
-                sections[current_section] = '\n'.join(current_content).strip()
-            current_section = line[3:].strip()
-            current_content = []
-        elif current_section:
-            current_content.append(line)
-    
-    if current_section:
-        sections[current_section] = '\n'.join(current_content).strip()
-    
-    info["sections"] = sections
-    
-    # Extract testing dimensions if present
-    if "Testing Dimensions" in sections:
-        dims_text = sections["Testing Dimensions"]
-        dimensions = []
-        current_dim = None
-        
-        for line in dims_text.split('\n'):
-            if line.startswith('### '):
-                if current_dim:
-                    dimensions.append(current_dim)
-                current_dim = {"name": line[4:].strip(), "values": []}
-            elif line.startswith('- **') and current_dim:
-                value = line.split('**')[1] if '**' in line else line[2:].strip()
-                current_dim["values"].append(value)
-        
-        if current_dim:
-            dimensions.append(current_dim)
-        
-        info["testing_dimensions"] = dimensions
-    
-    return info
-
-
 @app.get("/")
 async def root():
     """Root endpoint."""
@@ -172,9 +94,7 @@ async def root():
         "version": "1.0.0",
         "endpoints": {
             "health": "GET /health",
-            "query": "POST /query",
-            "agent_info": "GET /agent-info",
-            "agent_info_json": "GET /agent-info/json"
+            "query": "POST /query"
         }
     }
 

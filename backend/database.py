@@ -5,7 +5,7 @@ Stores:
 - Failure modes (the taxonomy categories)
 - Note assignments (which notes belong to which failure mode)
 - Saturation tracking (new failure modes discovered over time)
-- Agents and their configurations (AGENT_INFO)
+- Agents and their context
 - Synthetic batches and queries
 - Auto-review results
 - Weave feedback (synced from Weave for taxonomy analysis)
@@ -245,18 +245,11 @@ def init_db():
             # =====================================================================
             
             # Registered agents table
-            # Note: agent_info_raw and agent_info_parsed are deprecated.
-            # Use agent_context (free-form text) instead.
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS agents (
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
-                    version TEXT DEFAULT '1.0.0',
-                    agent_type TEXT,
-                    framework TEXT,
                     endpoint_url TEXT NOT NULL,
-                    agent_info_raw TEXT,
-                    agent_info_parsed JSON,
                     agent_context TEXT,
                     connection_status TEXT DEFAULT 'unknown',
                     last_connection_test TEXT,
@@ -276,11 +269,11 @@ def init_db():
             if "weave_project" not in agent_columns:
                 cursor.execute("ALTER TABLE agents ADD COLUMN weave_project TEXT")
             
-            # Migration: Add agent_context column (replaces agent_info_raw/agent_info_parsed)
+            # Migration: Add agent_context column for existing databases
             if "agent_context" not in agent_columns:
                 cursor.execute("ALTER TABLE agents ADD COLUMN agent_context TEXT")
             
-            # Testing dimensions extracted from AGENT_INFO
+            # Testing dimensions for synthetic data generation
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS agent_dimensions (
                     id TEXT PRIMARY KEY,
@@ -300,7 +293,7 @@ def init_db():
                     agent_id TEXT NOT NULL,
                     version TEXT NOT NULL,
                     changes_summary TEXT,
-                    agent_info_snapshot TEXT,
+                    agent_context_snapshot TEXT,
                     created_at TEXT NOT NULL,
                     FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE CASCADE
                 )

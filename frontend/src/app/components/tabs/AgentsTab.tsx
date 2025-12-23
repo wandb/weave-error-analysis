@@ -88,15 +88,6 @@ export function AgentsTab() {
     setNewAgentContext("");
   };
 
-  const getAgentContextTemplate = async () => {
-    try {
-      const template = await api.getAgentInfoTemplate(newAgentName || "My Agent");
-      setNewAgentContext(template);
-    } catch (error) {
-      console.error("Error fetching template:", error);
-    }
-  };
-
   const handleCreateAgent = async () => {
     if (!newAgentName || !newAgentEndpoint) return;
     setSavingAgent(true);
@@ -289,7 +280,6 @@ export function AgentsTab() {
           onEndpointChange={setNewAgentEndpoint}
           onWeaveProjectChange={setNewAgentWeaveProject}
           onAgentContextChange={setNewAgentContext}
-          onLoadTemplate={getAgentContextTemplate}
           onSave={agentFormMode === "create" ? handleCreateAgent : handleUpdateAgent}
           onCancel={resetAgentForm}
         />
@@ -734,7 +724,6 @@ function AgentForm({
   onEndpointChange,
   onWeaveProjectChange,
   onAgentContextChange,
-  onLoadTemplate,
   onSave,
   onCancel,
 }: {
@@ -748,7 +737,6 @@ function AgentForm({
   onEndpointChange: (v: string) => void;
   onWeaveProjectChange: (v: string) => void;
   onAgentContextChange: (v: string) => void;
-  onLoadTemplate: () => void;
   onSave: () => void;
   onCancel: () => void;
 }) {
@@ -800,12 +788,7 @@ function AgentForm({
         </div>
 
         <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-sm text-ink-400">Agent Context</label>
-            <button onClick={onLoadTemplate} className="text-xs text-accent-teal hover:text-accent-teal/80">
-              Load Example
-            </button>
-          </div>
+          <label className="block text-sm text-ink-400 mb-1">Agent Context</label>
           <textarea
             value={agentContext}
             onChange={(e) => onAgentContextChange(e.target.value)}

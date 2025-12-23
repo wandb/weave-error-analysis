@@ -28,9 +28,9 @@ Opens http://localhost:3000 with:
 When you're ready to analyze your own agent:
 
 1. Implement a simple HTTP endpoint (`POST /query`) that accepts `{query, thread_id}` and returns `{response, thread_id, error}`
-2. Register it in the Agents tab with AGENT_INFO.md describing its capabilities
+2. Register it in the Agents tab with a name and optional context describing its capabilities
 3. Optionally specify the Weave project where your agent logs traces
-4. Generate synthetic queries based on your agent's testing dimensions
+4. Generate synthetic queries using AI-suggested testing dimensions
 
 ### CLI Options
 
@@ -56,7 +56,7 @@ Then: Settings → Add API key → Agents → Start Example Agent → Generate q
 
 | Feature | Description |
 |---------|-------------|
-| **Agent Registry** | Register agents with a simple HTTP endpoint. Auto-extracts testing dimensions from AGENT_INFO.md |
+| **Agent Registry** | Register agents with a simple HTTP endpoint. Add optional context to help generate better synthetic queries |
 | **Synthetic Generation** | Test query generation with heuristic tuple sampling and LLM query generation across configurable dimensions (personas, scenarios, complexity) |
 | **Batch Execution** | Execute queries against your agent with real-time streaming progress |
 | **Session Review** | Browse Weave traces locally (SQLite cache), add notes, mark reviewed. Rich filtering by batch, model, latency, tokens |
@@ -205,22 +205,6 @@ async def query(request: QueryRequest):
 ```
 
 See `agent/agent_server.py` for a complete Google ADK example.
-
-**AGENT_INFO.md** (optional) - helps generate better synthetic queries:
-```markdown
-## Purpose & Scope
-What it does, capabilities, limitations
-
-## Testing Dimensions
-### personas
-- first_time_user, power_user, frustrated_customer
-
-### scenarios  
-- pricing_inquiry, refund_request, feature_question
-
-### complexity
-- simple, multi_step, edge_case
-```
 
 ## Tech Stack
 

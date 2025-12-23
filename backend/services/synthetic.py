@@ -302,7 +302,7 @@ class SyntheticGenerator:
     Generates synthetic test queries based on testing dimensions using LLM.
     
     The generation process:
-    1. Extract testing dimensions from AGENT_INFO if available.
+    1. Get testing dimensions from the database
     2. Generate dimension tuples using LLM (creates realistic combinations)
     3. Convert tuples to natural language queries using LLM
     """
@@ -312,13 +312,10 @@ class SyntheticGenerator:
         Initialize the generator.
 
         Args:
-            agent_info: Parsed AGENT_INFO containing testing dimensions
+            agent_info: Agent information with name and context
             llm_client: LLM client for query generation (uses default if not provided)
         """
         self.agent_info = agent_info
-        # Todo: dimensions should not come from agent_info, but from the database.
-        # if there is no database entry for the dimensiont, we should allow the user to either,
-        # manually create it or create using LLM.
         self.dimensions: dict[str, list[str]] | None = agent_info.testing_dimensions
     
     def get_dimension_values(self) -> dict[str, list[str]]:

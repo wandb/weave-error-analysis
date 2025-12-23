@@ -48,7 +48,6 @@ interface DimensionsPanelProps {
   collapsed: boolean;
   panelHeight: number;
   onToggleCollapsed: () => void;
-  onImportDimensions: (agentId: string) => Promise<void>;
   onDimensionsChanged: (agentId: string) => Promise<void>;
   // Favorites and heatmap support
   favorites?: Record<string, string[]>; // dim_name -> favorite values
@@ -68,7 +67,6 @@ export const DimensionsPanel = memo(function DimensionsPanel({
   collapsed,
   panelHeight,
   onToggleCollapsed,
-  onImportDimensions,
   onDimensionsChanged,
   favorites = {},
   onFavoritesChange,

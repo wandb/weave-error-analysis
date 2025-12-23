@@ -58,7 +58,6 @@ export function SyntheticTab() {
     executingBatch,
     fetchAgentDetail,
     fetchDimensions,
-    importDimensions,
     fetchBatches,
     fetchBatchDetail,
     setSelectedBatch,
@@ -489,7 +488,6 @@ export function SyntheticTab() {
               collapsed={dimensionsCollapsed}
               panelHeight={syncedPanelHeight}
               onToggleCollapsed={() => setDimensionsCollapsed(!dimensionsCollapsed)}
-              onImportDimensions={importDimensions}
               onDimensionsChanged={handleDimensionsChanged}
               favorites={favorites}
               onFavoritesChange={setFavorites}

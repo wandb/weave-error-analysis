@@ -46,7 +46,6 @@ interface SyntheticContextState {
   
   // Actions
   fetchDimensions: (agentId: string) => Promise<void>;
-  importDimensions: (agentId: string) => Promise<void>;
   fetchBatches: (agentId: string) => Promise<void>;
   fetchBatchDetail: (batchId: string) => Promise<void>;
   setSelectedBatch: BatchDetailSetter;
@@ -92,20 +91,6 @@ export function SyntheticProvider({ children }: SyntheticProviderProps) {
       setDimensions(data || []);
     } catch (error) {
       console.error("Error fetching dimensions:", error);
-    } finally {
-      setLoadingDimensions(false);
-    }
-  }, []);
-  
-  const importDimensions = useCallback(async (agentId: string) => {
-    setLoadingDimensions(true);
-    try {
-      const data = await api.importDimensions(agentId);
-      if (data.imported > 0) {
-        setDimensions(data.dimensions || []);
-      }
-    } catch (error) {
-      console.error("Error importing dimensions:", error);
     } finally {
       setLoadingDimensions(false);
     }
@@ -166,7 +151,6 @@ export function SyntheticProvider({ children }: SyntheticProviderProps) {
     syntheticBatches,
     selectedBatch,
     fetchDimensions,
-    importDimensions,
     fetchBatches,
     fetchBatchDetail,
     setSelectedBatch,

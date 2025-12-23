@@ -219,7 +219,6 @@ interface AppState extends CoreAppState {
   syntheticBatches: ReturnType<typeof useSynthetic>['syntheticBatches'];
   selectedBatch: ReturnType<typeof useSynthetic>['selectedBatch'];
   fetchDimensions: ReturnType<typeof useSynthetic>['fetchDimensions'];
-  importDimensions: ReturnType<typeof useSynthetic>['importDimensions'];
   fetchBatches: ReturnType<typeof useSynthetic>['fetchBatches'];
   fetchBatchDetail: ReturnType<typeof useSynthetic>['fetchBatchDetail'];
   setSelectedBatch: ReturnType<typeof useSynthetic>['setSelectedBatch'];
@@ -298,7 +297,6 @@ export function useApp(): AppState {
     syntheticBatches: synthetic.syntheticBatches,
     selectedBatch: synthetic.selectedBatch,
     fetchDimensions: synthetic.fetchDimensions,
-    importDimensions: synthetic.importDimensions,
     fetchBatches: synthetic.fetchBatches,
     fetchBatchDetail: synthetic.fetchBatchDetail,
     setSelectedBatch: synthetic.setSelectedBatch,

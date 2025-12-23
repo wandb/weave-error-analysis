@@ -330,11 +330,6 @@ export async function deleteAgent(agentId: string): Promise<void> {
   invalidateCache(/\/agents/);
 }
 
-export async function getAgentInfoTemplate(name: string = "My Agent"): Promise<string> {
-  const data = await apiCall<{ template: string }>(`${API_BASE}/agents/template?name=${encodeURIComponent(name)}`);
-  return data.template;
-}
-
 export async function fetchAgentStats(agentId: string): Promise<AgentStats> {
   return apiCall(`${API_BASE}/agents/${agentId}/stats`);
 }
@@ -632,14 +627,6 @@ export async function batchApplyCategories(
 
 export async function fetchDimensions(agentId: string): Promise<Dimension[]> {
   return cachedGet(`${API_BASE}/agents/${agentId}/dimensions`, { ttl: CACHE_TTL.MEDIUM });
-}
-
-export async function importDimensions(
-  agentId: string
-): Promise<{ imported: number; dimensions: Dimension[] }> {
-  return apiCall(`${API_BASE}/agents/${agentId}/dimensions/import-from-agent`, {
-    method: "POST",
-  });
 }
 
 export async function saveDimension(

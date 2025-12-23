@@ -290,7 +290,7 @@ class ErrorMessages:
     # Validation errors
     INVALID_BATCH_SIZE = "Invalid batch size. Must be between 1 and 100."
     NO_QUERIES_PROVIDED = "No queries provided"
-    NO_DIMENSIONS_FOUND = "No testing dimensions found in AGENT_INFO"
+    NO_DIMENSIONS_FOUND = "No testing dimensions found. Add dimensions in the Taxonomy tab or use AI suggestions."
     
     # State errors
     BATCH_ALREADY_RUNNING = "Batch is already running"

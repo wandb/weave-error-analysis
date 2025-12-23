@@ -9,7 +9,6 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from database import get_db, get_db_readonly, generate_id, now_iso
-from services.agent_info import generate_template
 from services.agent_client import AgentClient
 from models import AgentStats
 
@@ -143,29 +142,6 @@ async def list_agents():
         ))
     
     return agents
-
-
-# NOTE: Static routes must be defined BEFORE dynamic /{agent_id} routes
-@router.get("/agents/template")
-async def get_agent_context_template(
-    name: str = Query("My Agent", description="Agent name"),
-    agent_type: str = Query("General", description="Agent type"),
-    framework: str = Query("", description="Framework (optional)"),
-    purpose: str = Query("Describe what your agent does.", description="Purpose")
-):
-    """
-    Get an example agent context template.
-    
-    Agent context is free-form text that describes what the agent does.
-    This template provides a suggested structure.
-    """
-    template = generate_template(
-        name=name,
-        agent_type=agent_type,
-        framework=framework,
-        purpose=purpose
-    )
-    return {"template": template}
 
 
 # =============================================================================

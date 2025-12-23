@@ -16,7 +16,6 @@ import {
   Edit3,
   Tag,
   Bot,
-  Zap,
   AlertTriangle,
 } from "lucide-react";
 import { StatusBadge } from "../../ui";
@@ -200,28 +199,6 @@ export const QueryPreviewCard = memo(function QueryPreviewCard({
                 <span className="text-xs opacity-0 group-hover:opacity-100 transition-opacity mt-2 inline-block text-moon-450">
                   Click to edit
                 </span>
-              )}
-            </div>
-          )}
-
-          {/* Call Metrics Display */}
-          {isExecuted && query.call_count && query.call_count > 1 && (
-            <div
-              className="flex items-center justify-center gap-3 py-2 px-4 rounded-lg bg-gold/5 border border-dashed border-gold/30"
-            >
-              <div className="flex items-center gap-2">
-                <Zap className="w-3.5 h-3.5 text-gold" />
-                <span className="text-xs text-gold">{query.call_count} calls</span>
-              </div>
-              {query.total_latency_ms && (
-                <>
-                  <span className="text-moon-700">•</span>
-                  <span className="text-xs text-moon-450">
-                    {query.total_latency_ms >= 1000
-                      ? `${(query.total_latency_ms / 1000).toFixed(1)}s`
-                      : `${Math.round(query.total_latency_ms)}ms`}
-                  </span>
-                </>
               )}
             </div>
           )}

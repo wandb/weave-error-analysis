@@ -161,7 +161,6 @@ function CoreAppProvider({ children }: { children: ReactNode }) {
   const workflowProgress: WorkflowProgress = {
     hasAgents: false,
     hasBatches: false,
-    hasReviewedSessions: false, // Kept for type compat but always false now
     hasFailureModes: false,
   };
 
@@ -268,7 +267,6 @@ export function useApp(): AppState {
   const workflowProgress: WorkflowProgress = {
     hasAgents: agent.agents.length > 0,
     hasBatches: synthetic.syntheticBatches.some(b => b.status === 'completed'),
-    hasReviewedSessions: false, // Sessions removed - review in Weave UI
     hasFailureModes: (taxonomy.taxonomy?.failure_modes?.length ?? 0) > 0,
   };
 

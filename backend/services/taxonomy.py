@@ -462,18 +462,6 @@ class TaxonomyService:
                 source_type=row["source_type"] if "source_type" in row.keys() else "weave_feedback"
             ) for row in rows]
     
-    def get_note_session(self, note_id: str) -> Optional[dict]:
-        """
-        Get the session info for a note if it came from a session.
-        
-        Note: Sessions are now managed in Weave, not locally.
-        This method is deprecated and always returns None.
-        
-        Returns:
-            None (sessions no longer stored locally)
-        """
-        return None
-    
     def sync_notes_from_weave(self, weave_notes: list[dict], agent_id: Optional[str] = None) -> dict:
         """
         Sync notes from Weave feedback into our local database.

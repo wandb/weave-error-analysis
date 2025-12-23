@@ -88,10 +88,10 @@ export interface AgentStats {
   success_queries: number;
   failed_queries: number;
   
-  // Thread/Session stats
-  total_threads: number;
-  reviewed_threads: number;
-  unreviewed_threads: number;
+  // Trace review stats (from Weave feedback, not local sessions)
+  total_traces: number;
+  reviewed_traces: number;
+  unreviewed_traces: number;
   review_progress_percent: number;
   
   // Failure mode stats
@@ -220,11 +220,6 @@ export interface SyntheticQuery {
   response_text?: string;
   trace_id?: string;
   error_message?: string;
-  // Session metrics (populated for executed queries)
-  session_id?: string;  // The Weave session/thread ID
-  call_count?: number;  // Total calls (tool calls, LLM calls, etc.)
-  turn_count?: number;  // Number of conversation turns
-  total_latency_ms?: number;  // Total execution time
 }
 
 export interface BatchDetail {
@@ -346,7 +341,6 @@ export interface TraceSuggestion {
   id: string;
   trace_id: string;
   batch_id: string | null;
-  session_id: string | null;
   
   has_issue: boolean;
   suggested_note: string | null;
@@ -364,7 +358,6 @@ export interface TraceSuggestion {
 
 export interface SuggestionAnalysisResponse {
   batch_id: string | null;
-  session_id: string | null;
   total_traces: number;
   issues_found: number;
   suggestions: TraceSuggestion[];
@@ -387,7 +380,6 @@ export interface AcceptSuggestionResult {
   note_id: string;
   content: string;
   failure_mode_id: string | null;
-  session_id: string | null;
   created_at: string;
 }
 
@@ -398,7 +390,6 @@ export interface AcceptSuggestionResult {
 export interface WorkflowProgress {
   hasAgents: boolean;
   hasBatches: boolean;
-  hasReviewedSessions: boolean;
   hasFailureModes: boolean;
 }
 

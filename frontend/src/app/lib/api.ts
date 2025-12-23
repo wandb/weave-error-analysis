@@ -878,17 +878,6 @@ export async function testWeaveConnection(): Promise<TestConnectionResult> {
 // AI Suggestions API (Sprint 2 - Suggestion Service)
 // ============================================================================
 
-export async function analyzeSession(
-  sessionId: string,
-  model?: string
-): Promise<SuggestionAnalysisResponse> {
-  return apiCall(`${API_BASE}/suggestions/sessions/${sessionId}/analyze`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ model }),
-  });
-}
-
 export async function analyzeBatch(
   batchId: string,
   maxConcurrent: number = 10,
@@ -899,10 +888,6 @@ export async function analyzeBatch(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ max_concurrent: maxConcurrent, model }),
   });
-}
-
-export async function fetchSessionSuggestions(sessionId: string): Promise<TraceSuggestion[]> {
-  return apiCall(`${API_BASE}/suggestions/sessions/${sessionId}`);
 }
 
 export async function fetchBatchSuggestions(batchId: string): Promise<TraceSuggestion[]> {

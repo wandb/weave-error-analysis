@@ -630,8 +630,8 @@ function AgentStatusSnapshot({
             <span className="text-xs uppercase tracking-wide">Reviewed</span>
           </div>
           <div className="text-2xl font-display text-sand-100">
-            {stats.reviewed_threads}
-            <span className="text-lg text-ink-400">/{stats.total_threads}</span>
+            {stats.reviewed_traces}
+            <span className="text-lg text-ink-400">/{stats.total_traces}</span>
           </div>
           <div className="text-xs text-ink-400 mt-1">
             {stats.review_progress_percent.toFixed(0)}% complete

@@ -10,7 +10,7 @@ Error Response Format:
 {
     "error": true,
     "code": "NOT_FOUND",
-    "message": "Session not found",
+    "message": "Agent not found",
     "details": {...}  # Optional additional context
 }
 
@@ -18,13 +18,13 @@ Usage in routers:
     from errors import NotFoundError, ValidationError, ServiceError
     
     # Raise custom exceptions - they're automatically formatted
-    raise NotFoundError("Session", session_id)
+    raise NotFoundError("Agent", agent_id)
     raise ValidationError("Invalid batch size", {"max": 100, "provided": 500})
     raise ServiceError("Weave API unavailable")
     
     # Or use the helper function
     from errors import api_error
-    return api_error("NOT_FOUND", "Session not found")
+    return api_error("NOT_FOUND", "Agent not found")
 """
 
 from typing import Any, Dict, Optional
@@ -199,7 +199,7 @@ def api_error(
     rather than raising an exception.
     
     Example:
-        return api_error("NOT_FOUND", "Session not found")
+        return api_error("NOT_FOUND", "Agent not found")
     """
     response = {
         "error": True,
@@ -219,7 +219,7 @@ def api_success(
     Create a standard success response dict.
     
     Example:
-        return api_success({"id": "123"}, "Session created")
+        return api_success({"id": "123"}, "Agent created")
     """
     response = {"error": False}
     if data is not None:
@@ -283,7 +283,6 @@ class ErrorMessages:
     AGENT_NOT_RUNNING = "Agent is not running. Please start your agent and try again."
     
     # Resource errors
-    SESSION_NOT_FOUND = "Session not found"
     BATCH_NOT_FOUND = "Batch not found"
     AGENT_NOT_FOUND = "Agent not found"
     QUERY_NOT_FOUND = "Query not found"

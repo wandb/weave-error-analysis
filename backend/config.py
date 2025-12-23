@@ -11,7 +11,7 @@ IMPORTANT: This tool uses TWO separate Weave projects:
 1. TARGET PROJECT (user's agent traces):
    - Configured via Settings UI or environment variables
    - Where the user's agent logs traces that we want to analyze
-   - Used by WeaveClient to fetch sessions/traces
+   - Used by WeaveClient to fetch traces
    - Examples: "my-team/customer-support-agent", "my-team/chatbot-prod"
 
 2. TOOL PROJECT (internal):

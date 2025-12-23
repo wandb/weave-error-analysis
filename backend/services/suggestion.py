@@ -48,7 +48,6 @@ class Suggestion(BaseModel):
     id: str
     trace_id: str
     batch_id: Optional[str] = None
-    session_id: Optional[str] = None
     
     has_issue: bool
     suggested_note: Optional[str] = None
@@ -295,7 +294,6 @@ class SuggestionService:
         trace_data: Dict,
         context: AnalysisContext,
         batch_id: Optional[str] = None,
-        session_id: Optional[str] = None,
         save_to_db: bool = True
     ) -> Suggestion:
         """Analyze a single trace and return a suggestion."""
@@ -336,7 +334,6 @@ class SuggestionService:
             id=generate_id(),
             trace_id=trace_id,
             batch_id=batch_id,
-            session_id=session_id,
             has_issue=result.has_issue,
             suggested_note=result.suggested_note,
             confidence=result.confidence,
@@ -360,7 +357,6 @@ class SuggestionService:
         #         id=generate_id(),
         #         trace_id=trace_id,
         #         batch_id=batch_id,
-        #         session_id=session_id,
         #         has_issue=False,
         #         suggested_note=None,
         #         confidence=0.0,
@@ -397,8 +393,7 @@ class SuggestionService:
                 return await self.analyze_trace(
                     trace_data=trace,
                     context=context,
-                    batch_id=batch_id,
-                    session_id=trace.get("session_id")
+                    batch_id=batch_id
                 )
         
         suggestions = await asyncio.gather(*[
@@ -454,14 +449,13 @@ class SuggestionService:
             cursor = conn.cursor()
             cursor.execute("""
                 INSERT INTO trace_suggestions 
-                (id, trace_id, batch_id, session_id, has_issue, suggested_note, 
+                (id, trace_id, batch_id, has_issue, suggested_note, 
                  confidence, thinking, failure_mode_id, suggested_category, status, created_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 suggestion.id,
                 suggestion.trace_id,
                 suggestion.batch_id,
-                suggestion.session_id,
                 suggestion.has_issue,
                 suggestion.suggested_note,
                 suggestion.confidence,
@@ -471,20 +465,6 @@ class SuggestionService:
                 suggestion.status,
                 suggestion.created_at
             ))
-    
-    def get_suggestions_for_session(self, session_id: str) -> List[Suggestion]:
-        """Get all suggestions for a session."""
-        with get_db_readonly() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT ts.*, fm.name as failure_mode_name
-                FROM trace_suggestions ts
-                LEFT JOIN failure_modes fm ON ts.failure_mode_id = fm.id
-                WHERE ts.session_id = ?
-                ORDER BY ts.created_at DESC
-            """, (session_id,))
-            
-            return [self._row_to_suggestion(row) for row in cursor.fetchall()]
     
     def get_suggestions_for_batch(self, batch_id: str) -> List[Suggestion]:
         """Get all suggestions for a batch."""
@@ -537,7 +517,6 @@ class SuggestionService:
             id=row["id"],
             trace_id=row["trace_id"],
             batch_id=row["batch_id"],
-            session_id=row["session_id"],
             has_issue=bool(row["has_issue"]),
             suggested_note=row["suggested_note"],
             confidence=row["confidence"] or 0.0,
@@ -606,8 +585,8 @@ class SuggestionService:
             cursor.execute("""
                 INSERT INTO notes 
                 (id, content, trace_id, failure_mode_id, assignment_method, 
-                 created_at, assigned_at, session_id, source_type)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 created_at, assigned_at, source_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 note_id,
                 note_text,
@@ -616,7 +595,6 @@ class SuggestionService:
                 "ai_suggestion",
                 now,
                 now if final_fm_id else None,
-                row["session_id"],
                 "ai_suggestion"
             ))
             
@@ -640,7 +618,6 @@ class SuggestionService:
                 "note_id": note_id,
                 "content": note_text,
                 "failure_mode_id": final_fm_id,
-                "session_id": row["session_id"],
                 "created_at": now
             }
     

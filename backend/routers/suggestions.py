@@ -2,7 +2,7 @@
 AI Suggestions API Router.
 
 Provides endpoints for:
-- Analyzing batches/sessions with AI to generate suggestions
+- Analyzing batches with AI to generate suggestions
 - Retrieving suggestions for review
 - Accepting/skipping/rejecting suggestions
 - Bulk operations on suggestions
@@ -30,17 +30,11 @@ class AnalyzeBatchRequest(BaseModel):
     model: Optional[str] = None  # Uses default if not provided
 
 
-class AnalyzeSessionRequest(BaseModel):
-    """Request to analyze a session."""
-    model: Optional[str] = None
-
-
 class SuggestionResponse(BaseModel):
     """Response for a single suggestion."""
     id: str
     trace_id: str
     batch_id: Optional[str]
-    session_id: Optional[str]
     
     has_issue: bool
     suggested_note: Optional[str]
@@ -56,9 +50,8 @@ class SuggestionResponse(BaseModel):
 
 
 class AnalysisResponse(BaseModel):
-    """Response for batch/session analysis."""
+    """Response for batch analysis."""
     batch_id: Optional[str]
-    session_id: Optional[str]
     total_traces: int
     issues_found: int
     suggestions: List[SuggestionResponse]
@@ -80,7 +73,6 @@ class NoteResponse(BaseModel):
     note_id: str
     content: str
     failure_mode_id: Optional[str]
-    session_id: Optional[str]
     created_at: str
 
 
@@ -146,7 +138,6 @@ def suggestion_to_response(s: Suggestion) -> SuggestionResponse:
         id=s.id,
         trace_id=s.trace_id,
         batch_id=s.batch_id,
-        session_id=s.session_id,
         has_issue=s.has_issue,
         suggested_note=s.suggested_note,
         confidence=s.confidence,
@@ -206,7 +197,6 @@ async def analyze_batch(batch_id: str, request: AnalyzeBatchRequest = None):
         
         return AnalysisResponse(
             batch_id=batch_id,
-            session_id=None,
             total_traces=len(suggestions),
             issues_found=issues_found,
             suggestions=[suggestion_to_response(s) for s in suggestions]
@@ -216,79 +206,9 @@ async def analyze_batch(batch_id: str, request: AnalyzeBatchRequest = None):
         raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
 
 
-@router.post("/sessions/{session_id}/analyze", response_model=AnalysisResponse)
-async def analyze_session(session_id: str, request: AnalyzeSessionRequest = None):
-    """
-    Analyze a single session and generate an AI suggestion.
-    
-    Returns:
-        AnalysisResponse with the suggestion
-    """
-    if request is None:
-        request = AnalyzeSessionRequest()
-    
-    # Get agent_id from session's batch or use first agent
-    with get_db_readonly() as conn:
-        cursor = conn.cursor()
-        
-        # Try to get agent from batch
-        cursor.execute("""
-            SELECT sb.agent_id 
-            FROM sessions s
-            LEFT JOIN synthetic_batches sb ON s.batch_id = sb.id
-            WHERE s.id = ?
-        """, (session_id,))
-        row = cursor.fetchone()
-        
-        if not row:
-            raise HTTPException(status_code=404, detail="Session not found")
-        
-        agent_id = row["agent_id"]
-        
-        # Fallback to first agent if no batch link
-        if not agent_id:
-            cursor.execute("SELECT id FROM agents LIMIT 1")
-            agent_row = cursor.fetchone()
-            if agent_row:
-                agent_id = agent_row["id"]
-    
-    if not agent_id:
-        raise HTTPException(status_code=400, detail="No agent found for analysis")
-    
-    # Create service with optional model override
-    service = suggestion_service
-    if request.model:
-        from services.suggestion import SuggestionService
-        service = SuggestionService(model=request.model)
-    
-    try:
-        suggestion = await service.analyze_session(
-            agent_id=agent_id,
-            session_id=session_id
-        )
-        
-        return AnalysisResponse(
-            batch_id=suggestion.batch_id,
-            session_id=session_id,
-            total_traces=1,
-            issues_found=1 if suggestion.has_issue else 0,
-            suggestions=[suggestion_to_response(suggestion)]
-        )
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Analysis failed: {str(e)}")
-
-
 # =============================================================================
 # Retrieval Endpoints
 # =============================================================================
-
-@router.get("/sessions/{session_id}", response_model=List[SuggestionResponse])
-async def get_session_suggestions(session_id: str):
-    """Get all suggestions for a session."""
-    suggestions = suggestion_service.get_suggestions_for_session(session_id)
-    return [suggestion_to_response(s) for s in suggestions]
-
 
 @router.get("/batches/{batch_id}", response_model=List[SuggestionResponse])
 async def get_batch_suggestions(batch_id: str):
@@ -401,7 +321,6 @@ async def accept_suggestion(
             note_id=note["note_id"],
             content=note["content"],
             failure_mode_id=note["failure_mode_id"],
-            session_id=note["session_id"],
             created_at=note["created_at"]
         )
         
@@ -453,7 +372,6 @@ async def bulk_accept_suggestions(request: BulkAcceptRequest):
                 note_id=n["note_id"],
                 content=n["content"],
                 failure_mode_id=n["failure_mode_id"],
-                session_id=n["session_id"],
                 created_at=n["created_at"]
             )
             for n in results["notes_created"]

@@ -407,21 +407,8 @@ async def get_agent_stats(agent_id: str):
         success_queries = query_row["success"] or 0
         failed_queries = query_row["failed"] or 0
         
-        # Thread/Session stats - sessions linked to this agent's batches
-        cursor.execute("""
-            SELECT 
-                COUNT(*) as total,
-                SUM(CASE WHEN s.is_reviewed = 1 THEN 1 ELSE 0 END) as reviewed,
-                SUM(CASE WHEN s.is_reviewed = 0 OR s.is_reviewed IS NULL THEN 1 ELSE 0 END) as unreviewed
-            FROM sessions s
-            JOIN synthetic_batches sb ON s.batch_id = sb.id
-            WHERE sb.agent_id = ?
-        """, (agent_id,))
-        thread_row = cursor.fetchone()
-        total_threads = thread_row["total"] or 0
-        reviewed_threads = thread_row["reviewed"] or 0
-        unreviewed_threads = thread_row["unreviewed"] or 0
-        review_progress_percent = (reviewed_threads / total_threads * 100) if total_threads > 0 else 0.0
+        # Note: Trace review stats now come from Weave feedback, not local sessions.
+        # These are set to 0 for now - could be populated via Weave API if needed.
         
         # Failure mode stats - global (not per-agent yet, as failure modes are agent-agnostic)
         cursor.execute("SELECT COUNT(*) as total FROM failure_modes")
@@ -492,10 +479,11 @@ async def get_agent_stats(agent_id: str):
         executed_queries=executed_queries,
         success_queries=success_queries,
         failed_queries=failed_queries,
-        total_threads=total_threads,
-        reviewed_threads=reviewed_threads,
-        unreviewed_threads=unreviewed_threads,
-        review_progress_percent=round(review_progress_percent, 1),
+        # Trace review stats - not populated locally, would come from Weave
+        total_traces=0,
+        reviewed_traces=0,
+        unreviewed_traces=0,
+        review_progress_percent=0.0,
         total_failure_modes=total_failure_modes,
         total_categorized_notes=total_categorized_notes,
         saturation_score=round(saturation_score, 1),

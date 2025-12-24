@@ -17,7 +17,6 @@ import {
   Sparkles,
   ChevronRight,
   ExternalLink,
-  MessageSquare,
   Zap,
   BarChart3,
 } from "lucide-react";
@@ -425,12 +424,6 @@ function SettingField({
 // ============================================================================
 
 const FEATURE_CONFIG = {
-  suggestions: {
-    label: "Trace Analysis",
-    description: "Prompts for analyzing traces and finding quality issues",
-    icon: MessageSquare,
-    textClass: "text-teal",
-  },
   taxonomy: {
     label: "Taxonomy",
     description: "Prompts for categorizing and organizing failure modes",
@@ -492,7 +485,6 @@ function PromptsSection() {
 
   // Group prompts by feature
   const promptsByFeature: Record<string, PromptConfig[]> = {
-    suggestions: [],
     taxonomy: [],
     synthetic: [],
   };
@@ -532,29 +524,9 @@ function PromptsSection() {
           )}
         </div>
 
-        {/* Weave Status Indicator */}
-        <div
-          className={`flex items-center gap-2 mb-6 px-3 py-2 rounded-lg border ${
-            promptsData.weave_enabled
-              ? "bg-teal/10 border-teal/20"
-              : "bg-moon-450/10 border-moon-450/20"
-          }`}
-        >
-          <div
-            className={`w-2 h-2 rounded-full ${
-              promptsData.weave_enabled ? "bg-teal" : "bg-moon-450"
-            }`}
-          />
-          <span className={`text-xs ${promptsData.weave_enabled ? "text-teal" : "text-moon-450"}`}>
-            {promptsData.weave_enabled
-              ? "Prompt versions are tracked in Weave"
-              : "Weave versioning not connected"}
-          </span>
-        </div>
-
         {/* Prompt Groups */}
         <div className="space-y-4">
-          {(["suggestions", "taxonomy", "synthetic"] as const).map((feature) => {
+          {(["taxonomy", "synthetic"] as const).map((feature) => {
             const config = FEATURE_CONFIG[feature];
             const prompts = promptsByFeature[feature];
             const Icon = config.icon;
@@ -612,6 +584,8 @@ interface PromptListItemProps {
 }
 
 function PromptListItem({ prompt, featureTextClass, onEdit }: PromptListItemProps) {
+  const hasCustomLLM = prompt.llm_model || prompt.llm_temperature !== null;
+  
   return (
     <button
       onClick={onEdit}
@@ -623,6 +597,14 @@ function PromptListItem({ prompt, featureTextClass, onEdit }: PromptListItemProp
           {!prompt.is_default && (
             <span className="text-[10px] px-1.5 py-0.5 rounded font-medium uppercase tracking-wide bg-gold/15 text-gold">
               Customized
+            </span>
+          )}
+          {hasCustomLLM && (
+            <span 
+              className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-teal/15 text-teal"
+              title={`Model: ${prompt.llm_model || 'global'}${prompt.llm_temperature !== null ? ` @ ${prompt.llm_temperature}` : ''}`}
+            >
+              {prompt.llm_model || `temp: ${prompt.llm_temperature}`}
             </span>
           )}
         </div>

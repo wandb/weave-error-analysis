@@ -891,7 +891,8 @@ export async function updatePrompt(
   systemPrompt?: string | null,
   userPromptTemplate?: string,
   llmModel?: string | null,
-  llmTemperature?: number | null
+  llmTemperature?: number | null,
+  includeAgentContext?: boolean
 ): Promise<PromptConfig> {
   // Build request body, only including defined fields
   const body: Record<string, unknown> = {};
@@ -899,6 +900,7 @@ export async function updatePrompt(
   if (userPromptTemplate !== undefined) body.user_prompt_template = userPromptTemplate;
   if (llmModel !== undefined) body.llm_model = llmModel;
   if (llmTemperature !== undefined) body.llm_temperature = llmTemperature;
+  if (includeAgentContext !== undefined) body.include_agent_context = includeAgentContext;
   
   const result = await apiCall<PromptConfig>(`${API_BASE}/prompts/${promptId}`, {
     method: "PUT",
@@ -924,6 +926,23 @@ export async function setPromptVersion(promptId: string, version: string): Promi
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ version }),
+  });
+}
+
+export interface TestPromptResponse {
+  result: string;
+  model: string;
+  temperature: number;
+}
+
+export async function testPrompt(
+  promptId: string,
+  sampleValues: Record<string, string>
+): Promise<TestPromptResponse> {
+  return apiCall(`${API_BASE}/prompts/${promptId}/test`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sample_values: sampleValues }),
   });
 }
 

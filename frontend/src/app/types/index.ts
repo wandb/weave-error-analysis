@@ -335,6 +335,7 @@ export interface PromptConfig {
   // LLM Configuration (per-prompt overrides)
   llm_model: string | null;       // Model override, null = use global
   llm_temperature: number | null; // Temperature override, null = use global default
+  include_agent_context: boolean; // Whether to inject agent context into this prompt
 }
 
 export interface PromptVersion {

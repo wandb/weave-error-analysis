@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   X,
   RotateCcw,
@@ -16,9 +16,12 @@ import {
   ChevronDown,
   ChevronUp,
   Cpu,
+  Play,
+  Eye,
 } from "lucide-react";
 import { Badge, LoadingSpinner, ConfirmDialog } from "./ui";
 import * as api from "../lib/api";
+import { useApp } from "../context";
 import type { PromptConfig, PromptVersionsResponse, PromptVersion } from "../types";
 
 // ============================================================================
@@ -42,6 +45,10 @@ export function PromptEditDrawer({
   promptId,
   onSave,
 }: PromptEditDrawerProps) {
+  // Get global model from app context
+  const { configStatus } = useApp();
+  const globalModel = configStatus?.llm?.model || "default";
+
   // State
   const [prompt, setPrompt] = useState<PromptConfig | null>(null);
   const [systemPrompt, setSystemPrompt] = useState("");
@@ -54,9 +61,11 @@ export function PromptEditDrawer({
   // LLM Configuration state
   const [llmModel, setLlmModel] = useState<string>("");
   const [llmTemperature, setLlmTemperature] = useState<number | null>(null);
+  const [includeAgentContext, setIncludeAgentContext] = useState<boolean>(true);
   // Track original LLM values to detect changes
   const [originalLlmModel, setOriginalLlmModel] = useState<string>("");
   const [originalLlmTemperature, setOriginalLlmTemperature] = useState<number | null>(null);
+  const [originalIncludeAgentContext, setOriginalIncludeAgentContext] = useState<boolean>(true);
 
   // Version info
   const [versions, setVersions] = useState<PromptVersionsResponse | null>(null);
@@ -67,7 +76,9 @@ export function PromptEditDrawer({
   const [isPromptDirty, setIsPromptDirty] = useState(false);
   
   // Computed: check if LLM config has changed from original
-  const isLlmConfigDirty = llmModel !== originalLlmModel || llmTemperature !== originalLlmTemperature;
+  const isLlmConfigDirty = llmModel !== originalLlmModel || 
+    llmTemperature !== originalLlmTemperature || 
+    includeAgentContext !== originalIncludeAgentContext;
 
   // Variable insertion helpers
   const [copiedVar, setCopiedVar] = useState<string | null>(null);
@@ -93,8 +104,10 @@ export function PromptEditDrawer({
       setUserPromptTemplate("");
       setLlmModel("");
       setLlmTemperature(null);
+      setIncludeAgentContext(true);
       setOriginalLlmModel("");
       setOriginalLlmTemperature(null);
+      setOriginalIncludeAgentContext(true);
       setError(null);
       setSaveSuccess(false);
       setIsPromptDirty(false);
@@ -117,10 +130,13 @@ export function PromptEditDrawer({
       // Set both current and original LLM values
       const model = promptData.llm_model || "";
       const temp = promptData.llm_temperature;
+      const agentCtx = promptData.include_agent_context ?? true;
       setLlmModel(model);
       setLlmTemperature(temp);
+      setIncludeAgentContext(agentCtx);
       setOriginalLlmModel(model);
       setOriginalLlmTemperature(temp);
+      setOriginalIncludeAgentContext(agentCtx);
       setVersions(versionsData);
       setIsPromptDirty(false);
     } catch (err) {
@@ -191,11 +207,13 @@ export function PromptEditDrawer({
         undefined,  // Don't update system prompt
         undefined,  // Don't update user template
         llmModel || null,
-        llmTemperature
+        llmTemperature,
+        includeAgentContext
       );
       // Update original values to reflect saved state
       setOriginalLlmModel(llmModel);
       setOriginalLlmTemperature(llmTemperature);
+      setOriginalIncludeAgentContext(includeAgentContext);
     } catch (err) {
       console.error("Failed to save LLM config:", err);
     }
@@ -212,10 +230,13 @@ export function PromptEditDrawer({
       setUserPromptTemplate(reset.user_prompt_template);
       const model = reset.llm_model || "";
       const temp = reset.llm_temperature;
+      const agentCtx = reset.include_agent_context ?? true;
       setLlmModel(model);
       setLlmTemperature(temp);
+      setIncludeAgentContext(agentCtx);
       setOriginalLlmModel(model);
       setOriginalLlmTemperature(temp);
+      setOriginalIncludeAgentContext(agentCtx);
       setIsPromptDirty(false);
       setSaveSuccess(true);
       onSave?.(reset);
@@ -253,10 +274,13 @@ export function PromptEditDrawer({
       setUserPromptTemplate(updated.user_prompt_template);
       const model = updated.llm_model || "";
       const temp = updated.llm_temperature;
+      const agentCtx = updated.include_agent_context ?? true;
       setLlmModel(model);
       setLlmTemperature(temp);
+      setIncludeAgentContext(agentCtx);
       setOriginalLlmModel(model);
       setOriginalLlmTemperature(temp);
+      setOriginalIncludeAgentContext(agentCtx);
       setIsPromptDirty(false);
       
       // Reload versions to update current status
@@ -388,8 +412,11 @@ export function PromptEditDrawer({
               <LLMConfigSection
                 model={llmModel}
                 temperature={llmTemperature}
+                includeAgentContext={includeAgentContext}
+                globalModel={globalModel}
                 onModelChange={handleLlmModelChange}
                 onTemperatureChange={handleLlmTemperatureChange}
+                onIncludeAgentContextChange={setIncludeAgentContext}
               />
 
               {/* Variables Reference */}
@@ -402,7 +429,6 @@ export function PromptEditDrawer({
               {/* System Prompt */}
               <PromptSection
                 title="System Prompt"
-                subtitle="Sets the AI's context and behavior"
                 icon={<FileText className="w-4 h-4" />}
                 optional
               >
@@ -417,16 +443,25 @@ export function PromptEditDrawer({
               {/* User Prompt Template */}
               <PromptSection
                 title="User Prompt Template"
-                subtitle="The main prompt sent for each analysis"
                 icon={<Code2 className="w-4 h-4" />}
               >
                 <PromptTextArea
                   value={userPromptTemplate}
                   onChange={handleUserPromptChange}
                   placeholder="The main prompt template with {placeholders} for variables..."
-                  minHeight={280}
+                  minHeight={220}
                 />
               </PromptSection>
+
+              {/* Prompt Preview & Test */}
+              <PromptPreviewSection
+                promptId={promptId}
+                systemPrompt={systemPrompt}
+                userPromptTemplate={userPromptTemplate}
+                variables={prompt.available_variables}
+                model={llmModel || globalModel}
+                temperature={llmTemperature}
+              />
 
               {/* Version Info */}
               <VersionInfo
@@ -630,30 +665,24 @@ function VariablesReference({ variables, copiedVar, onCopy }: VariablesReference
 
 interface PromptSectionProps {
   title: string;
-  subtitle: string;
   icon: React.ReactNode;
   optional?: boolean;
   children: React.ReactNode;
 }
 
-function PromptSection({ title, subtitle, icon, optional, children }: PromptSectionProps) {
+function PromptSection({ title, icon, optional, children }: PromptSectionProps) {
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span style={{ color: "#FCBC32" }}>{icon}</span>
-          <span className="text-sm font-medium" style={{ color: "#FDFDFD" }}>
-            {title}
-          </span>
-          {optional && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ backgroundColor: "#252830", color: "#8F949E" }}>
-              Optional
-            </span>
-          )}
-        </div>
-        <span className="text-xs" style={{ color: "#8F949E" }}>
-          {subtitle}
+      <div className="flex items-center gap-2">
+        <span style={{ color: "#FCBC32" }}>{icon}</span>
+        <span className="text-sm font-medium" style={{ color: "#FDFDFD" }}>
+          {title}
         </span>
+        {optional && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ backgroundColor: "#252830", color: "#8F949E" }}>
+            Optional
+          </span>
+        )}
       </div>
       {children}
     </div>
@@ -854,39 +883,68 @@ function VersionInfo({ versions, prompt, showVersions, onToggle, onSwitchVersion
 interface LLMConfigSectionProps {
   model: string;
   temperature: number | null;
+  includeAgentContext: boolean;
+  globalModel: string;
   onModelChange: (value: string) => void;
   onTemperatureChange: (value: number | null) => void;
+  onIncludeAgentContextChange: (value: boolean) => void;
 }
 
-const MODEL_PRESETS = [
-  { value: "", label: "Use Global Setting" },
-  { value: "openai/gpt-5.1", label: "openai/gpt-5.1" },
-  { value: "openai/gpt-5", label: "openai/gpt-5" },
-  { value: "openai/gpt-5-mini", label: "openai/gpt-5-mini" },
-  { value: "openai/gpt-4o", label: "openai/gpt-4o" },
-  { value: "openai/gpt-4o-mini", label: "openai/gpt-4o-mini" },
+const MODEL_PRESETS_BASE = [
+  // GPT-5.2 series (Dec 2025)
+  { value: "gpt-5.2", label: "gpt-5.2" },
+  { value: "gpt-5.2-pro", label: "gpt-5.2-pro" },
+  // GPT-5.1 series
+  { value: "gpt-5.1", label: "gpt-5.1" },
+  { value: "gpt-5.1-codex", label: "gpt-5.1-codex" },
+  // GPT-5 series
+  { value: "gpt-5", label: "gpt-5" },
+  { value: "gpt-5-mini", label: "gpt-5-mini" },
+  { value: "gpt-5-nano", label: "gpt-5-nano" },
+  { value: "gpt-5-pro", label: "gpt-5-pro" },
+  // GPT-4.1 series
+  { value: "gpt-4.1", label: "gpt-4.1" },
+  { value: "gpt-4.1-mini", label: "gpt-4.1-mini" },
+  { value: "gpt-4.1-nano", label: "gpt-4.1-nano" },
+  // Reasoning models
+  { value: "o4-mini", label: "o4-mini" },
+  { value: "o3", label: "o3" },
+  { value: "o3-mini", label: "o3-mini" },
+  // GPT-4o series (still available)
+  { value: "gpt-4o", label: "gpt-4o" },
+  { value: "gpt-4o-mini", label: "gpt-4o-mini" },
 ];
 
 function LLMConfigSection({
   model,
   temperature,
+  includeAgentContext,
+  globalModel,
   onModelChange,
   onTemperatureChange,
+  onIncludeAgentContextChange,
 }: LLMConfigSectionProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [searchText, setSearchText] = useState("");
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  // Build presets with global model displayed
+  const globalLabel = `Use Global Setting (${globalModel})`;
+  const modelPresets = [
+    { value: "", label: globalLabel },
+    ...MODEL_PRESETS_BASE,
+  ];
+
   // Filter presets based on search
-  const filteredPresets = MODEL_PRESETS.filter(
+  const filteredPresets = modelPresets.filter(
     (preset) =>
       preset.label.toLowerCase().includes(searchText.toLowerCase()) ||
       preset.value.toLowerCase().includes(searchText.toLowerCase())
   );
 
   // Get display text for the dropdown
-  const displayText = model || "Use Global Setting";
+  const displayText = model || globalLabel;
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -1099,6 +1157,291 @@ function LLMConfigSection({
               </div>
             </div>
           </div>
+
+          {/* Agent Context Toggle */}
+          <div
+            className="flex items-center justify-between p-3 rounded-lg"
+            style={{
+              backgroundColor: "rgba(37, 40, 48, 0.5)",
+              border: "1px solid #333333",
+            }}
+          >
+            <div className="flex-1">
+              <label className="text-xs font-medium" style={{ color: "#FDFDFD" }}>
+                Include Agent Context
+              </label>
+              <p className="text-[10px] mt-0.5" style={{ color: "#8F949E" }}>
+                Prepends agent description to the prompt for better context
+              </p>
+            </div>
+            <button
+              onClick={() => onIncludeAgentContextChange(!includeAgentContext)}
+              className="relative w-10 h-5 rounded-full transition-colors"
+              style={{
+                backgroundColor: includeAgentContext ? "#10BFCC" : "#333333",
+              }}
+            >
+              <span
+                className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform"
+                style={{
+                  left: includeAgentContext ? "calc(100% - 18px)" : "2px",
+                }}
+              />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+// Prompt Preview & Test Section
+// ============================================================================
+
+interface PromptPreviewSectionProps {
+  promptId: string;
+  systemPrompt: string;
+  userPromptTemplate: string;
+  variables: string[];
+  model: string;
+  temperature: number | null;
+}
+
+function PromptPreviewSection({
+  promptId,
+  systemPrompt,
+  userPromptTemplate,
+  variables,
+  model,
+  temperature,
+}: PromptPreviewSectionProps) {
+  const { selectedAgent, dimensions } = useApp();
+  const [showPreview, setShowPreview] = useState(false);
+  const [testResult, setTestResult] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testError, setTestError] = useState<string | null>(null);
+
+  // Build real values from context - no user input needed!
+  const realValues = useMemo(() => {
+    const values: Record<string, string> = {};
+    
+    variables.forEach((v) => {
+      switch (v) {
+        case "agent_name":
+          values[v] = selectedAgent?.name || "My Agent";
+          break;
+        case "agent_context":
+          values[v] = selectedAgent?.agent_context || "A helpful AI assistant";
+          break;
+        case "dimension_values":
+          // Format dimensions as readable text
+          if (dimensions && dimensions.length > 0) {
+            const dimLines = dimensions.map((d) => 
+              `• ${d.name}: ${d.values.slice(0, 3).join(", ")}${d.values.length > 3 ? "..." : ""}`
+            );
+            values[v] = dimLines.join("\n");
+          } else {
+            values[v] = "• user_type: new, returning\n• complexity: simple, complex";
+          }
+          break;
+        case "testing_goals":
+          values[v] = "Edge cases, error handling, multi-step interactions";
+          break;
+        case "existing_categories":
+          values[v] = "• API timeout errors\n• Unclear user requests\n• Missing context";
+          break;
+        case "note_content":
+          values[v] = "User seemed frustrated when the bot couldn't find their order";
+          break;
+        case "trace_summary":
+          values[v] = "User asked about order status, bot provided incorrect information";
+          break;
+        default:
+          values[v] = `[${v}]`;
+      }
+    });
+    
+    return values;
+  }, [variables, selectedAgent, dimensions]);
+
+  // Generate preview by replacing variables with real values
+  const getPreview = (template: string) => {
+    let result = template;
+    Object.entries(realValues).forEach(([key, value]) => {
+      result = result.replace(new RegExp(`\\{${key}\\}`, "g"), value);
+    });
+    return result;
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    setTestError(null);
+    setTestResult(null);
+    try {
+      const response = await api.testPrompt(promptId, realValues);
+      setTestResult(response.result);
+    } catch (err) {
+      setTestError(err instanceof Error ? err.message : "Test failed");
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <div
+      className="rounded-lg overflow-hidden"
+      style={{
+        backgroundColor: "rgba(37, 40, 48, 0.5)",
+        border: "1px solid #333333",
+      }}
+    >
+      {/* Header */}
+      <button
+        onClick={() => setShowPreview(!showPreview)}
+        className="w-full flex items-center justify-between px-4 py-3 transition-colors hover:bg-moon-800/30"
+      >
+        <div className="flex items-center gap-2">
+          <Eye className="w-4 h-4" style={{ color: "#10BFCC" }} />
+          <span className="text-sm font-medium" style={{ color: "#FDFDFD" }}>
+            Preview & Test
+          </span>
+          <span className="text-[10px]" style={{ color: "#8F949E" }}>
+            (with your agent data)
+          </span>
+        </div>
+        {showPreview ? (
+          <ChevronUp className="w-4 h-4" style={{ color: "#8F949E" }} />
+        ) : (
+          <ChevronDown className="w-4 h-4" style={{ color: "#8F949E" }} />
+        )}
+      </button>
+
+      {showPreview && (
+        <div className="px-4 py-3 space-y-4" style={{ borderTop: "1px solid #333333" }}>
+          {/* Variables Being Used (read-only display) */}
+          {variables.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-xs font-medium" style={{ color: "#8F949E" }}>
+                Variables populated from your data:
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {variables.map((variable) => (
+                  <div
+                    key={variable}
+                    className="text-[10px] px-2 py-1 rounded font-mono"
+                    style={{
+                      backgroundColor: "rgba(16, 191, 204, 0.1)",
+                      border: "1px solid rgba(16, 191, 204, 0.2)",
+                      color: "#10BFCC",
+                    }}
+                    title={realValues[variable]}
+                  >
+                    {`{${variable}}`} = {realValues[variable]?.slice(0, 30)}{realValues[variable]?.length > 30 ? "..." : ""}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Preview */}
+          <div className="space-y-2">
+            <p className="text-xs font-medium" style={{ color: "#8F949E" }}>
+              Final prompt preview:
+            </p>
+            <div
+              className="p-3 rounded-lg font-mono text-xs overflow-x-auto"
+              style={{
+                backgroundColor: "#171A1F",
+                border: "1px solid #333333",
+                color: "#FDFDFD",
+                lineHeight: 1.6,
+                maxHeight: "200px",
+                overflowY: "auto",
+              }}
+            >
+              {systemPrompt && (
+                <div className="mb-3 pb-3" style={{ borderBottom: "1px solid #333" }}>
+                  <span className="text-[10px] uppercase tracking-wide" style={{ color: "#8F949E" }}>
+                    System
+                  </span>
+                  <div className="mt-1 whitespace-pre-wrap">{getPreview(systemPrompt)}</div>
+                </div>
+              )}
+              <div>
+                <span className="text-[10px] uppercase tracking-wide" style={{ color: "#8F949E" }}>
+                  User
+                </span>
+                <div className="mt-1 whitespace-pre-wrap">{getPreview(userPromptTemplate)}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Test Button */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleTest}
+              disabled={testing}
+              className="flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all"
+              style={{
+                backgroundColor: testing ? "#333" : "#10BFCC",
+                color: testing ? "#8F949E" : "#171A1F",
+              }}
+            >
+              {testing ? (
+                <>
+                  <LoadingSpinner size={4} />
+                  Testing...
+                </>
+              ) : (
+                <>
+                  <Play className="w-4 h-4" />
+                  Test with Real Data
+                </>
+              )}
+            </button>
+            <span className="text-[10px]" style={{ color: "#8F949E" }}>
+              {model} {temperature !== null ? `@ temp ${temperature}` : ""}
+            </span>
+          </div>
+
+          {/* Test Result */}
+          {testResult && (
+            <div
+              className="p-3 rounded-lg"
+              style={{
+                backgroundColor: "rgba(16, 191, 204, 0.1)",
+                border: "1px solid rgba(16, 191, 204, 0.3)",
+              }}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <Check className="w-4 h-4" style={{ color: "#10BFCC" }} />
+                <span className="text-xs font-medium" style={{ color: "#10BFCC" }}>
+                  LLM Response
+                </span>
+              </div>
+              <div
+                className="text-xs font-mono whitespace-pre-wrap"
+                style={{ color: "#FDFDFD", maxHeight: "150px", overflowY: "auto" }}
+              >
+                {testResult}
+              </div>
+            </div>
+          )}
+
+          {/* Test Error */}
+          {testError && (
+            <div
+              className="p-3 rounded-lg flex items-center gap-2"
+              style={{
+                backgroundColor: "rgba(239, 68, 68, 0.1)",
+                border: "1px solid rgba(239, 68, 68, 0.3)",
+              }}
+            >
+              <AlertCircle className="w-4 h-4 text-red-400" />
+              <span className="text-xs text-red-400">{testError}</span>
+            </div>
+          )}
         </div>
       )}
     </div>

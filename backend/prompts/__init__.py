@@ -23,7 +23,6 @@ Usage:
 import os
 import asyncio
 from datetime import datetime
-from typing import Optional, Dict, List
 import logging
 
 from prompts.base import PromptConfig, PromptVersion
@@ -51,14 +50,32 @@ class PromptManager:
     """
     
     def __init__(self):
-        self._active_prompts: Dict[str, PromptConfig] = {}
-        self._version_history: Dict[str, List[PromptVersion]] = {}  # Track versions locally
+        self._active_prompts: dict[str, PromptConfig] = {}
+        self._version_history: dict[str, list[PromptVersion]] = {}  # Track versions locally
         self._initialized = False
         self._weave_enabled = False
         
-        # Weave project info (from environment)
-        self.weave_entity = os.getenv("WANDB_ENTITY", "")
-        self.weave_project = "error-analysis-dev"
+        # Weave project info - lazy loaded from config to avoid circular imports
+        self._weave_entity: str | None = None
+        self._weave_project: str | None = None
+    
+    @property
+    def weave_entity(self) -> str:
+        """Get WANDB entity, lazily loaded."""
+        if self._weave_entity is None:
+            self._weave_entity = os.getenv("WANDB_ENTITY", "")
+        return self._weave_entity
+    
+    @property
+    def weave_project(self) -> str:
+        """Get tool project name from config, lazily loaded."""
+        if self._weave_project is None:
+            try:
+                from config import get_tool_project_name
+                self._weave_project = get_tool_project_name()
+            except ImportError:
+                self._weave_project = "error-analysis-tool"
+        return self._weave_project
     
     def _get_weave_project_id(self) -> str:
         """Get the full Weave project ID."""
@@ -188,7 +205,7 @@ class PromptManager:
         
         return weave.MessagesPrompt(messages=messages)
     
-    def get_prompt(self, prompt_id: str) -> Optional[PromptConfig]:
+    def get_prompt(self, prompt_id: str) -> PromptConfig | None:
         """Get the active version of a prompt."""
         if not self._initialized:
             # Sync initialization for backwards compatibility
@@ -197,13 +214,13 @@ class PromptManager:
             self._initialized = True
         return self._active_prompts.get(prompt_id)
     
-    def get_all_prompts(self) -> List[PromptConfig]:
+    def get_all_prompts(self) -> list[PromptConfig]:
         """Get all prompts."""
         if not self._initialized:
             self.get_prompt("")  # Trigger lazy init
         return list(self._active_prompts.values())
     
-    def get_prompts_by_feature(self, feature: str) -> List[PromptConfig]:
+    def get_prompts_by_feature(self, feature: str) -> list[PromptConfig]:
         """Get prompts for a specific feature."""
         if not self._initialized:
             self.get_prompt("")  # Trigger lazy init
@@ -213,10 +230,11 @@ class PromptManager:
     async def update_prompt(
         self, 
         prompt_id: str,
-        system_prompt: Optional[str] = None,
-        user_prompt_template: Optional[str] = None,
-        llm_model: Optional[str] = None,
-        llm_temperature: Optional[float] = None
+        system_prompt: str | None = None,
+        user_prompt_template: str | None = None,
+        llm_model: str | None = None,
+        llm_temperature: float | None = None,
+        include_agent_context: bool | None = None
     ) -> PromptConfig:
         """
         Update a prompt and optionally create a new version in Weave.
@@ -261,6 +279,8 @@ class PromptManager:
             updates["llm_model"] = llm_model if llm_model != "" else None
         if llm_temperature is not None:
             updates["llm_temperature"] = llm_temperature
+        if include_agent_context is not None:
+            updates["include_agent_context"] = include_agent_context
         
         # Only mark as non-default if prompt content changed
         if prompt_content_changed:
@@ -325,7 +345,7 @@ class PromptManager:
         except Exception as e:
             logger.warning(f"Failed to publish prompt {prompt_id} to Weave: {e}")
     
-    def get_versions(self, prompt_id: str) -> List[PromptVersion]:
+    def get_versions(self, prompt_id: str) -> list[PromptVersion]:
         """
         Get all tracked versions of a prompt.
         
@@ -427,7 +447,7 @@ class PromptManager:
         """Check if Weave versioning is enabled."""
         return self._weave_enabled
     
-    def get_weave_project_url(self) -> Optional[str]:
+    def get_weave_project_url(self) -> str | None:
         """Get the Weave project URL for viewing prompts."""
         if not self.weave_entity:
             return None
@@ -438,7 +458,7 @@ class PromptManager:
 prompt_manager = PromptManager()
 
 
-async def get_prompt(prompt_id: str) -> Optional[PromptConfig]:
+async def get_prompt(prompt_id: str) -> PromptConfig | None:
     """Convenience function to get a prompt."""
     return prompt_manager.get_prompt(prompt_id)
 

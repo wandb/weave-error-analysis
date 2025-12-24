@@ -5,7 +5,6 @@ API endpoints for prompt management with Weave versioning.
 Allows viewing, editing, resetting, and version management of prompts.
 """
 
-from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
@@ -17,10 +16,11 @@ router = APIRouter(prefix="/api/prompts", tags=["prompts"])
 
 class PromptUpdateRequest(BaseModel):
     """Request body for updating a prompt."""
-    system_prompt: Optional[str] = None
-    user_prompt_template: Optional[str] = None
-    llm_model: Optional[str] = None
-    llm_temperature: Optional[float] = None
+    system_prompt: str | None = None
+    user_prompt_template: str | None = None
+    llm_model: str | None = None
+    llm_temperature: float | None = None
+    include_agent_context: bool | None = None
 
 
 class VersionSelectRequest(BaseModel):
@@ -81,7 +81,8 @@ async def update_prompt(prompt_id: str, request: PromptUpdateRequest):
             system_prompt=request.system_prompt,
             user_prompt_template=request.user_prompt_template,
             llm_model=request.llm_model,
-            llm_temperature=request.llm_temperature
+            llm_temperature=request.llm_temperature,
+            include_agent_context=request.include_agent_context
         )
         return {
             **updated.model_dump(),
@@ -171,4 +172,57 @@ async def set_prompt_version(prompt_id: str, request: VersionSelectRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class PromptTestRequest(BaseModel):
+    """Request body for testing a prompt."""
+    sample_values: dict[str, str] = {}
+
+
+@router.post("/{prompt_id}/test")
+async def test_prompt(prompt_id: str, request: PromptTestRequest):
+    """
+    Test a prompt with sample values.
+    
+    Sends the prompt to the LLM with the provided sample values
+    and returns the raw response. Useful for validating prompt
+    behavior before saving.
+    """
+    from services.llm import LLMClient
+    from services.settings import get_setting
+    
+    prompt = prompt_manager.get_prompt(prompt_id)
+    if not prompt:
+        raise HTTPException(status_code=404, detail="Prompt not found")
+    
+    try:
+        # Format the prompt with sample values
+        formatted_user = prompt.user_prompt_template
+        for key, value in request.sample_values.items():
+            formatted_user = formatted_user.replace(f"{{{key}}}", value)
+        
+        # Get effective model and temperature
+        global_model = get_setting("llm_model") or "gpt-4o-mini"
+        model = prompt.get_effective_model(global_model)
+        temperature = prompt.get_effective_temperature()
+        
+        # Build messages
+        messages: list[dict[str, str]] = []
+        if prompt.system_prompt:
+            messages.append({"role": "system", "content": prompt.system_prompt})
+        messages.append({"role": "user", "content": formatted_user})
+        
+        # Create LLM client with prompt config
+        llm = LLMClient.for_prompt(prompt)
+        
+        # Make the call
+        result = await llm.complete(messages=messages, temperature=temperature)
+        
+        return {
+            "result": result,
+            "model": model,
+            "temperature": temperature,
+        }
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

@@ -69,7 +69,6 @@ app.add_middleware(
 class QueryRequest(BaseModel):
     """Request to query the agent."""
     query: str
-    # For granular trace linking - allows linking each query to its specific trace
     batch_id: str | None = None
     query_id: str | None = None
 

@@ -128,12 +128,17 @@ async def list_agents():
     for row in rows:
         row_keys = row.keys()
         
+        # Handle NULL agent_context from database (convert to empty string)
+        agent_context_value = row["agent_context"] if "agent_context" in row_keys else ""
+        if agent_context_value is None:
+            agent_context_value = ""
+        
         agents.append(AgentResponse(
             id=row["id"],
             name=row["name"],
             endpoint_url=row["endpoint_url"],
             weave_project=row["weave_project"] if "weave_project" in row_keys else None,
-            agent_context=row["agent_context"] if "agent_context" in row_keys else "",
+            agent_context=agent_context_value,
             connection_status=row["connection_status"],
             last_connection_test=row["last_connection_test"],
             is_example=bool(row["is_example"]) if "is_example" in row_keys else False,
@@ -443,12 +448,17 @@ async def get_agent(agent_id: str):
     
     row_keys = row.keys()
     
+    # Handle NULL agent_context from database
+    agent_context_value = row["agent_context"] if "agent_context" in row_keys else ""
+    if agent_context_value is None:
+        agent_context_value = ""
+    
     return AgentResponse(
         id=row["id"],
         name=row["name"],
         endpoint_url=row["endpoint_url"],
         weave_project=row["weave_project"] if "weave_project" in row_keys else None,
-        agent_context=row["agent_context"] if "agent_context" in row_keys else "",
+        agent_context=agent_context_value,
         connection_status=row["connection_status"],
         last_connection_test=row["last_connection_test"],
         is_example=bool(row["is_example"]) if "is_example" in row_keys else False,
@@ -507,12 +517,17 @@ async def update_agent(agent_id: str, request: AgentUpdateRequest):
     
     row_keys = row.keys()
     
+    # Handle NULL agent_context from database
+    agent_context_value = row["agent_context"] if "agent_context" in row_keys else ""
+    if agent_context_value is None:
+        agent_context_value = ""
+    
     return AgentResponse(
         id=row["id"],
         name=row["name"],
         endpoint_url=row["endpoint_url"],
         weave_project=row["weave_project"] if "weave_project" in row_keys else None,
-        agent_context=row["agent_context"] if "agent_context" in row_keys else "",
+        agent_context=agent_context_value,
         connection_status=row["connection_status"],
         last_connection_test=row["last_connection_test"],
         is_example=bool(row["is_example"]) if "is_example" in row_keys else False,

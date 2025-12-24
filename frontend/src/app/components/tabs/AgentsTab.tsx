@@ -19,21 +19,28 @@ import {
   Link,
   CheckCircle2,
   AlertTriangle,
-  Zap,
   Layers,
   FileText,
   MessageSquare,
   BarChart3,
   TrendingUp,
   Clock,
-  ArrowRight,
   Square,
   Settings,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
-import { Panel, NoAgentsRegistered, SelectPrompt, ConfirmDialog } from "../ui";
-import type { AgentStats } from "../../types";
+import { Panel, SelectPrompt, ConfirmDialog } from "../ui";
+import type { Agent, AgentStats } from "../../types";
 import * as api from "../../lib/api";
+
+// Helper to determine if the example agent banner should be shown
+// Show when: no agents exist OR only example agents exist
+// Hide when: user has their own (non-example) agents registered
+function shouldShowExampleBanner(agents: Agent[]): boolean {
+  if (agents.length === 0) return true;
+  const hasUserAgents = agents.some(a => !a.is_example);
+  return !hasUserAgents;
+}
 
 export function AgentsTab() {
   const {
@@ -262,9 +269,12 @@ export function AgentsTab() {
         />
       )}
 
-      {/* Example Agent Banner - shown when no agents are selected */}
+      {/* Example Agent Banner - always shown but compact when user has own agents */}
       {!showAgentForm && (
-        <ExampleAgentBanner onGoToSettings={() => setActiveTab("settings")} />
+        <ExampleAgentBanner 
+          onGoToSettings={() => setActiveTab("settings")} 
+          compact={!shouldShowExampleBanner(agents)}
+        />
       )}
 
       {/* Agent Form Modal */}
@@ -285,12 +295,11 @@ export function AgentsTab() {
         />
       ) : selectedAgent ? (
         <>
-          {/* Agent Status Snapshot */}
+          {/* Agent Status Snapshot - Collapsible */}
           <AgentStatusSnapshot 
             stats={agentStats} 
             loading={loadingAgentStats}
             onRefresh={() => fetchAgentStats(selectedAgent.id)}
-            onNavigate={(tab) => setActiveTab(tab)}
           />
 
           {/* Agent Details */}
@@ -321,26 +330,24 @@ export function AgentsTab() {
             onClose={() => setSelectedAgent(null)}
             onPlaygroundMessageChange={setPlaygroundMessage}
             onRunQuery={runAgentQuery}
-            onGoToSynthetic={() => setActiveTab("synthetic")}
           />
         </>
       ) : (
         <Panel>
           {agents.length === 0 ? (
-            <NoAgentsRegistered
+            <EnhancedEmptyState
               onRegister={() => {
                 setAgentFormMode("create");
                 setShowAgentForm(true);
               }}
+              onGoToSettings={() => setActiveTab("settings")}
             />
           ) : (
-            <>
               <SelectPrompt
                 icon={<Cpu className="w-16 h-16" />}
                 title="Select an Agent"
                 description="Use the dropdown above to select an agent to view its details and statistics."
               />
-            </>
           )}
         </Panel>
       )}
@@ -368,7 +375,7 @@ export function AgentsTab() {
 // Prompts users to start the example agent after configuring their API key.
 // This allows new users to try the full workflow without their own agent.
 
-function ExampleAgentBanner({ onGoToSettings }: { onGoToSettings: () => void }) {
+function ExampleAgentBanner({ onGoToSettings, compact = false }: { onGoToSettings: () => void; compact?: boolean }) {
   const [status, setStatus] = useState<'unknown' | 'stopped' | 'running' | 'starting' | 'stopping'>('unknown');
   const [requiresApiKey, setRequiresApiKey] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -413,21 +420,16 @@ function ExampleAgentBanner({ onGoToSettings }: { onGoToSettings: () => void }) 
     }
   };
 
-  // Running state
+  // Running state - always show when running (compact or not)
   if (status === 'running') {
     return (
-      <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-4 mb-4">
+      <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 mb-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-emerald-500/20 flex items-center justify-center">
               <Bot className="w-5 h-5 text-emerald-400" />
-            </div>
-            <div>
               <div className="flex items-center gap-2">
                 <span className="font-medium text-emerald-400">Example Agent Running</span>
                 <span className="text-xs text-emerald-500">localhost:9000</span>
-              </div>
-              <p className="text-sm text-ink-400">TaskFlow Support Agent is ready for queries</p>
             </div>
           </div>
           <button 
@@ -443,7 +445,57 @@ function ExampleAgentBanner({ onGoToSettings }: { onGoToSettings: () => void }) 
     );
   }
 
-  // Needs API key
+  // Compact mode for users with their own agents - single line
+  if (compact) {
+    if (requiresApiKey) {
+      return (
+        <div className="bg-ink-800/50 border border-ink-700 rounded-lg p-3 mb-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm text-ink-400">
+              <Bot className="w-4 h-4" />
+              <span>Example Agent</span>
+              <span className="text-amber-400 text-xs">(needs API key)</span>
+            </div>
+            <button 
+              onClick={onGoToSettings}
+              className="btn-ghost text-xs flex items-center gap-1"
+            >
+              <Settings className="w-3 h-3" />
+              Settings
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="bg-ink-800/50 border border-ink-700 rounded-lg p-3 mb-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm text-ink-400">
+            <Bot className="w-4 h-4" />
+            <span>Example Agent</span>
+            <span className="text-xs">(TaskFlow Support)</span>
+          </div>
+          <button 
+            onClick={startAgent}
+            disabled={status === 'starting'}
+            className="btn-secondary text-xs flex items-center gap-1"
+          >
+            {status === 'starting' ? (
+              <><RefreshCw className="w-3 h-3 animate-spin" /> Starting...</>
+            ) : (
+              <><Play className="w-3 h-3" /> Start</>
+            )}
+          </button>
+        </div>
+        {error && (
+          <div className="mt-2 text-xs text-red-400">{error}</div>
+        )}
+      </div>
+    );
+  }
+
+  // Full mode - Needs API key
   if (requiresApiKey) {
     return (
       <div className="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4 mb-4">
@@ -474,7 +526,7 @@ function ExampleAgentBanner({ onGoToSettings }: { onGoToSettings: () => void }) 
     );
   }
 
-  // Ready to start
+  // Full mode - Ready to start
   return (
     <div className="bg-accent-teal/10 border border-accent-teal/20 rounded-lg p-4 mb-4">
       <div className="flex items-start gap-3">
@@ -525,22 +577,24 @@ function ConnectionStatusIcon({ status }: { status: string }) {
   );
 }
 
-// Agent Status Snapshot Component
+// Agent Status Snapshot Component - Collapsible stats section
 function AgentStatusSnapshot({
   stats,
   loading,
   onRefresh,
-  onNavigate,
 }: {
   stats: AgentStats | null;
   loading: boolean;
   onRefresh: () => void;
-  onNavigate: (tab: "synthetic" | "threads" | "taxonomy") => void;
 }) {
+  // Default to expanded if agent has data, collapsed if empty
+  const hasData = stats && (stats.total_batches > 0 || stats.total_queries > 0);
+  const [collapsed, setCollapsed] = useState(!hasData);
+  
   if (loading) {
     return (
       <Panel>
-        <div className="flex items-center justify-center py-8 text-ink-400">
+        <div className="flex items-center justify-center py-6 text-ink-400">
           <RefreshCw className="w-5 h-5 animate-spin mr-2" />
           Loading stats...
         </div>
@@ -548,12 +602,16 @@ function AgentStatusSnapshot({
     );
   }
 
-  if (!stats) {
+  // Empty state - show minimal collapsed section
+  if (!stats || (stats.total_batches === 0 && stats.total_queries === 0)) {
     return (
       <Panel>
-        <div className="text-center py-6 text-ink-400">
-          <p>No statistics available yet.</p>
-          <p className="text-sm mt-1">Generate some synthetic data to see agent stats.</p>
+        <div className="flex items-center justify-between">
+          <h3 className="font-display text-base flex items-center gap-2 text-ink-400">
+            <BarChart3 className="w-4 h-4" />
+            Quick Stats
+          </h3>
+          <span className="text-sm text-ink-500">No data yet</span>
         </div>
       </Panel>
     );
@@ -561,139 +619,117 @@ function AgentStatusSnapshot({
 
   return (
     <Panel>
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-display text-lg flex items-center gap-2">
-          <BarChart3 className="w-5 h-5 text-accent-teal" />
-          Agent Status Snapshot
-        </h3>
+      {/* Collapsible Header */}
+      <div className="flex items-center justify-between">
         <button 
-          onClick={onRefresh}
+          onClick={() => setCollapsed(!collapsed)}
+          className="flex items-center gap-2 text-left flex-1"
+        >
+          <ChevronDown className={`w-4 h-4 text-ink-400 transition-transform ${collapsed ? '-rotate-90' : ''}`} />
+          <h3 className="font-display text-base flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-accent-teal" />
+            Quick Stats
+        </h3>
+          {/* Inline summary when collapsed */}
+          {collapsed && (
+            <span className="text-sm text-ink-400 ml-2">
+              {stats.total_batches} batches · {stats.total_queries} queries · {stats.total_failure_modes} failures
+            </span>
+          )}
+        </button>
+        <button 
+          onClick={(e) => { e.stopPropagation(); onRefresh(); }}
           className="btn-ghost text-sm flex items-center gap-1"
         >
           <RefreshCw className="w-4 h-4" />
-          Refresh
         </button>
       </div>
 
+      {/* Collapsible Content */}
+      {!collapsed && (
+        <div className="mt-4 animate-in slide-in-from-top-2 duration-200">
       {/* Stats Grid */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+          <div className="grid grid-cols-4 gap-4 mb-4">
         {/* Batches */}
-        <div className="bg-ink-800/50 rounded-lg p-4 border border-ink-700">
-          <div className="flex items-center gap-2 text-ink-400 mb-2">
-            <Layers className="w-4 h-4" />
+            <div className="bg-ink-800/50 rounded-lg p-3 border border-ink-700">
+              <div className="flex items-center gap-2 text-ink-400 mb-1">
+                <Layers className="w-3.5 h-3.5" />
             <span className="text-xs uppercase tracking-wide">Batches</span>
           </div>
-          <div className="text-2xl font-display text-sand-100">{stats.total_batches}</div>
-          <div className="text-xs text-ink-400 mt-1">
-            {stats.completed_batches} completed · {stats.pending_batches} pending
+              <div className="text-xl font-display text-sand-100">{stats.total_batches}</div>
+              <div className="text-xs text-ink-400 mt-0.5">
+                {stats.completed_batches} complete
           </div>
         </div>
 
         {/* Queries */}
-        <div className="bg-ink-800/50 rounded-lg p-4 border border-ink-700">
-          <div className="flex items-center gap-2 text-ink-400 mb-2">
-            <FileText className="w-4 h-4" />
+            <div className="bg-ink-800/50 rounded-lg p-3 border border-ink-700">
+              <div className="flex items-center gap-2 text-ink-400 mb-1">
+                <FileText className="w-3.5 h-3.5" />
             <span className="text-xs uppercase tracking-wide">Queries</span>
           </div>
-          <div className="text-2xl font-display text-sand-100">{stats.total_queries}</div>
-          <div className="text-xs text-ink-400 mt-1">
+              <div className="text-xl font-display text-sand-100">{stats.total_queries}</div>
+              <div className="text-xs text-ink-400 mt-0.5">
             <span className="text-emerald-400">{stats.success_queries} ✓</span>
-            {stats.failed_queries > 0 && <span className="text-red-400 ml-2">{stats.failed_queries} ✗</span>}
+                {stats.failed_queries > 0 && <span className="text-red-400 ml-1">{stats.failed_queries} ✗</span>}
           </div>
         </div>
 
         {/* Reviewed */}
-        <div className="bg-ink-800/50 rounded-lg p-4 border border-ink-700">
-          <div className="flex items-center gap-2 text-ink-400 mb-2">
-            <MessageSquare className="w-4 h-4" />
+            <div className="bg-ink-800/50 rounded-lg p-3 border border-ink-700">
+              <div className="flex items-center gap-2 text-ink-400 mb-1">
+                <MessageSquare className="w-3.5 h-3.5" />
             <span className="text-xs uppercase tracking-wide">Reviewed</span>
           </div>
-          <div className="text-2xl font-display text-sand-100">
+              <div className="text-xl font-display text-sand-100">
             {stats.reviewed_traces}
-            <span className="text-lg text-ink-400">/{stats.total_traces}</span>
+                <span className="text-base text-ink-400">/{stats.total_traces}</span>
           </div>
-          <div className="text-xs text-ink-400 mt-1">
-            {stats.review_progress_percent.toFixed(0)}% complete
+              <div className="text-xs text-ink-400 mt-0.5">
+                {stats.review_progress_percent.toFixed(0)}% done
           </div>
         </div>
 
         {/* Failure Modes */}
-        <div className="bg-ink-800/50 rounded-lg p-4 border border-ink-700">
-          <div className="flex items-center gap-2 text-ink-400 mb-2">
-            <AlertTriangle className="w-4 h-4" />
+            <div className="bg-ink-800/50 rounded-lg p-3 border border-ink-700">
+              <div className="flex items-center gap-2 text-ink-400 mb-1">
+                <AlertTriangle className="w-3.5 h-3.5" />
             <span className="text-xs uppercase tracking-wide">Failures</span>
           </div>
-          <div className="text-2xl font-display text-sand-100">{stats.total_failure_modes}</div>
-          <div className="text-xs text-ink-400 mt-1">
-            {stats.total_categorized_notes} notes categorized
+              <div className="text-xl font-display text-sand-100">{stats.total_failure_modes}</div>
+              <div className="text-xs text-ink-400 mt-0.5">
+                {stats.total_categorized_notes} categorized
           </div>
         </div>
       </div>
 
-      {/* Activity & Top Failure */}
-      <div className="grid grid-cols-2 gap-6 mb-6">
-        {/* Latest Batch */}
+          {/* Activity Summary */}
+          {(stats.latest_batch_name || stats.top_failure_mode) && (
+            <div className="flex flex-wrap gap-x-6 gap-y-2 text-sm pt-2 border-t border-ink-700/50">
         {stats.latest_batch_name && (
-          <div className="flex items-start gap-3 text-sm">
-            <Clock className="w-4 h-4 text-ink-400 mt-0.5 flex-shrink-0" />
-            <div>
-              <span className="text-ink-400">Latest Batch: </span>
+                <div className="flex items-center gap-2">
+                  <Clock className="w-3.5 h-3.5 text-ink-400" />
+                  <span className="text-ink-400">Latest:</span>
               <span className="text-sand-200">{stats.latest_batch_name}</span>
               {stats.latest_batch_completed_at && (
-                <span className="text-ink-500 ml-1">
-                  ({formatTimeAgo(stats.latest_batch_completed_at)})
-                </span>
+                    <span className="text-ink-500">({formatTimeAgo(stats.latest_batch_completed_at)})</span>
               )}
-            </div>
           </div>
         )}
-
-        {/* Top Failure Mode */}
         {stats.top_failure_mode && (
-          <div className="flex items-start gap-3 text-sm">
-            <TrendingUp className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
-            <div>
-              <span className="text-ink-400">Top Failure: </span>
+                <div className="flex items-center gap-2">
+                  <TrendingUp className="w-3.5 h-3.5 text-red-400" />
+                  <span className="text-ink-400">Top failure:</span>
               <span className="text-sand-200">{stats.top_failure_mode}</span>
               {stats.top_failure_mode_percent && (
-                <span className="text-red-400 ml-1">
-                  ({stats.top_failure_mode_percent}%)
-                </span>
+                    <span className="text-red-400">({stats.top_failure_mode_percent}%)</span>
               )}
             </div>
+              )}
           </div>
         )}
       </div>
-
-      {/* Quick Links */}
-      <div className="flex items-center gap-3 pt-4 border-t border-ink-700">
-        <button 
-          onClick={() => onNavigate("synthetic")}
-          className="text-sm text-accent-amber hover:text-accent-amber/80 flex items-center gap-1"
-        >
-          <Zap className="w-4 h-4" />
-          View Synthetic Data
-          <ArrowRight className="w-3 h-3" />
-        </button>
-        <span className="text-ink-600">|</span>
-        <button 
-          onClick={() => onNavigate("threads")}
-          className="text-sm text-accent-teal hover:text-accent-teal/80 flex items-center gap-1"
-        >
-          <MessageSquare className="w-4 h-4" />
-          View Threads
-          <ArrowRight className="w-3 h-3" />
-        </button>
-        <span className="text-ink-600">|</span>
-        <button 
-          onClick={() => onNavigate("taxonomy")}
-          className="text-sm text-accent-plum hover:text-accent-plum/80 flex items-center gap-1"
-        >
-          <BarChart3 className="w-4 h-4" />
-          View Taxonomy
-          <ArrowRight className="w-3 h-3" />
-        </button>
-      </div>
+      )}
     </Panel>
   );
 }
@@ -845,7 +881,6 @@ function AgentDetailView({
   onClose,
   onPlaygroundMessageChange,
   onRunQuery,
-  onGoToSynthetic,
 }: {
   agent: NonNullable<ReturnType<typeof useApp>["selectedAgent"]>;
   connectionResult: ReturnType<typeof useApp>["connectionResult"];
@@ -863,43 +898,86 @@ function AgentDetailView({
   onClose: () => void;
   onPlaygroundMessageChange: (v: string) => void;
   onRunQuery: (message: string) => void;
-  onGoToSynthetic: () => void;
 }) {
+  const [contextExpanded, setContextExpanded] = useState(false);
+  const contextTruncateLength = 200;
+  const hasLongContext = agent.agent_context && agent.agent_context.length > contextTruncateLength;
+  
   return (
     <Panel>
-      {/* Agent Header */}
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <h2 className="font-display text-xl text-sand-100">{agent.name}</h2>
-          {agent.weave_project && (
-            <p className="text-sm text-ink-400 mt-1">Weave: {agent.weave_project}</p>
-          )}
+      {/* Agent Header - Name + Status prominently */}
+      <div className="flex items-start justify-between mb-4">
+        <div className="flex items-center gap-3">
+          <h2 className="font-display text-2xl text-sand-100">{agent.name}</h2>
+          <ConnectionStatusBadge status={agent.connection_status} />
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={onTogglePlayground}
-            className={`btn-primary text-sm flex items-center gap-1 ${showPlayground ? "bg-accent-teal" : ""}`}
-          >
-            <Play className="w-4 h-4" />
-            {showPlayground ? "Hide Playground" : "Try Playground"}
-          </button>
-          <button onClick={onTestConnection} disabled={testingConnection} className="btn-secondary text-sm flex items-center gap-1">
-            {testingConnection ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
-            Test
-          </button>
-          <button onClick={onEdit} className="btn-ghost text-sm flex items-center gap-1">
-            <Edit3 className="w-4 h-4" />
-          </button>
-          <button onClick={onDelete} className="btn-ghost text-sm text-red-400 hover:text-red-300">
-            <Trash2 className="w-4 h-4" />
-          </button>
-          <button onClick={onClose} className="btn-ghost text-sm text-ink-400 hover:text-sand-200" title="Close">
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+        <button onClick={onClose} className="btn-ghost text-sm text-ink-400 hover:text-sand-200" title="Close">
+          <X className="w-5 h-5" />
+        </button>
       </div>
 
-      {/* Connection Status */}
+      {/* Endpoint and Weave - Secondary info */}
+      <div className="text-sm text-ink-400 mb-4 space-y-1">
+        <div className="flex items-center gap-2">
+          <Link className="w-4 h-4 text-ink-500" />
+          <code className="text-sand-300">{agent.endpoint_url}</code>
+        </div>
+          {agent.weave_project && (
+          <div className="flex items-center gap-2">
+            <Layers className="w-4 h-4 text-ink-500" />
+            <span>Weave: <span className="text-sand-300">{agent.weave_project}</span></span>
+          </div>
+          )}
+        </div>
+
+      {/* Agent Context - Prominently displayed with expand/collapse */}
+      {agent.agent_context && (
+        <div className="mb-6 bg-ink-800/30 rounded-lg border border-ink-700/50 p-4">
+          <p className="text-sm text-sand-200 whitespace-pre-wrap leading-relaxed">
+            {contextExpanded || !hasLongContext
+              ? agent.agent_context
+              : agent.agent_context.slice(0, contextTruncateLength) + "..."}
+          </p>
+          {hasLongContext && (
+            <button
+              onClick={() => setContextExpanded(!contextExpanded)}
+              className="text-xs text-accent-teal hover:text-accent-teal/80 mt-2 flex items-center gap-1"
+            >
+              {contextExpanded ? "Show less" : "Show more"}
+              <ChevronDown className={`w-3 h-3 transition-transform ${contextExpanded ? 'rotate-180' : ''}`} />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Action Toolbar */}
+      <div className="flex items-center gap-2 mb-6 flex-wrap">
+          <button
+            onClick={onTogglePlayground}
+          className={`btn-primary text-sm flex items-center gap-2 ${showPlayground ? "bg-accent-teal" : ""}`}
+          >
+            <Play className="w-4 h-4" />
+          {showPlayground ? "Hide Playground" : "Playground"}
+          </button>
+        <button 
+          onClick={onTestConnection} 
+          disabled={testingConnection} 
+          className="btn-secondary text-sm flex items-center gap-2"
+        >
+            {testingConnection ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
+          Test Connection
+          </button>
+        <button onClick={onEdit} className="btn-ghost text-sm flex items-center gap-2">
+            <Edit3 className="w-4 h-4" />
+          Edit
+          </button>
+        <button onClick={onDelete} className="btn-ghost text-sm text-red-400 hover:text-red-300 flex items-center gap-2">
+            <Trash2 className="w-4 h-4" />
+          Delete
+          </button>
+      </div>
+
+      {/* Connection Test Result */}
       {connectionResult && (
         <div
           className={`p-4 rounded-lg mb-6 ${
@@ -923,7 +1001,7 @@ function AgentDetailView({
         </div>
       )}
 
-      {/* Playground Panel */}
+      {/* Playground Panel - Inline when toggled */}
       {showPlayground && (
         <PlaygroundPanel
           message={playgroundMessage}
@@ -935,38 +1013,126 @@ function AgentDetailView({
           onRun={onRunQuery}
         />
       )}
+    </Panel>
+  );
+}
 
-      {/* Endpoint */}
-      <div className="mb-6">
-        <h3 className="text-sm font-medium text-ink-400 mb-2">Endpoint</h3>
-        <div className="flex items-center gap-2 bg-ink-800/50 rounded-lg p-3">
-          <Link className="w-4 h-4 text-ink-500" />
-          <code className="text-sm text-sand-200 flex-1">{agent.endpoint_url}</code>
-          <ConnectionStatusIcon status={agent.connection_status} />
+// Connection status badge component
+function ConnectionStatusBadge({ status }: { status: string }) {
+  const config = {
+    connected: { bg: "bg-emerald-500/15", text: "text-emerald-400", label: "connected" },
+    disconnected: { bg: "bg-ink-700", text: "text-ink-400", label: "disconnected" },
+    error: { bg: "bg-red-500/15", text: "text-red-400", label: "error" },
+    unknown: { bg: "bg-ink-700", text: "text-ink-400", label: "unknown" },
+  }[status] || { bg: "bg-ink-700", text: "text-ink-400", label: status };
+
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs ${config.bg} ${config.text}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${status === 'connected' ? 'bg-emerald-400' : status === 'error' ? 'bg-red-400' : 'bg-ink-400'}`} />
+      {config.label}
+    </span>
+  );
+}
+
+// Enhanced Empty State - Beautiful first-run experience
+function EnhancedEmptyState({ 
+  onRegister, 
+  onGoToSettings 
+}: { 
+  onRegister: () => void; 
+  onGoToSettings: () => void;
+}) {
+  const [exampleAgentStatus, setExampleAgentStatus] = useState<'stopped' | 'starting' | 'running'>('stopped');
+  const [requiresApiKey, setRequiresApiKey] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    checkExampleAgentStatus();
+  }, []);
+
+  const checkExampleAgentStatus = async () => {
+    try {
+      const data = await api.getExampleAgentStatus();
+      setExampleAgentStatus(data.running ? 'running' : 'stopped');
+      setRequiresApiKey(data.requires_api_key);
+    } catch {
+      setExampleAgentStatus('stopped');
+    }
+  };
+
+  const startExampleAgent = async () => {
+    setExampleAgentStatus('starting');
+    setError(null);
+    try {
+      await api.startExampleAgent(9000);
+      setExampleAgentStatus('running');
+    } catch (err) {
+      setExampleAgentStatus('stopped');
+      setError(err instanceof Error ? err.message : 'Failed to start agent');
+    }
+  };
+
+  return (
+    <div className="flex flex-col items-center justify-center py-16 px-8">
+      {/* Icon */}
+      <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-accent-teal/20 to-accent-amber/20 flex items-center justify-center mb-6">
+        <Cpu className="w-10 h-10 text-accent-teal" />
         </div>
+
+      {/* Title & Description */}
+      <h2 className="font-display text-2xl text-sand-100 mb-3">No Agents Registered</h2>
+      <p className="text-ink-400 text-center max-w-md mb-8 leading-relaxed">
+        Register your agent to start testing and analysis. 
+        Your agent needs a POST endpoint that accepts <code className="text-sand-300 bg-ink-800 px-1.5 py-0.5 rounded text-sm">{`{query, thread_id}`}</code> requests.
+      </p>
+
+      {/* Action Buttons */}
+      <div className="flex items-center gap-4 flex-wrap justify-center">
+        <button onClick={onRegister} className="btn-primary flex items-center gap-2 text-base px-6 py-3">
+          <Plus className="w-5 h-5" />
+          Register Agent
+        </button>
+
+        {requiresApiKey ? (
+          <button 
+            onClick={onGoToSettings}
+            className="btn-secondary flex items-center gap-2 text-base px-6 py-3"
+          >
+            <Settings className="w-5 h-5" />
+            Configure API Key First
+          </button>
+        ) : (
+          <button 
+            onClick={startExampleAgent}
+            disabled={exampleAgentStatus === 'starting' || exampleAgentStatus === 'running'}
+            className="btn-secondary flex items-center gap-2 text-base px-6 py-3"
+          >
+            {exampleAgentStatus === 'starting' ? (
+              <><RefreshCw className="w-5 h-5 animate-spin" /> Starting...</>
+            ) : exampleAgentStatus === 'running' ? (
+              <><CheckCircle2 className="w-5 h-5 text-emerald-400" /> Example Running</>
+            ) : (
+              <><Play className="w-5 h-5" /> Start Example Agent</>
+            )}
+          </button>
+        )}
       </div>
 
-      {/* Agent Context */}
-      {agent.agent_context && (
-        <div className="mb-6">
-          <h3 className="text-sm font-medium text-ink-400 mb-2 flex items-center gap-2">
-            <FileText className="w-4 h-4" />
-            Agent Context
-          </h3>
-          <div className="bg-ink-800/50 rounded-lg p-4">
-            <p className="text-sm text-sand-300 whitespace-pre-wrap">{agent.agent_context}</p>
-          </div>
+      {/* Error message */}
+      {error && (
+        <div className="mt-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg text-sm text-red-400 max-w-md text-center">
+          {error}
         </div>
       )}
 
-      {/* Link to Synthetic Tab */}
-      <div className="border-t border-ink-700 pt-4 mt-4">
-        <button onClick={onGoToSynthetic} className="flex items-center gap-2 text-sm text-accent-amber hover:text-accent-amber/80">
-          <Zap className="w-4 h-4" />
-          Go to Synthetic Data Generation →
-        </button>
-      </div>
-    </Panel>
+      {/* Hint when example is running */}
+      {exampleAgentStatus === 'running' && (
+        <p className="mt-4 text-sm text-emerald-400 flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4" />
+          Example agent is running at localhost:9000. Refresh to see it in the list.
+        </p>
+      )}
+    </div>
   );
 }
 

@@ -250,6 +250,7 @@ def init_db():
                     id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
                     endpoint_url TEXT NOT NULL,
+                    weave_project TEXT,
                     agent_context TEXT,
                     connection_status TEXT DEFAULT 'unknown',
                     last_connection_test TEXT,

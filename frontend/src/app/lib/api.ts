@@ -243,12 +243,13 @@ export function getBackendUrl(): string {
   if (typeof process !== 'undefined' && process.env.NEXT_PUBLIC_BACKEND_URL) {
     return process.env.NEXT_PUBLIC_BACKEND_URL;
   }
-  // Default: construct from window location
+  // Default: construct from window location with backend port
+  // The backend always runs on port 8000 by default
+  const port = process.env.NEXT_PUBLIC_BACKEND_PORT || '8000';
   if (typeof window !== 'undefined') {
-    const port = process.env.NEXT_PUBLIC_BACKEND_PORT || '8000';
     return `http://${window.location.hostname}:${port}`;
   }
-  return 'http://localhost:8000';
+  return `http://localhost:${port}`;
 }
 
 // ============================================================================
@@ -667,6 +668,34 @@ export async function batchApplyCategories(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ assignments, agent_id: agentId || null }),
   });
+}
+
+// Taxonomy Improvement Suggestions
+export interface TaxonomyImprovementSuggestion {
+  type: "merge" | "split" | "rename";
+  mode_ids: string[];
+  reason: string;
+  suggested_name?: string;
+}
+
+export interface TaxonomyImprovementsResult {
+  suggestions: TaxonomyImprovementSuggestion[];
+  overall_assessment: string;
+}
+
+export async function getTaxonomyImprovements(): Promise<TaxonomyImprovementsResult> {
+  // Use direct backend URL to avoid Next.js proxy timeout
+  // Taxonomy improvement suggestions require LLM analysis which can take 30+ seconds
+  const backendUrl = getBackendUrl();
+  const response = await fetch(`${backendUrl}/api/taxonomy/improvements`);
+  
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({ detail: "Request failed" }));
+    const message = errorBody.detail || errorBody.message || `HTTP ${response.status}`;
+    throw new ApiError(response.status, message, "/api/taxonomy/improvements");
+  }
+  
+  return response.json();
 }
 
 // ============================================================================

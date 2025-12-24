@@ -26,6 +26,8 @@ import {
   GitMerge,
   Edit3,
   Cpu,
+  Undo2,
+  Lightbulb,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import {
@@ -121,6 +123,11 @@ export function TaxonomyTab() {
     type: "success" | "error" | "info";
     message: string;
   } | null>(null);
+
+  // Taxonomy improvements modal state
+  const [showImprovementsModal, setShowImprovementsModal] = useState(false);
+  const [improvements, setImprovements] = useState<api.TaxonomyImprovementsResult | null>(null);
+  const [loadingImprovements, setLoadingImprovements] = useState(false);
 
   // Auto-dismiss notification after 4 seconds
   useEffect(() => {
@@ -298,6 +305,45 @@ export function TaxonomyTab() {
       console.error("Failed to merge:", error);
     } finally {
       setMerging(false);
+    }
+  };
+
+  // Unassign note handler - moves note back to uncategorized
+  const handleUnassignNote = async (noteId: string) => {
+    try {
+      await api.unassignNote(noteId);
+      await fetchTaxonomy(selectedAgent?.id);
+      setNotification({
+        type: "success",
+        message: "Note moved to uncategorized"
+      });
+    } catch (error) {
+      console.error("Failed to unassign note:", error);
+      setNotification({
+        type: "error",
+        message: "Failed to unassign note"
+      });
+    }
+  };
+
+  // Get taxonomy improvement suggestions
+  const handleGetImprovements = async () => {
+    setShowImprovementsModal(true);
+    setLoadingImprovements(true);
+    setImprovements(null);
+    
+    try {
+      const result = await api.getTaxonomyImprovements();
+      setImprovements(result);
+    } catch (error) {
+      console.error("Failed to get improvements:", error);
+      setNotification({
+        type: "error",
+        message: "Failed to analyze taxonomy"
+      });
+      setShowImprovementsModal(false);
+    } finally {
+      setLoadingImprovements(false);
     }
   };
 
@@ -630,6 +676,7 @@ export function TaxonomyTab() {
                     onEditStatusChange={setEditStatus}
                     onEditSuggestedFixChange={setEditSuggestedFix}
                     onMerge={() => openMergeModal(mode.id)}
+                    onUnassign={handleUnassignNote}
                   />
                         ))
                       ) : (
@@ -690,6 +737,23 @@ export function TaxonomyTab() {
                 <Plus className="w-4 h-4 text-emerald-400" />
                 New Failure Mode
                   </button>
+              <button
+                onClick={handleGetImprovements}
+                disabled={loadingImprovements || (taxonomy?.failure_modes.length || 0) < 2}
+                className="w-full btn-ghost text-sm flex items-center gap-2 justify-start px-3 py-2"
+                title={
+                  (taxonomy?.failure_modes.length || 0) < 2
+                    ? "Need at least 2 failure modes to suggest improvements"
+                    : "Get AI suggestions for improving your taxonomy"
+                }
+              >
+                {loadingImprovements ? (
+                  <RefreshCw className="w-4 h-4 text-purple-400 animate-spin" />
+                ) : (
+                  <Lightbulb className="w-4 h-4 text-purple-400" />
+                )}
+                Suggest Improvements
+              </button>
               <button
                 onClick={() => fetchTaxonomy(selectedAgent?.id)}
                 disabled={loadingTaxonomy}
@@ -865,6 +929,188 @@ export function TaxonomyTab() {
           </div>
         </div>
       </Modal>
+
+      {/* Taxonomy Improvements Modal */}
+      {showImprovementsModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm">
+          <div className="bg-moon-800 rounded-xl border border-moon-700 w-full max-w-2xl max-h-[85vh] shadow-2xl flex flex-col overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-moon-700 flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-purple-500/20 rounded-lg">
+                  <Lightbulb className="w-5 h-5 text-purple-400" />
+                </div>
+                <div>
+                  <h3 className="font-display text-lg text-moon-50">Taxonomy Improvements</h3>
+                  <p className="text-xs text-moon-500">AI-powered suggestions to improve your failure mode taxonomy</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowImprovementsModal(false)} 
+                className="p-2 text-moon-500 hover:text-moon-300 hover:bg-moon-700 rounded-lg transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-5">
+              {loadingImprovements ? (
+                <div className="flex flex-col items-center justify-center py-16 text-moon-400">
+                  <RefreshCw className="w-10 h-10 animate-spin mb-4 text-purple-400" />
+                  <p className="text-sm font-medium">Analyzing your taxonomy...</p>
+                  <p className="text-xs text-moon-500 mt-1">This may take 15-30 seconds</p>
+                </div>
+              ) : improvements ? (
+                <div className="space-y-5">
+                  {/* Overall Assessment */}
+                  <div className="p-4 bg-gradient-to-br from-purple-500/10 to-transparent rounded-xl border border-purple-500/20">
+                    <p className="text-sm text-moon-200 leading-relaxed">{improvements.overall_assessment}</p>
+                  </div>
+
+                  {/* Suggestions */}
+                  {improvements.suggestions.length > 0 ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-moon-400 uppercase tracking-wide">
+                          {improvements.suggestions.length} Suggestion{improvements.suggestions.length !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      
+                      {improvements.suggestions.map((suggestion, idx) => {
+                        const affectedModes = suggestion.mode_ids
+                          .map((id) => taxonomy?.failure_modes.find((m) => m.id === id))
+                          .filter(Boolean);
+                        
+                        // For merge: need exactly 2 modes
+                        const canMerge = suggestion.type === "merge" && affectedModes.length >= 2;
+                        // For rename: need exactly 1 mode
+                        const canRename = suggestion.type === "rename" && affectedModes.length === 1;
+
+                        return (
+                          <div
+                            key={idx}
+                            className="group p-4 rounded-xl bg-moon-900/60 border border-moon-700 hover:border-moon-600 transition-colors"
+                          >
+                            {/* Type badge and action */}
+                            <div className="flex items-start justify-between gap-3 mb-3">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                {suggestion.type === "merge" && (
+                                  <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30">
+                                    <GitMerge className="w-3 h-3" />
+                                    Merge
+                                  </span>
+                                )}
+                                {suggestion.type === "rename" && (
+                                  <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-green-500/15 text-green-400 border border-green-500/30">
+                                    <Edit3 className="w-3 h-3" />
+                                    Rename
+                                  </span>
+                                )}
+                                {suggestion.type === "split" && (
+                                  <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-orange-500/15 text-orange-400 border border-orange-500/30">
+                                    <Target className="w-3 h-3" />
+                                    Split
+                                  </span>
+                                )}
+                                {suggestion.suggested_name && (
+                                  <span className="text-xs text-moon-300 font-medium">
+                                    → <span className="text-gold">"{suggestion.suggested_name}"</span>
+                                  </span>
+                                )}
+                              </div>
+                              
+                              {/* Action buttons */}
+                              <div className="flex-shrink-0">
+                                {canMerge && (
+                                  <button
+                                    onClick={() => {
+                                      // Open merge modal with first two modes pre-selected
+                                      setMergeSourceId(affectedModes[0]!.id);
+                                      setMergeTargetId(affectedModes[1]!.id);
+                                      setMergeName(suggestion.suggested_name || affectedModes[1]!.name);
+                                      setShowMergeModal(true);
+                                      setShowImprovementsModal(false);
+                                    }}
+                                    className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 border border-blue-500/30 transition-colors"
+                                  >
+                                    <GitMerge className="w-3 h-3" />
+                                    Apply
+                                  </button>
+                                )}
+                                {canRename && (
+                                  <button
+                                    onClick={() => {
+                                      // Start editing the mode with suggested name
+                                      const mode = affectedModes[0]!;
+                                      setEditingModeId(mode.id);
+                                      setEditName(suggestion.suggested_name || mode.name);
+                                      setEditDescription(mode.description);
+                                      setEditSeverity(mode.severity);
+                                      setEditStatus(mode.status);
+                                      setEditSuggestedFix(mode.suggested_fix || "");
+                                      setShowImprovementsModal(false);
+                                    }}
+                                    className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-green-500/20 text-green-400 hover:bg-green-500/30 border border-green-500/30 transition-colors"
+                                  >
+                                    <Edit3 className="w-3 h-3" />
+                                    Rename
+                                  </button>
+                                )}
+                                {suggestion.type === "split" && (
+                                  <span className="text-xs text-moon-500 italic">Manual action</span>
+                                )}
+                              </div>
+                            </div>
+                            
+                            {/* Reason */}
+                            <p className="text-sm text-moon-300 leading-relaxed mb-3">{suggestion.reason}</p>
+                            
+                            {/* Affected modes */}
+                            {affectedModes.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5">
+                                {affectedModes.slice(0, 4).map((mode) => (
+                                  <span
+                                    key={mode!.id}
+                                    className="inline-flex items-center text-xs px-2 py-1 bg-moon-800 rounded-md text-moon-400 border border-moon-700"
+                                  >
+                                    {mode!.name}
+                                  </span>
+                                ))}
+                                {affectedModes.length > 4 && (
+                                  <span className="text-xs text-moon-500 py-1">
+                                    +{affectedModes.length - 4} more
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-center py-12">
+                      <CheckCircle2 className="w-12 h-12 mx-auto mb-3 text-emerald-400" />
+                      <p className="text-moon-200 font-medium">Your taxonomy looks great!</p>
+                      <p className="text-sm text-moon-500 mt-1">No improvements suggested at this time.</p>
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-moon-700 bg-moon-900/50 flex-shrink-0">
+              <button
+                onClick={() => setShowImprovementsModal(false)}
+                className="btn-ghost px-4 py-2"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Batch Categorization Modal */}
       {showBatchModal && (
@@ -1087,6 +1333,7 @@ function EnhancedFailureModeCard({
   onEditStatusChange,
   onEditSuggestedFixChange,
   onMerge,
+  onUnassign,
 }: {
   mode: FailureMode;
   notes?: Array<{ id: string; content: string; weave_url: string }>;
@@ -1113,6 +1360,7 @@ function EnhancedFailureModeCard({
   onEditStatusChange: (v: FailureModeStatus) => void;
   onEditSuggestedFixChange: (v: string) => void;
   onMerge: () => void;
+  onUnassign: (noteId: string) => void;
 }) {
   const [showMenu, setShowMenu] = useState(false);
   const modeNotes = notes?.filter((n) => mode.note_ids.includes(n.id)) || [];
@@ -1332,13 +1580,25 @@ function EnhancedFailureModeCard({
               <span className="text-xs font-medium text-moon-450 block mb-2">Notes ({mode.note_ids.length})</span>
               <div className="space-y-1">
                 {modeNotes.slice(0, 3).map((note) => (
-                  <div key={note.id} className="text-xs text-moon-400 bg-moon-900 rounded p-2 flex items-center justify-between">
+                  <div key={note.id} className="text-xs text-moon-400 bg-moon-900 rounded p-2 flex items-center justify-between group">
                     <span className="truncate flex-1">{note.content}</span>
-                    {note.weave_url && (
-                      <a href={note.weave_url} target="_blank" rel="noopener noreferrer" className="text-gold ml-2">
-                        <ExternalLink className="w-3 h-3" />
-                      </a>
-                    )}
+                    <div className="flex items-center gap-1 ml-2">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onUnassign(note.id);
+                        }}
+                        className="p-1 text-moon-500 hover:text-red-400 hover:bg-red-500/10 rounded opacity-0 group-hover:opacity-100 transition-all"
+                        title="Remove from category"
+                      >
+                        <Undo2 className="w-3 h-3" />
+                      </button>
+                      {note.weave_url && (
+                        <a href={note.weave_url} target="_blank" rel="noopener noreferrer" className="p-1 text-gold hover:text-gold/80">
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      )}
+                    </div>
                   </div>
                 ))}
                 {mode.note_ids.length > 3 && <p className="text-xs text-moon-500 pl-2">+{mode.note_ids.length - 3} more notes</p>}

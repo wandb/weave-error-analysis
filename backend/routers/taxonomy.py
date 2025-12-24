@@ -439,4 +439,29 @@ async def batch_apply_categories(request: BatchApplyRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ============================================================================
+# Taxonomy Improvement Suggestions
+# ============================================================================
+
+@router.get("/improvements")
+async def get_taxonomy_improvements():
+    """
+    Analyze the current taxonomy and suggest improvements.
+    
+    Uses AI to identify:
+    - Categories that could be merged (too similar)
+    - Categories that might need splitting (too broad)
+    - Naming improvements (symptom → root cause naming)
+    
+    Returns:
+    - suggestions: List of improvement recommendations
+    - overall_assessment: Summary of taxonomy health
+    """
+    try:
+        result = await taxonomy_service.suggest_taxonomy_improvements()
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 

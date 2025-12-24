@@ -1326,6 +1326,21 @@ class TaxonomyService:
                 """, (batch_id,))
                 query_count = cursor.fetchone()["count"] or 0
                 
+                # Get reviewed count for this batch
+                # Total = successfully executed queries
+                # Reviewed = queries that have feedback (matched via query_id)
+                cursor.execute("""
+                    SELECT 
+                        COUNT(sq.id) as total_executed,
+                        COUNT(DISTINCT CASE WHEN wf.id IS NOT NULL THEN sq.id END) as reviewed
+                    FROM synthetic_queries sq
+                    LEFT JOIN weave_feedback wf ON sq.id = wf.query_id
+                    WHERE sq.batch_id = ? AND sq.execution_status = 'success'
+                """, (batch_id,))
+                review_row = cursor.fetchone()
+                total_traces = review_row["total_executed"] or 0
+                reviewed_traces = review_row["reviewed"] or 0
+                
                 # Get failure modes created around this batch's time
                 # We consider modes created between this batch and the next batch
                 next_batch_idx = batch_order + 1
@@ -1357,6 +1372,8 @@ class TaxonomyService:
                     "batch_name": batch_name,
                     "batch_order": batch_order,
                     "query_count": query_count,
+                    "total_traces": total_traces,
+                    "reviewed_traces": reviewed_traces,
                     "new_modes_discovered": new_modes,
                     "existing_modes_matched": matched_modes,
                     "cumulative_modes": cumulative_modes

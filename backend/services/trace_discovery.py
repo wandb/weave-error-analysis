@@ -35,11 +35,25 @@ class TraceDiscoveryService:
     call, allowing us to find all traces from a batch.
     """
     
+    def _get_weave_project_for_batch(self, batch_id: str) -> str | None:
+        """Get the Weave project for a batch by looking up its agent."""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT a.weave_project 
+                FROM synthetic_batches sb
+                JOIN agents a ON sb.agent_id = a.id
+                WHERE sb.id = ?
+            """, (batch_id,))
+            row = cursor.fetchone()
+            return row["weave_project"] if row else None
+    
     async def get_traces_for_batch(self, batch_id: str) -> List[dict]:
         """
         Get all traces that belong to a batch.
         
         Queries Weave for traces where attributes.batch_id matches.
+        Uses the agent's weave_project from the batch configuration.
         
         Args:
             batch_id: The batch to find traces for
@@ -48,12 +62,19 @@ class TraceDiscoveryService:
             List of trace dicts from Weave
         """
         try:
+            # Get the agent's weave_project for this batch
+            weave_project = self._get_weave_project_for_batch(batch_id)
+            if not weave_project:
+                logger.warning(f"No weave_project found for batch {batch_id}")
+                return []
+            
             # Query Weave for traces with matching batch_id attribute
             # Note: The Weave SDK may not support attribute filtering directly,
             # so we fetch recent traces and filter client-side
             all_traces = await weave_client.query_calls(
                 limit=500,
                 trace_roots_only=True,
+                project_id=weave_project,
             )
             
             # Filter to traces with matching batch_id attribute
@@ -63,7 +84,7 @@ class TraceDiscoveryService:
                 if attrs.get("batch_id") == batch_id:
                     batch_traces.append(trace)
             
-            logger.info(f"Found {len(batch_traces)} traces for batch {batch_id}")
+            logger.info(f"Found {len(batch_traces)} traces for batch {batch_id} in {weave_project}")
             return batch_traces
             
         except Exception as e:

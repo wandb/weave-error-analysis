@@ -25,6 +25,7 @@ import {
   BarChart3,
   Sparkles,
   Target,
+  ClipboardCheck,
 } from "lucide-react";
 import { fetchBatchSaturation, BatchSaturationResponse, BatchSaturationData } from "../lib/api";
 
@@ -149,10 +150,17 @@ export function BatchSaturationCharts({
     name: b.batch_name.length > 12 ? `B${i + 1}` : b.batch_name,
     fullName: b.batch_name,
     queries: b.query_count,
+    totalTraces: b.total_traces,
+    reviewed: b.reviewed_traces,
     newModes: b.new_modes_discovered,
     matchedModes: b.existing_modes_matched,
     cumulative: b.cumulative_modes,
   }));
+  
+  // Calculate total review stats
+  const totalTraces = chartData.reduce((sum, b) => sum + b.totalTraces, 0);
+  const totalReviewed = chartData.reduce((sum, b) => sum + b.reviewed, 0);
+  const reviewPercent = totalTraces > 0 ? Math.round((totalReviewed / totalTraces) * 100) : 0;
 
   // Growth chart needs a starting point
   const growthData = [
@@ -199,10 +207,17 @@ export function BatchSaturationCharts({
       {expanded && (
         <div className="px-4 pb-4 border-t border-moon-800 pt-4 space-y-6">
           {/* Summary Stats */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-4 gap-3">
             <StatCard value={data.summary.total_batches} label="Batches" icon={<Layers className="w-4 h-4" />} />
             <StatCard value={data.summary.total_queries} label="Queries" icon={<BarChart3 className="w-4 h-4" />} color="text-blue-400" />
             <StatCard value={data.summary.total_modes} label="Failure Modes" icon={<Target className="w-4 h-4" />} color="text-purple-400" />
+            <StatCard 
+              value={reviewPercent} 
+              label={`Reviewed (${totalReviewed}/${totalTraces})`} 
+              icon={<ClipboardCheck className="w-4 h-4" />} 
+              color="text-emerald-400" 
+              suffix="%" 
+            />
           </div>
 
           {/* Chart 1: Queries per Batch */}
@@ -218,7 +233,28 @@ export function BatchSaturationCharts({
             </ResponsiveContainer>
           </ChartSection>
 
-          {/* Chart 2: Failure Mode Discovery by Batch */}
+          {/* Chart 2: Review Progress per Batch */}
+          <ChartSection 
+            title="Review Progress per Batch"
+            badge={reviewPercent === 100 ? (
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3" /> All reviewed
+              </span>
+            ) : undefined}
+          >
+            <ResponsiveContainer width="100%" height={180}>
+              <BarChart data={chartData} barCategoryGap="20%">
+                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
+                <XAxis dataKey="name" tick={{ fill: "#6b7280", fontSize: 10 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} axisLine={false} tickLine={false} width={30} />
+                <Tooltip content={<CustomTooltip type="review" />} cursor={{ fill: "rgba(255,255,255,0.05)" }} />
+                <Bar dataKey="totalTraces" fill={COLORS.gray} radius={[4, 4, 0, 0]} name="Total Traces" />
+                <Bar dataKey="reviewed" fill={COLORS.green} radius={[4, 4, 0, 0]} name="Reviewed" />
+              </BarChart>
+            </ResponsiveContainer>
+          </ChartSection>
+
+          {/* Chart 3: Failure Mode Discovery by Batch */}
           <ChartSection 
             title="Failure Mode Discovery by Batch"
             badge={data.summary.saturation_status === "saturated" ? (
@@ -282,14 +318,14 @@ export function BatchSaturationCharts({
 // Sub-components
 // =============================================================================
 
-function StatCard({ value, label, icon, color = "text-moon-100" }: { 
-  value: number; label: string; icon: React.ReactNode; color?: string;
+function StatCard({ value, label, icon, color = "text-moon-100", suffix }: { 
+  value: number; label: string; icon: React.ReactNode; color?: string; suffix?: string;
 }) {
   return (
     <div className="bg-moon-800/40 rounded-lg p-3 text-center">
       <div className={`flex items-center justify-center gap-2 ${color}`}>
         {icon}
-        <span className="text-xl font-bold">{value}</span>
+        <span className="text-xl font-bold">{value}{suffix}</span>
       </div>
       <div className="text-[10px] text-moon-500 mt-1">{label}</div>
     </div>
@@ -312,7 +348,7 @@ function ChartSection({ title, children, badge }: {
   );
 }
 
-function CustomTooltip({ active, payload, type }: TooltipProps<number, string> & { type: "queries" | "discovery" | "growth" }) {
+function CustomTooltip({ active, payload, type }: TooltipProps<number, string> & { type: "queries" | "review" | "discovery" | "growth" }) {
   if (!active || !payload?.length) return null;
 
   const data = payload[0]?.payload;
@@ -323,6 +359,15 @@ function CustomTooltip({ active, payload, type }: TooltipProps<number, string> &
       {type === "queries" && (
         <div className="text-xs space-y-0.5">
           <p><span className="text-blue-400">Queries:</span> <span className="text-moon-200">{data?.queries}</span></p>
+        </div>
+      )}
+      {type === "review" && (
+        <div className="text-xs space-y-0.5">
+          <p><span className="text-moon-400">Total Traces:</span> <span className="text-moon-200">{data?.totalTraces}</span></p>
+          <p><span className="text-green-400">Reviewed:</span> <span className="text-moon-200">{data?.reviewed}</span></p>
+          {data?.totalTraces > 0 && (
+            <p><span className="text-emerald-400">Progress:</span> <span className="text-moon-200">{Math.round((data?.reviewed / data?.totalTraces) * 100)}%</span></p>
+          )}
         </div>
       )}
       {type === "discovery" && (

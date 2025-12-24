@@ -23,9 +23,23 @@ from logger import get_logger
 logger = get_logger("dataset_publisher")
 
 
+def _get_weave_project_for_batch(batch_id: str) -> str | None:
+    """Get the Weave project for a batch by looking up its agent."""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT a.weave_project 
+            FROM synthetic_batches sb
+            JOIN agents a ON sb.agent_id = a.id
+            WHERE sb.id = ?
+        """, (batch_id,))
+        row = cursor.fetchone()
+        return row["weave_project"] if row else None
+
+
 async def publish_batch_dataset(batch_id: str) -> str:
     """
-    Publish a batch's queries as a Weave Dataset to the user's project.
+    Publish a batch's queries as a Weave Dataset to the agent's project.
     
     Args:
         batch_id: The batch to publish
@@ -34,14 +48,18 @@ async def publish_batch_dataset(batch_id: str) -> str:
         The Weave dataset reference URI (e.g., weave:///entity/project/object/batch_abc:v0)
         
     Raises:
-        ValueError: If batch not found or target project not configured
+        ValueError: If batch not found or agent's weave_project not configured
     """
-    # Initialize Weave with USER's project
-    project_id = get_target_project_id()
+    # Get the agent's weave_project for this batch
+    project_id = _get_weave_project_for_batch(batch_id)
+    if not project_id:
+        # Fall back to global target project
+        project_id = get_target_project_id()
+    
     if not project_id:
         raise ValueError(
-            "Target project not configured. "
-            "Please configure 'weave_entity' and 'weave_project' in Settings."
+            "No weave_project configured for this agent. "
+            "Please configure 'weave_project' in the agent settings."
         )
     
     # Set API key
@@ -82,7 +100,7 @@ async def publish_batch_dataset(batch_id: str) -> str:
     dataset = Dataset(name=dataset_name, rows=rows)
     ref = weave.publish(dataset)
     
-    logger.info(f"Published dataset '{dataset_name}' with {len(rows)} rows to {project_id}")
+    logger.info(f"Published dataset '{dataset_name}' with {len(rows)} rows to agent's project: {project_id}")
     logger.info(f"Dataset ref: {ref}")
     
     # Store dataset reference in batch record

@@ -557,6 +557,7 @@ def init_db():
                     id TEXT PRIMARY KEY,
                     trace_id TEXT NOT NULL,
                     batch_id TEXT,
+                    query_id TEXT,
                     feedback_type TEXT,
                     payload TEXT,
                     created_at TEXT,
@@ -565,6 +566,12 @@ def init_db():
                     FOREIGN KEY (batch_id) REFERENCES synthetic_batches(id) ON DELETE SET NULL
                 )
             """)
+            
+            # Migration: Add query_id column if it doesn't exist
+            cursor.execute("PRAGMA table_info(weave_feedback)")
+            wf_columns = [col[1] for col in cursor.fetchall()]
+            if "query_id" not in wf_columns:
+                cursor.execute("ALTER TABLE weave_feedback ADD COLUMN query_id TEXT")
             
             # Indexes for weave_feedback
             cursor.execute("""
@@ -578,6 +585,10 @@ def init_db():
             cursor.execute("""
                 CREATE INDEX IF NOT EXISTS idx_weave_feedback_type 
                 ON weave_feedback(feedback_type)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_weave_feedback_query 
+                ON weave_feedback(query_id)
             """)
             
             conn.commit()

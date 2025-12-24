@@ -412,8 +412,28 @@ async def get_agent_stats(agent_id: str):
         success_queries = query_row["success"] or 0
         failed_queries = query_row["failed"] or 0
         
-        # Note: Trace review stats now come from Weave feedback, not local sessions.
-        # These are set to 0 for now - could be populated via Weave API if needed.
+        # Trace review stats - from weave_feedback synced from Weave
+        # Total traces = queries with trace_id linked (executed and traced)
+        cursor.execute("""
+            SELECT COUNT(*) as total
+            FROM synthetic_queries sq
+            JOIN synthetic_batches sb ON sq.batch_id = sb.id
+            WHERE sb.agent_id = ? AND sq.execution_status = 'success'
+        """, (agent_id,))
+        total_traces = cursor.fetchone()["total"] or 0
+        
+        # Reviewed = queries that have at least one feedback entry (matched via query_id)
+        cursor.execute("""
+            SELECT COUNT(DISTINCT sq.id) as reviewed
+            FROM synthetic_queries sq
+            JOIN synthetic_batches sb ON sq.batch_id = sb.id
+            JOIN weave_feedback wf ON sq.id = wf.query_id
+            WHERE sb.agent_id = ?
+        """, (agent_id,))
+        reviewed_traces = cursor.fetchone()["reviewed"] or 0
+        
+        unreviewed_traces = total_traces - reviewed_traces
+        review_progress_percent = (reviewed_traces / total_traces * 100) if total_traces > 0 else 0.0
         
         # Failure mode stats - global (not per-agent yet, as failure modes are agent-agnostic)
         cursor.execute("SELECT COUNT(*) as total FROM failure_modes")
@@ -484,11 +504,11 @@ async def get_agent_stats(agent_id: str):
         executed_queries=executed_queries,
         success_queries=success_queries,
         failed_queries=failed_queries,
-        # Trace review stats - not populated locally, would come from Weave
-        total_traces=0,
-        reviewed_traces=0,
-        unreviewed_traces=0,
-        review_progress_percent=0.0,
+        # Trace review stats - from synced Weave feedback
+        total_traces=total_traces,
+        reviewed_traces=reviewed_traces,
+        unreviewed_traces=unreviewed_traces,
+        review_progress_percent=round(review_progress_percent, 1),
         total_failure_modes=total_failure_modes,
         total_categorized_notes=total_categorized_notes,
         saturation_score=round(saturation_score, 1),

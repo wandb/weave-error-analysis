@@ -483,6 +483,8 @@ export interface BatchSaturationData {
   batch_name: string;
   batch_order: number;
   query_count: number;
+  total_traces: number;
+  reviewed_traces: number;
   new_modes_discovered: number;
   existing_modes_matched: number;
   cumulative_modes: number;

@@ -78,15 +78,26 @@ class FeedbackSyncService:
                     "errors": []
                 }
             
+            # Get agent's weave_project for trace lookups
+            weave_project = self._get_weave_project_for_batch(batch_id)
+            
             # Fetch feedback for each trace
             for trace_id in trace_ids:
                 try:
                     feedback_list = await weave_client.get_feedback_for_call(trace_id)
                     
+                    # Get query_id from trace attributes
+                    attrs = await self._get_trace_attributes_from_weave(
+                        trace_id, 
+                        project_id=weave_project
+                    )
+                    query_id = attrs.get("query_id")
+                    
                     for feedback in feedback_list:
                         is_new = self._store_feedback(
                             trace_id=trace_id,
                             batch_id=batch_id,
+                            query_id=query_id,
                             feedback=feedback
                         )
                         synced_count += 1
@@ -122,14 +133,16 @@ class FeedbackSyncService:
             logger.error(f"Feedback sync failed for batch {batch_id}: {e}")
             raise
     
-    async def sync_all_feedback(self, limit: int = 500) -> dict:
+    async def sync_all_feedback(self, agent_id: str | None = None, limit: int = 500) -> dict:
         """
         Sync all recent feedback from Weave.
         
         Pulls feedback from the project (up to limit) and stores any
-        that we don't already have locally.
+        that we don't already have locally. Gets batch_id from trace
+        attributes in Weave (not from local DB lookup).
         
         Args:
+            agent_id: Optional agent ID - if provided, queries that agent's Weave project
             limit: Maximum number of feedback items to fetch
             
         Returns:
@@ -137,8 +150,15 @@ class FeedbackSyncService:
         """
         self.correlation_id = generate_correlation_id()
         
+        # Get the Weave project to query
+        weave_project = None
+        if agent_id:
+            weave_project = self._get_agent_weave_project(agent_id)
+        
         log_event(logger, "feedback_sync.all_start",
             correlation_id=self.correlation_id,
+            agent_id=agent_id,
+            weave_project=weave_project,
             limit=limit
         )
         
@@ -146,7 +166,13 @@ class FeedbackSyncService:
         new_count = 0
         
         try:
-            feedback_list = await weave_client.query_feedback(limit=limit)
+            feedback_list = await weave_client.query_feedback(
+                project_id=weave_project,
+                limit=limit
+            )
+            
+            # Cache for trace attributes lookups from Weave (to avoid repeated API calls)
+            trace_attrs_cache: dict[str, dict] = {}
             
             for feedback in feedback_list:
                 # Extract trace_id from weave_ref
@@ -154,12 +180,20 @@ class FeedbackSyncService:
                 trace_id = self._extract_trace_id_from_ref(weave_ref)
                 
                 if trace_id:
-                    # Look up batch_id for this trace
-                    batch_id = self._get_batch_id_for_trace(trace_id)
+                    # Get batch_id and query_id from Weave trace attributes (with caching)
+                    if trace_id not in trace_attrs_cache:
+                        attrs = await self._get_trace_attributes_from_weave(
+                            trace_id, 
+                            project_id=weave_project
+                        )
+                        trace_attrs_cache[trace_id] = attrs
+                    else:
+                        attrs = trace_attrs_cache[trace_id]
                     
                     is_new = self._store_feedback(
                         trace_id=trace_id,
-                        batch_id=batch_id,
+                        batch_id=attrs.get("batch_id"),
+                        query_id=attrs.get("query_id"),
                         feedback=feedback
                     )
                     synced_count += 1
@@ -184,6 +218,29 @@ class FeedbackSyncService:
             logger.error(f"Full feedback sync failed: {e}")
             raise
     
+    def _get_agent_weave_project(self, agent_id: str) -> str | None:
+        """Get the Weave project for an agent."""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT weave_project FROM agents WHERE id = ?
+            """, (agent_id,))
+            row = cursor.fetchone()
+            return row["weave_project"] if row else None
+    
+    def _get_weave_project_for_batch(self, batch_id: str) -> str | None:
+        """Get the Weave project for a batch by looking up its agent."""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT a.weave_project 
+                FROM synthetic_batches sb
+                JOIN agents a ON sb.agent_id = a.id
+                WHERE sb.id = ?
+            """, (batch_id,))
+            row = cursor.fetchone()
+            return row["weave_project"] if row else None
+    
     def _get_batch_trace_ids(self, batch_id: str) -> list[str]:
         """Get trace IDs for queries in a batch."""
         with get_db() as conn:
@@ -195,7 +252,7 @@ class FeedbackSyncService:
             return [row["trace_id"] for row in cursor.fetchall()]
     
     def _get_batch_id_for_trace(self, trace_id: str) -> str | None:
-        """Look up the batch_id for a trace."""
+        """Look up the batch_id for a trace from local DB."""
         with get_db() as conn:
             cursor = conn.cursor()
             cursor.execute("""
@@ -204,6 +261,42 @@ class FeedbackSyncService:
             """, (trace_id,))
             row = cursor.fetchone()
             return row["batch_id"] if row else None
+    
+    async def _get_trace_attributes_from_weave(
+        self, 
+        trace_id: str, 
+        project_id: str | None = None
+    ) -> dict:
+        """
+        Get batch_id and query_id from a Weave trace's attributes.
+        
+        When batches are executed, the batch_id and query_id are set in 
+        weave.attributes() which gets attached to the trace. This method 
+        fetches the trace and extracts these from its attributes.
+        
+        Args:
+            trace_id: The trace/call ID to look up
+            project_id: Optional Weave project to query (e.g., "entity/project")
+        
+        Returns:
+            Dict with batch_id and query_id (may be None)
+        """
+        result = {"batch_id": None, "query_id": None}
+        
+        try:
+            call = await weave_client.read_call(trace_id, project_id=project_id)
+            if call:
+                attrs = call.get("attributes", {})
+                result["batch_id"] = attrs.get("batch_id")
+                result["query_id"] = attrs.get("query_id")
+        except Exception as e:
+            logger.debug(f"Failed to fetch trace {trace_id} from Weave: {e}")
+        
+        # Fallback to local DB lookup for batch_id if not found in Weave
+        if not result["batch_id"]:
+            result["batch_id"] = self._get_batch_id_for_trace(trace_id)
+        
+        return result
     
     def _extract_trace_id_from_ref(self, weave_ref: str) -> str | None:
         """Extract trace/call ID from a Weave reference string."""
@@ -220,10 +313,17 @@ class FeedbackSyncService:
         self,
         trace_id: str,
         batch_id: str | None,
-        feedback: dict
+        feedback: dict,
+        query_id: str | None = None
     ) -> bool:
         """
         Store feedback in the local database.
+        
+        Args:
+            trace_id: The Weave trace/call ID
+            batch_id: The batch this trace belongs to
+            feedback: The feedback data from Weave
+            query_id: The local query ID (from trace attributes)
         
         Returns True if this is a new feedback entry, False if updated.
         """
@@ -243,26 +343,28 @@ class FeedbackSyncService:
             import json
             
             if existing:
-                # Update existing
+                # Update existing (also update query_id if we have it now)
                 cursor.execute("""
                     UPDATE weave_feedback
-                    SET payload = ?, synced_at = ?
+                    SET payload = ?, synced_at = ?, query_id = COALESCE(?, query_id)
                     WHERE id = ?
                 """, (
                     json.dumps(feedback.get("payload", {})),
                     now_iso(),
+                    query_id,
                     feedback_id
                 ))
                 return False
             else:
                 # Insert new
                 cursor.execute("""
-                    INSERT INTO weave_feedback (id, trace_id, batch_id, feedback_type, payload, created_at, synced_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO weave_feedback (id, trace_id, batch_id, query_id, feedback_type, payload, created_at, synced_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     feedback_id,
                     trace_id,
                     batch_id,
+                    query_id,
                     feedback.get("type") or feedback.get("feedback_type"),
                     json.dumps(feedback.get("payload", {})),
                     feedback.get("created_at"),
@@ -277,6 +379,8 @@ class FeedbackSyncService:
         Returns feedback with notes and reactions that can help identify
         failure modes and categorize agent behavior.
         
+        Joins via query_id (more reliable than trace_id since trace linking can fail).
+        
         Args:
             batch_id: Optional filter by batch
             
@@ -290,7 +394,7 @@ class FeedbackSyncService:
                 cursor.execute("""
                     SELECT wf.*, sq.query_text, sq.response_text
                     FROM weave_feedback wf
-                    LEFT JOIN synthetic_queries sq ON wf.trace_id = sq.trace_id
+                    LEFT JOIN synthetic_queries sq ON wf.query_id = sq.id
                     WHERE wf.batch_id = ?
                     ORDER BY wf.created_at DESC
                 """, (batch_id,))
@@ -298,7 +402,7 @@ class FeedbackSyncService:
                 cursor.execute("""
                     SELECT wf.*, sq.query_text, sq.response_text
                     FROM weave_feedback wf
-                    LEFT JOIN synthetic_queries sq ON wf.trace_id = sq.trace_id
+                    LEFT JOIN synthetic_queries sq ON wf.query_id = sq.id
                     ORDER BY wf.created_at DESC
                 """)
             
@@ -308,6 +412,7 @@ class FeedbackSyncService:
                     "id": row["id"],
                     "trace_id": row["trace_id"],
                     "batch_id": row["batch_id"],
+                    "query_id": row["query_id"],
                     "feedback_type": row["feedback_type"],
                     "payload": json.loads(row["payload"]) if row["payload"] else {},
                     "created_at": row["created_at"],

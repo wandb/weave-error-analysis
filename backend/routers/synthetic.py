@@ -1105,3 +1105,36 @@ async def get_batch_weave_url(batch_id: str) -> WeaveUrlResponse:
         batch_id=batch_id,
         configured=is_configured
     )
+
+
+@router.post("/synthetic/batches/{batch_id}/link-traces")
+async def link_batch_traces(batch_id: str):
+    """
+    Manually trigger trace linking for a batch.
+    
+    This is useful if automatic trace linking failed (e.g., due to
+    configuration issues that have since been fixed).
+    
+    The endpoint:
+    1. Queries Weave for traces with matching batch_id attribute
+    2. Extracts query_id from each trace's attributes
+    3. Updates synthetic_queries.trace_id in the database
+    """
+    from services.trace_discovery import trace_discovery_service
+    
+    # Verify batch exists
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM synthetic_batches WHERE id = ?", (batch_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Batch not found")
+    
+    # Link traces
+    linked = await trace_discovery_service.link_batch_traces(batch_id)
+    
+    return {
+        "status": "linked",
+        "batch_id": batch_id,
+        "linked_count": len(linked),
+        "query_trace_map": linked
+    }

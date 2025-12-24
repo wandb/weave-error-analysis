@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException, Query
 from config import get_target_project_id, get_feedback_query_limit
 from logger import get_logger
 from services.weave_client import weave_client
+from services.feedback_sync import feedback_sync_service
 
 logger = get_logger("feedback_api")
 
@@ -68,4 +69,43 @@ async def get_feedback_summary(
             "total_notes": 0,
             "error": str(e)
         }
+
+
+@router.post("/feedback/sync")
+async def sync_feedback(
+    agent_id: Optional[str] = Query(None, description="Agent ID - required to query correct Weave project"),
+    batch_id: Optional[str] = Query(None, description="Sync feedback for a specific batch"),
+    limit: int = Query(500, description="Max feedback items to sync when not specifying batch_id")
+):
+    """
+    Sync feedback from Weave to local database.
+    
+    Pulls feedback annotations from Weave and stores them locally with
+    batch_id mapping (extracted from trace attributes).
+    
+    IMPORTANT: Pass agent_id to query the agent's Weave project.
+    Without agent_id, it queries the global target project which may not have your traces.
+    
+    Args:
+        agent_id: Agent ID - queries that agent's Weave project for feedback
+        batch_id: Optional - sync only for this batch
+        limit: Max items when syncing all feedback
+        
+    Returns:
+        Sync results with counts of synced/new feedback
+    """
+    try:
+        if batch_id:
+            result = await feedback_sync_service.sync_feedback_for_batch(batch_id)
+        else:
+            result = await feedback_sync_service.sync_all_feedback(
+                agent_id=agent_id,
+                limit=limit
+            )
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Feedback sync failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 

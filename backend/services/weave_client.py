@@ -154,18 +154,24 @@ class WeaveClientWrapper:
     # CALL QUERIES
     # =========================================================================
     
-    async def read_call(self, call_id: str) -> dict | None:
+    async def read_call(self, call_id: str, project_id: str | None = None) -> dict | None:
         """
         Get a single call by ID.
         
         Args:
             call_id: The call UUID
+            project_id: Optional project to query (e.g., "entity/project").
+                       If None, uses the global target project.
             
         Returns:
             Call object as dict, or None if not found
         """
         try:
-            call = self.client.get_call(call_id)
+            if project_id:
+                client = self._get_client_for_project(project_id)
+            else:
+                client = self.client
+            call = client.get_call(call_id)
             return self._call_to_dict(call) if call else None
         except Exception as e:
             logger.warning(f"Error fetching call {call_id}: {e}")
@@ -180,7 +186,8 @@ class WeaveClientWrapper:
         parent_ids: list[str] | None = None,
         thread_ids: list[str] | None = None,
         sort_field: str = "started_at",
-        sort_direction: str = "desc"
+        sort_direction: str = "desc",
+        project_id: str | None = None
     ) -> list[dict]:
         """
         Query calls from the project.
@@ -194,13 +201,20 @@ class WeaveClientWrapper:
             thread_ids: Filter by thread IDs
             sort_field: Field to sort by (used for ordering)
             sort_direction: Sort direction ("asc" or "desc")
+            project_id: Optional project to query (e.g., "entity/project").
+                       If None, uses the global target project.
             
         Returns:
             List of call objects as dicts
         """
-        self._check_configured()
-        
         try:
+            # Get the appropriate client
+            if project_id:
+                client = self._get_client_for_project(project_id)
+            else:
+                self._check_configured()
+                client = self.client
+            
             # Build filter dict
             filter_dict = {}
             if op_names:
@@ -218,7 +232,7 @@ class WeaveClientWrapper:
             
             # Query calls - returns an iterator
             # Use SDK's built-in limit, offset, and sort_by
-            calls_iter = self.client.get_calls(
+            calls_iter = client.get_calls(
                 filter=filter_dict if filter_dict else None,
                 limit=limit,
                 offset=offset,

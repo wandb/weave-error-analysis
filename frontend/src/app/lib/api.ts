@@ -717,6 +717,13 @@ export async function resetBatch(batchId: string, onlyFailed: boolean = false): 
   });
 }
 
+export async function markBatchReady(batchId: string): Promise<void> {
+  await apiCall(`${API_BASE}/synthetic/batches/${batchId}/mark-ready`, {
+    method: "POST",
+  });
+  invalidateCache(/\/synthetic\/batches/);
+}
+
 export async function updateQuery(queryId: string, queryText: string): Promise<void> {
   await apiCall(`${API_BASE}/synthetic/queries/${queryId}`, {
     method: "PUT",

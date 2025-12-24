@@ -4,6 +4,7 @@ Agent registry API endpoints.
 Provides CRUD operations for registered agents.
 """
 
+import os
 from typing import Optional, List
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -11,8 +12,68 @@ from pydantic import BaseModel, Field
 from database import get_db, get_db_readonly, generate_id, now_iso
 from services.agent_client import AgentClient
 from models import AgentStats
+from config import get_wandb_api_key
+from logger import get_logger
 
+logger = get_logger("agents")
 router = APIRouter(prefix="/api", tags=["agents"])
+
+
+def normalize_weave_project(weave_project: str | None) -> str | None:
+    """
+    Normalize a Weave project identifier to include the entity.
+    
+    If the user provides just 'project_name', we initialize Weave temporarily
+    to get the logged-in entity and return 'entity/project_name'.
+    
+    If already in 'entity/project' format, returns as-is.
+    
+    Args:
+        weave_project: User-provided project (e.g., 'my-project' or 'entity/my-project')
+        
+    Returns:
+        Normalized project ID in 'entity/project' format, or None if not provided
+    """
+    if not weave_project:
+        return None
+    
+    # Already has entity/project format
+    if "/" in weave_project:
+        return weave_project
+    
+    # Need to detect entity from Weave
+    try:
+        import weave
+        from config import get_tool_project_id
+        
+        # Set API key if available
+        api_key = get_wandb_api_key()
+        if api_key:
+            os.environ["WANDB_API_KEY"] = api_key
+        
+        # Initialize Weave temporarily to get entity
+        client = weave.init(weave_project)
+        entity = client.entity
+        
+        # Restore tool project context
+        tool_project = get_tool_project_id()
+        if tool_project:
+            try:
+                weave.init(tool_project)
+            except Exception:
+                pass  # Non-critical
+        
+        if entity:
+            normalized = f"{entity}/{weave_project}"
+            logger.info(f"Normalized weave_project: '{weave_project}' -> '{normalized}'")
+            return normalized
+        else:
+            logger.warning(f"Could not detect entity for project '{weave_project}', storing as-is")
+            return weave_project
+            
+    except Exception as e:
+        logger.warning(f"Failed to normalize weave_project '{weave_project}': {e}")
+        return weave_project
 
 
 # =============================================================================
@@ -76,9 +137,15 @@ async def create_agent(request: AgentCreateRequest):
     
     The agent_context field is a free-form text description of the agent.
     This context can be used by LLM prompts for context-aware generation.
+    
+    The weave_project is normalized to include entity if not provided.
+    For example, 'my-project' becomes 'entity/my-project'.
     """
     agent_id = generate_id()
     now = now_iso()
+    
+    # Normalize weave_project to include entity
+    normalized_weave_project = normalize_weave_project(request.weave_project)
     
     with get_db() as conn:
         cursor = conn.cursor()
@@ -93,7 +160,7 @@ async def create_agent(request: AgentCreateRequest):
             agent_id,
             request.name,
             request.endpoint_url,
-            request.weave_project,
+            normalized_weave_project,
             request.agent_context,
             now,
             now
@@ -103,7 +170,7 @@ async def create_agent(request: AgentCreateRequest):
         id=agent_id,
         name=request.name,
         endpoint_url=request.endpoint_url,
-        weave_project=request.weave_project,
+        weave_project=normalized_weave_project,
         agent_context=request.agent_context,
         connection_status="unknown",
         last_connection_test=None,
@@ -495,8 +562,10 @@ async def update_agent(agent_id: str, request: AgentUpdateRequest):
             updates.append("connection_status = 'unknown'")
         
         if request.weave_project is not None:
+            # Normalize weave_project to include entity
+            normalized_weave_project = normalize_weave_project(request.weave_project)
             updates.append("weave_project = ?")
-            params.append(request.weave_project)
+            params.append(normalized_weave_project)
         
         if request.agent_context is not None:
             updates.append("agent_context = ?")

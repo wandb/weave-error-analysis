@@ -97,13 +97,16 @@ class LLMClient:
         Initialize with optional overrides.
         
         Args:
-            model: Model to use (overrides settings if provided)
+            model: Model to use (overrides settings if provided). 
+                   None means use database/global settings.
             temperature: Default temperature for completions
             api_key: API key override
             api_base: API base URL override
             max_concurrent: Override max concurrent requests (rate limiting)
         """
-        self._model_override = model if model is not None else DEFAULT_SETTINGS.llm_model.value
+        # model=None means "use global settings", not "use hardcoded default"
+        # Only set _model_override if an explicit model was provided
+        self._model_override = model  # None = defer to get_litellm_kwargs()
         self._temperature = temperature if temperature is not None else self.DEFAULT_TEMPERATURE
         self._api_key = api_key
         self._api_base = api_base

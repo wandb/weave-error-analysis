@@ -433,6 +433,7 @@ export function StatusBadge({
     error: "bg-red-500/20 text-red-400",
     completed: "bg-teal/20 text-teal",
     running: "bg-gold/20 text-gold animate-pulse",
+    generating: "bg-gold/20 text-gold animate-pulse",
     ready: "bg-teal/20 text-teal",
     pending: "bg-moon-700 text-moon-450",
     failed: "bg-red-500/20 text-red-400",

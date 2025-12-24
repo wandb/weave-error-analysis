@@ -210,8 +210,9 @@ export function useBatchGeneration(
                   setGenProgress(progress);
                   onQueryGenerated?.(event.query, progress);
 
-                  // Batch update UI every 10 queries
-                  if (streamingQueriesRef.current.length % 10 === 0) {
+                  // Update UI immediately for first 5 queries, then every 3 for responsiveness
+                  const queryCount = streamingQueriesRef.current.length;
+                  if (queryCount <= 5 || queryCount % 3 === 0) {
                     setStreamingQueries([...streamingQueriesRef.current]);
                   }
                 } else if (event.type === "batch_complete") {

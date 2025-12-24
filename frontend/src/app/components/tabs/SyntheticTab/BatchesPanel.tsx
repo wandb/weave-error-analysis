@@ -36,6 +36,8 @@ interface BatchesPanelProps {
   batches: SyntheticBatch[];
   selectedBatch: BatchDetail | null;
   executingBatchId: string | null;
+  isGenerating?: boolean; // Whether there's an active generation in progress
+  generationProgress?: { completed: number; total: number } | null; // n/m progress
   collapsed: boolean;
   panelHeight: number;
   onToggleCollapsed: () => void;
@@ -45,6 +47,7 @@ interface BatchesPanelProps {
   onStopExecution: () => void;
   onResetBatch: (batchId: string, onlyFailed: boolean) => void;
   onDeleteBatch: (batchId: string) => void;
+  onMarkBatchReady?: (batchId: string) => void; // Mark interrupted batch as ready
 }
 
 // ============================================================================
@@ -57,6 +60,8 @@ interface BatchCardProps {
   isChecked: boolean;
   executingBatchId: string | null;
   copiedBatchId: string | null;
+  isActivelyGenerating?: boolean; // Whether this batch is actively being generated
+  generationProgress?: { completed: number; total: number } | null; // n/m progress
   onCheck: (checked: boolean) => void;
   onSelect: () => void;
   onDeselect: () => void;
@@ -65,6 +70,7 @@ interface BatchCardProps {
   onExecute: () => void;
   onStop: () => void;
   onReset: (onlyFailed: boolean) => void;
+  onMarkReady?: () => void; // Mark interrupted batch as ready
 }
 
 const BatchCard = memo(function BatchCard({
@@ -73,6 +79,8 @@ const BatchCard = memo(function BatchCard({
   isChecked,
   executingBatchId,
   copiedBatchId,
+  isActivelyGenerating,
+  generationProgress,
   onCheck,
   onSelect,
   onDeselect,
@@ -81,11 +89,13 @@ const BatchCard = memo(function BatchCard({
   onExecute,
   onStop,
   onReset,
+  onMarkReady,
 }: BatchCardProps) {
   const [loadingWeaveUrl, setLoadingWeaveUrl] = useState(false);
   
   const isReady = batch.status === "ready" || batch.status === "pending";
   const isRunning = batch.status === "running" || executingBatchId === batch.id;
+  const isGenerating = batch.status === "generating";
   const isCompleted = batch.status === "completed";
   const isFailed = batch.status === "failed";
 
@@ -97,8 +107,12 @@ const BatchCard = memo(function BatchCard({
       if (response.configured && response.url && !response.url.startsWith("#error:")) {
         window.open(response.url, "_blank");
       } else {
-        // Show a message if Weave is not configured
-        alert("Weave is not configured. Please set up W&B Entity and Project in Settings.");
+        // Show a helpful message based on the error type
+        if (response.url?.includes("agent-weave-not-configured")) {
+          alert("This agent doesn't have a Weave project configured. Please set the Weave Project in the Agents tab when registering or editing the agent.");
+        } else {
+          alert("Could not generate Weave URL. Please ensure the agent has a valid Weave project configured.");
+        }
       }
     } catch (error) {
       console.error("Failed to get Weave URL:", error);
@@ -113,7 +127,7 @@ const BatchCard = memo(function BatchCard({
       className={`rounded-lg p-3 transition-all border ${
         isChecked || isSelected
           ? "bg-teal/10 border-teal/30"
-          : isRunning
+          : isRunning || isGenerating
           ? "bg-gold/5 border-gold/30"
           : "bg-moon-800 border-moon-700"
       }`}
@@ -147,7 +161,7 @@ const BatchCard = memo(function BatchCard({
                 >
                   {batch.name}
                 </span>
-                {isRunning && (
+                {(isRunning || isGenerating) && (
                   <RefreshCw className="w-3 h-3 animate-spin flex-shrink-0 text-gold" />
                 )}
               </div>
@@ -184,7 +198,9 @@ const BatchCard = memo(function BatchCard({
               <div className="flex items-center gap-2">
                 <StatusBadge status={batch.status} />
                 <span className="text-xs text-moon-450">
-                  {batch.query_count} queries
+                  {isActivelyGenerating && generationProgress
+                    ? `${generationProgress.completed} / ${generationProgress.total} queries`
+                    : `${batch.query_count} queries`}
                 </span>
               </div>
               <span className="text-xs text-moon-450">
@@ -195,6 +211,29 @@ const BatchCard = memo(function BatchCard({
 
           {/* Run Controls */}
           <div className="flex items-center gap-2 mt-2 pt-2 border-t border-moon-700">
+            {isGenerating && isActivelyGenerating && (
+              <span className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gold">
+                <RefreshCw className="w-3 h-3 animate-spin" />
+                Generating queries...
+              </span>
+            )}
+            {isGenerating && !isActivelyGenerating && (
+              <>
+                <span className="flex items-center gap-1.5 text-xs text-moon-450">
+                  Interrupted ({batch.query_count} queries saved)
+                </span>
+                {onMarkReady && (
+                  <button
+                    onClick={onMarkReady}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium transition-all bg-teal/20 text-teal"
+                    title="Mark as ready to run with existing queries"
+                  >
+                    <Check className="w-3 h-3" />
+                    Use as-is
+                  </button>
+                )}
+              </>
+            )}
             {isReady && (
               <button
                 onClick={onExecute}
@@ -254,6 +293,8 @@ export const BatchesPanel = memo(function BatchesPanel({
   batches,
   selectedBatch,
   executingBatchId,
+  isGenerating,
+  generationProgress,
   collapsed,
   panelHeight,
   onToggleCollapsed,
@@ -263,6 +304,7 @@ export const BatchesPanel = memo(function BatchesPanel({
   onStopExecution,
   onResetBatch,
   onDeleteBatch,
+  onMarkBatchReady,
 }: BatchesPanelProps) {
   const [selectedBatchIds, setSelectedBatchIds] = useState<Set<string>>(
     new Set()
@@ -359,6 +401,8 @@ export const BatchesPanel = memo(function BatchesPanel({
                   isChecked={selectedBatchIds.has(batch.id)}
                   executingBatchId={executingBatchId}
                   copiedBatchId={copiedBatchId}
+                  isActivelyGenerating={isGenerating && selectedBatch?.id === batch.id}
+                  generationProgress={isGenerating && selectedBatch?.id === batch.id ? generationProgress : null}
                   onCheck={(checked) => {
                     const newSet = new Set(selectedBatchIds);
                     if (checked) newSet.add(batch.id);
@@ -372,6 +416,7 @@ export const BatchesPanel = memo(function BatchesPanel({
                   onExecute={() => onExecuteBatch(batch.id, batch.name)}
                   onStop={onStopExecution}
                   onReset={(onlyFailed) => onResetBatch(batch.id, onlyFailed)}
+                  onMarkReady={onMarkBatchReady ? () => onMarkBatchReady(batch.id) : undefined}
                 />
               ))}
             </div>

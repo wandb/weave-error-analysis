@@ -114,7 +114,11 @@ export function SyntheticTab() {
     variety,
     favorites: Object.keys(favorites).length > 0 ? favorites : undefined,
     noDuplicates,
-    onBatchCreated: (batchId, batchName) => {
+    onBatchCreated: async (batchId, batchName) => {
+      // Fetch batches to show the new "generating" batch in the list
+      if (selectedAgent) {
+        await fetchBatches(selectedAgent.id);
+      }
       setSelectedBatch({ id: batchId, name: batchName, queries: [] });
     },
     onBatchComplete: async (batch) => {
@@ -182,6 +186,17 @@ export function SyntheticTab() {
       setSelectedDimensionIds(new Set(dimensions.map((d) => d.id)));
     }
   }, [dimensions, selectedDimensionIds.size]);
+
+  // Periodically refresh batches during generation to update query counts
+  useEffect(() => {
+    if (!generation.generating || !selectedAgent) return;
+
+    const intervalId = setInterval(() => {
+      fetchBatches(selectedAgent.id);
+    }, 5000); // Refresh every 5 seconds
+
+    return () => clearInterval(intervalId);
+  }, [generation.generating, selectedAgent, fetchBatches]);
 
   // ResizeObserver to sync panel heights
   useEffect(() => {
@@ -502,6 +517,11 @@ export function SyntheticTab() {
               batches={syntheticBatches}
               selectedBatch={selectedBatch}
               executingBatchId={execution.executingBatchId}
+              isGenerating={generation.generating}
+              generationProgress={generation.genProgress ? {
+                completed: generation.genProgress.completed,
+                total: generation.genProgress.total
+              } : null}
               collapsed={batchesCollapsed}
               panelHeight={syncedPanelHeight}
               onToggleCollapsed={() => setBatchesCollapsed(!batchesCollapsed)}
@@ -511,6 +531,16 @@ export function SyntheticTab() {
               onStopExecution={execution.stopExecution}
               onResetBatch={handleResetBatch}
               onDeleteBatch={handleDeleteBatch}
+              onMarkBatchReady={async (batchId) => {
+                try {
+                  await api.markBatchReady(batchId);
+                  if (selectedAgent) {
+                    await fetchBatches(selectedAgent.id);
+                  }
+                } catch (error) {
+                  logger.error("Error marking batch as ready", { error: String(error) });
+                }
+              }}
             />
           </div>
         </div>
@@ -566,6 +596,9 @@ export function SyntheticTab() {
           onUpdateQuery={handleUpdateQuery}
           dimensionsCollapsed={dimensionsCollapsed}
           batchesCollapsed={batchesCollapsed}
+          isGenerating={generation.generating}
+          streamingQueries={generation.streamingQueries}
+          totalToGenerate={generation.genProgress?.total}
         />
       </div>
     </div>
@@ -924,6 +957,10 @@ interface BatchDataPreviewProps {
   onUpdateQuery: (queryId: string, newText: string) => void;
   dimensionsCollapsed: boolean;
   batchesCollapsed: boolean;
+  // Streaming queries during generation
+  isGenerating?: boolean;
+  streamingQueries?: any[];
+  totalToGenerate?: number;
 }
 
 function BatchDataPreview({
@@ -942,7 +979,16 @@ function BatchDataPreview({
   onUpdateQuery,
   dimensionsCollapsed,
   batchesCollapsed,
+  isGenerating,
+  streamingQueries,
+  totalToGenerate,
 }: BatchDataPreviewProps) {
+  // Use streaming queries during generation, otherwise use selected batch queries
+  const displayQueries = isGenerating && streamingQueries && streamingQueries.length > 0
+    ? streamingQueries
+    : selectedBatch?.queries || [];
+  
+  const hasQueries = displayQueries.length > 0;
                 return (
         <div 
           className="rounded-lg p-4 flex flex-col flex-1 bg-ink-900 border border-moon-700"
@@ -954,13 +1000,18 @@ function BatchDataPreview({
           <div className="flex items-center justify-between mb-3 flex-shrink-0">
             <h2 className="font-display text-lg flex items-center gap-2 text-moon-50">
               <Eye className="w-5 h-5 text-teal" />
-              Batch data preview
-              {selectedBatch && (
-                <span className="text-xs px-2 py-0.5 rounded ml-1 bg-moon-700 text-moon-450">
-                  {selectedBatch.queries?.length || 0} items
+              {isGenerating ? "Live preview" : "Batch data preview"}
+              {(hasQueries || isGenerating) && (
+                <span className={`text-xs px-2 py-0.5 rounded ml-1 ${isGenerating ? "bg-gold/15 text-gold" : "bg-moon-700 text-moon-450"}`}>
+                  {isGenerating && totalToGenerate
+                    ? `${displayQueries.length} / ${totalToGenerate}`
+                    : `${displayQueries.length} items`}
                 </span>
               )}
-              {executingBatchId && selectedBatch?.id === executingBatchId && (
+              {isGenerating && (
+                <RefreshCw className="w-4 h-4 animate-spin text-gold" />
+              )}
+              {executingBatchId && selectedBatch?.id === executingBatchId && !isGenerating && (
                 <RefreshCw className="w-4 h-4 animate-spin ml-2 text-teal" />
               )}
             </h2>
@@ -1002,21 +1053,31 @@ function BatchDataPreview({
             </div>
           </div>
 
-      {selectedBatch && selectedBatch.queries && selectedBatch.queries.length > 0 ? (
+      {hasQueries ? (
             <div className="flex-1 overflow-y-auto pr-2">
-          {selectedBatch.queries.map((query, idx) => (
+          {displayQueries.map((query, idx) => (
             <QueryPreviewCard
                   key={query.id}
               query={query}
               index={idx}
-              totalCount={selectedBatch.queries.length}
+              totalCount={displayQueries.length}
               isSelected={selectedQueryIds.has(query.id)}
               isExpanded={expandedQueryIds.has(query.id)}
               onToggleSelect={(selected) => onToggleQuerySelect(query.id, selected)}
               onToggleExpand={() => onToggleQueryExpand(query.id)}
-              onEdit={(newText) => onUpdateQuery(query.id, newText)}
+              onEdit={isGenerating ? undefined : (newText) => onUpdateQuery(query.id, newText)}
             />
           ))}
+            </div>
+          ) : isGenerating ? (
+            <div className="flex-1 flex items-center justify-center text-moon-450">
+              <div className="text-center">
+                <RefreshCw className="w-16 h-16 mx-auto mb-4 opacity-30 animate-spin text-gold" />
+                <p className="text-lg mb-2 text-gold">Generating queries...</p>
+                <p className="text-sm">
+                  Queries will appear here as they&apos;re generated.
+                </p>
+              </div>
             </div>
           ) : (
             <div className="flex-1 flex items-center justify-center text-moon-450">

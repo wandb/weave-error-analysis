@@ -472,7 +472,8 @@ async def create_batch_streaming(request: BatchCreateRequest):
     
     async def event_stream():
         batch_id = None
-        queries = []
+        batch_name = None
+        query_count = 0
         
         try:
             async for event in generator.generate_batch_streaming(
@@ -486,47 +487,68 @@ async def create_batch_streaming(request: BatchCreateRequest):
             ):
                 if event["type"] == "batch_started":
                     batch_id = event["batch_id"]
-                
-                elif event["type"] == "query_generated":
-                    # Track queries for database save
-                    queries.append(event["query"])
-                
-                elif event["type"] == "batch_complete":
-                    # Save everything to database
+                    batch_name = event["name"]
+                    
+                    # Save batch immediately with 'generating' status
                     with get_db() as conn:
                         cursor = conn.cursor()
-                        
-                        # Save batch
                         cursor.execute("""
                             INSERT INTO synthetic_batches (id, agent_id, name, status, query_count, generation_strategy, created_at)
                             VALUES (?, ?, ?, ?, ?, ?, ?)
                         """, (
-                            event["batch_id"],
+                            batch_id,
                             request.agent_id,
-                            event["name"],
-                            "ready",
-                            event["query_count"],
+                            batch_name,
+                            "generating",
+                            0,
                             "heuristic",
                             now_iso()
                         ))
-                        
-                        # Save queries
-                        for query in event["queries"]:
-                            cursor.execute("""
-                                INSERT INTO synthetic_queries (id, batch_id, dimension_tuple, query_text, execution_status)
-                                VALUES (?, ?, ?, ?, ?)
-                            """, (
-                                query["id"],
-                                event["batch_id"],
-                                json.dumps(query["tuple_values"]),
-                                query["query_text"],
-                                "pending"
-                            ))
+                
+                elif event["type"] == "query_generated":
+                    query_count += 1
+                    query = event["query"]
+                    
+                    # Save query immediately to database
+                    with get_db() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            INSERT INTO synthetic_queries (id, batch_id, dimension_tuple, query_text, execution_status)
+                            VALUES (?, ?, ?, ?, ?)
+                        """, (
+                            query["id"],
+                            batch_id,
+                            json.dumps(query["tuple_values"]),
+                            query["query_text"],
+                            "pending"
+                        ))
+                        # Update batch query count
+                        cursor.execute("""
+                            UPDATE synthetic_batches SET query_count = ? WHERE id = ?
+                        """, (query_count, batch_id))
+                
+                elif event["type"] == "batch_complete":
+                    # Update batch status to 'ready'
+                    with get_db() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            UPDATE synthetic_batches SET status = ?, query_count = ? WHERE id = ?
+                        """, ("ready", event["query_count"], event["batch_id"]))
                 
                 # Yield event as SSE
                 yield f"data: {json.dumps(event)}\n\n"
         
         except Exception as e:
+            # If error occurs, mark batch as failed if it was created
+            if batch_id:
+                try:
+                    with get_db() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            UPDATE synthetic_batches SET status = ? WHERE id = ?
+                        """, ("failed", batch_id))
+                except Exception:
+                    pass  # Don't fail on cleanup error
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
     
     return StreamingResponse(
@@ -953,6 +975,48 @@ async def reset_batch(batch_id: str, only_failed: bool = False):
     }
 
 
+@router.post("/synthetic/batches/{batch_id}/mark-ready")
+async def mark_batch_ready(batch_id: str):
+    """
+    Mark an interrupted 'generating' batch as 'ready'.
+    
+    This is used when generation was interrupted (e.g., by page refresh) but the
+    user wants to proceed with the queries that were already generated.
+    """
+    with get_db() as conn:
+        cursor = conn.cursor()
+        
+        # Verify batch exists and is in generating status
+        cursor.execute("SELECT id, status, query_count FROM synthetic_batches WHERE id = ?", (batch_id,))
+        batch = cursor.fetchone()
+        
+        if not batch:
+            raise HTTPException(status_code=404, detail="Batch not found")
+        
+        if batch["status"] != "generating":
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Batch is not in 'generating' status (current: {batch['status']})"
+            )
+        
+        if batch["query_count"] == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Batch has no queries. Delete it and generate a new one."
+            )
+        
+        # Update status to ready
+        cursor.execute("""
+            UPDATE synthetic_batches SET status = 'ready' WHERE id = ?
+        """, (batch_id,))
+    
+    return {
+        "status": "ready",
+        "batch_id": batch_id,
+        "query_count": batch["query_count"]
+    }
+
+
 # =============================================================================
 # Weave Integration Endpoints
 # =============================================================================
@@ -973,6 +1037,9 @@ async def get_batch_weave_url(batch_id: str) -> WeaveUrlResponse:
     traces from this specific batch execution. Users can click "Review in Weave"
     to immediately see all traces, add feedback, and annotate results.
     
+    The Weave project is determined from the agent's weave_project field,
+    which is configured during agent registration - NOT from global Settings.
+    
     The URL includes:
     - Filter by attributes.batch_id
     - Optional time filter (batch start time) for efficiency
@@ -980,12 +1047,16 @@ async def get_batch_weave_url(batch_id: str) -> WeaveUrlResponse:
     """
     from services.weave_url import generate_batch_review_url
     from datetime import datetime
+    from config import get_wandb_entity
     
-    # Get batch start time for time filter
+    # Get batch info including agent_id and started_at
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT id, started_at FROM synthetic_batches WHERE id = ?
+            SELECT sb.id, sb.agent_id, sb.started_at, a.weave_project
+            FROM synthetic_batches sb
+            LEFT JOIN agents a ON sb.agent_id = a.id
+            WHERE sb.id = ?
         """, (batch_id,))
         row = cursor.fetchone()
         
@@ -999,13 +1070,34 @@ async def get_batch_weave_url(batch_id: str) -> WeaveUrlResponse:
                 started_at = datetime.fromisoformat(row["started_at"].replace("Z", "+00:00"))
             except (ValueError, AttributeError):
                 pass
+        
+        # Get the agent's Weave project (configured during agent registration)
+        agent_weave_project = row["weave_project"]
+    
+    # If agent has no Weave project configured, return helpful error
+    if not agent_weave_project:
+        return WeaveUrlResponse(
+            url="#error:agent-weave-not-configured",
+            batch_id=batch_id,
+            configured=False
+        )
+    
+    # Parse entity/project from the agent's weave_project
+    # Format can be "entity/project" or just "project"
+    if "/" in agent_weave_project:
+        entity, project = agent_weave_project.split("/", 1)
+    else:
+        entity = get_wandb_entity()  # Fall back to global entity
+        project = agent_weave_project
     
     url = generate_batch_review_url(
         batch_id=batch_id,
-        started_after=started_at
+        started_after=started_at,
+        entity=entity,
+        project=project
     )
     
-    # Check if Weave is properly configured
+    # Check if URL was generated successfully
     is_configured = not url.startswith("#error:")
     
     return WeaveUrlResponse(

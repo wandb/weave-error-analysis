@@ -767,18 +767,22 @@ class TaxonomyService:
             """, (now_iso(), notes_processed, new_modes, matched_modes, total_modes))
             
             # Also record a saturation snapshot for the discovery curve
-            self._record_saturation_snapshot()
+            # Pass the connection to avoid nested transaction
+            self._record_saturation_snapshot(conn)
     
-    def _record_saturation_snapshot(self):
+    def _record_saturation_snapshot(self, conn=None):
         """
         Record a snapshot for the saturation discovery curve.
         Called after categorization or review events.
         
         Note: Uses total notes reviewed (categorized) as the x-axis metric,
         since we no longer track sessions locally.
+        
+        Args:
+            conn: Optional existing connection to reuse (avoids nested transactions)
         """
-        with get_db() as conn:
-            cursor = conn.cursor()
+        def do_record(connection):
+            cursor = connection.cursor()
             
             # Get current counts - use total notes as the review metric
             cursor.execute("SELECT COUNT(*) as count FROM notes")
@@ -807,6 +811,14 @@ class TaxonomyService:
                     saturation_score = excluded.saturation_score
             """, (snapshot_id, now_iso(), total_notes, failure_modes_count, 
                   categorized_notes, saturation_score))
+        
+        if conn is not None:
+            # Use provided connection
+            do_record(conn)
+        else:
+            # Get a new connection
+            with get_db() as new_conn:
+                do_record(new_conn)
     
     def get_saturation_stats(self, window_size: int = 20) -> dict:
         """
@@ -1357,6 +1369,153 @@ class TaxonomyService:
                     "saturation_status": status
                 }
             }
+    
+    # ------------------------------------------------------------------------
+    # Persisted Taxonomy Suggestions
+    # ------------------------------------------------------------------------
+    
+    def get_persisted_suggestions(self, agent_id: Optional[str] = None) -> dict:
+        """
+        Get active (non-dismissed, non-applied) suggestions from the database.
+        
+        Returns:
+            Dict with suggestions list and overall assessment
+        """
+        import json
+        
+        with get_db() as conn:
+            cursor = conn.cursor()
+            
+            if agent_id:
+                cursor.execute("""
+                    SELECT id, suggestion_type, mode_ids, reason, suggested_name, created_at
+                    FROM taxonomy_suggestions
+                    WHERE agent_id = ? AND status = 'active'
+                    ORDER BY created_at DESC
+                """, (agent_id,))
+            else:
+                cursor.execute("""
+                    SELECT id, suggestion_type, mode_ids, reason, suggested_name, created_at
+                    FROM taxonomy_suggestions
+                    WHERE (agent_id IS NULL OR agent_id = '') AND status = 'active'
+                    ORDER BY created_at DESC
+                """)
+            
+            rows = cursor.fetchall()
+            
+            suggestions = []
+            for row in rows:
+                mode_ids = json.loads(row["mode_ids"]) if row["mode_ids"] else []
+                suggestions.append({
+                    "id": row["id"],
+                    "type": row["suggestion_type"],
+                    "mode_ids": mode_ids,
+                    "reason": row["reason"],
+                    "suggested_name": row["suggested_name"]
+                })
+            
+            # Get overall assessment if available (stored with first suggestion)
+            cursor.execute("""
+                SELECT value FROM annotation_settings 
+                WHERE key = ?
+            """, (f"taxonomy_assessment_{agent_id or 'global'}",))
+            assessment_row = cursor.fetchone()
+            overall_assessment = assessment_row["value"] if assessment_row else ""
+            
+            return {
+                "suggestions": suggestions,
+                "overall_assessment": overall_assessment
+            }
+    
+    def save_suggestions(
+        self,
+        suggestions: List[dict],
+        overall_assessment: str,
+        agent_id: Optional[str] = None
+    ) -> dict:
+        """
+        Save taxonomy improvement suggestions to the database.
+        
+        This marks any existing active suggestions as replaced and adds new ones.
+        
+        Args:
+            suggestions: List of suggestion dicts with type, mode_ids, reason, suggested_name
+            overall_assessment: Summary of taxonomy health
+            agent_id: Optional agent ID to scope suggestions
+            
+        Returns:
+            Dict with saved suggestion count
+        """
+        import json
+        
+        with get_db() as conn:
+            cursor = conn.cursor()
+            
+            # Mark existing active suggestions as replaced (so we don't delete history)
+            now = now_iso()
+            if agent_id:
+                cursor.execute("""
+                    UPDATE taxonomy_suggestions
+                    SET status = 'replaced', dismissed_at = ?
+                    WHERE agent_id = ? AND status = 'active'
+                """, (now, agent_id))
+            else:
+                cursor.execute("""
+                    UPDATE taxonomy_suggestions
+                    SET status = 'replaced', dismissed_at = ?
+                    WHERE (agent_id IS NULL OR agent_id = '') AND status = 'active'
+                """, (now,))
+            
+            # Insert new suggestions
+            for suggestion in suggestions:
+                suggestion_id = generate_id()
+                mode_ids_json = json.dumps(suggestion.get("mode_ids", []))
+                
+                cursor.execute("""
+                    INSERT INTO taxonomy_suggestions
+                    (id, agent_id, suggestion_type, mode_ids, reason, suggested_name, status, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, 'active', ?)
+                """, (
+                    suggestion_id,
+                    agent_id,
+                    suggestion.get("type", ""),
+                    mode_ids_json,
+                    suggestion.get("reason", ""),
+                    suggestion.get("suggested_name"),
+                    now
+                ))
+            
+            # Save overall assessment
+            cursor.execute("""
+                INSERT OR REPLACE INTO annotation_settings (key, value)
+                VALUES (?, ?)
+            """, (f"taxonomy_assessment_{agent_id or 'global'}", overall_assessment))
+            
+            conn.commit()
+            
+            return {"saved": len(suggestions)}
+    
+    def dismiss_suggestion(self, suggestion_id: str) -> None:
+        """Mark a suggestion as dismissed."""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE taxonomy_suggestions
+                SET status = 'dismissed', dismissed_at = ?
+                WHERE id = ?
+            """, (now_iso(), suggestion_id))
+            conn.commit()
+    
+    def mark_suggestion_applied(self, suggestion_id: str) -> None:
+        """Mark a suggestion as applied."""
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                UPDATE taxonomy_suggestions
+                SET status = 'applied', applied_at = ?
+                WHERE id = ?
+            """, (now_iso(), suggestion_id))
+            conn.commit()
 
 
 # Singleton instance

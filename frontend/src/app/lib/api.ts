@@ -672,6 +672,7 @@ export async function batchApplyCategories(
 
 // Taxonomy Improvement Suggestions
 export interface TaxonomyImprovementSuggestion {
+  id?: string;  // Present when loaded from database
   type: "merge" | "split" | "rename";
   mode_ids: string[];
   reason: string;
@@ -696,6 +697,43 @@ export async function getTaxonomyImprovements(): Promise<TaxonomyImprovementsRes
   }
   
   return response.json();
+}
+
+// Get persisted suggestions from database
+export async function getPersistedSuggestions(agentId?: string): Promise<TaxonomyImprovementsResult> {
+  const params = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : "";
+  return apiCall(`${API_BASE}/taxonomy/suggestions${params}`);
+}
+
+// Save suggestions to database
+export async function saveSuggestions(
+  suggestions: TaxonomyImprovementSuggestion[],
+  overallAssessment: string,
+  agentId?: string
+): Promise<{ saved: number }> {
+  return apiCall(`${API_BASE}/taxonomy/suggestions`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      suggestions,
+      overall_assessment: overallAssessment,
+      agent_id: agentId
+    })
+  });
+}
+
+// Dismiss a suggestion (mark as dismissed in database)
+export async function dismissSuggestion(suggestionId: string): Promise<void> {
+  await apiCall(`${API_BASE}/taxonomy/suggestions/${suggestionId}/dismiss`, {
+    method: "POST"
+  });
+}
+
+// Mark a suggestion as applied
+export async function markSuggestionApplied(suggestionId: string): Promise<void> {
+  await apiCall(`${API_BASE}/taxonomy/suggestions/${suggestionId}/apply`, {
+    method: "POST"
+  });
 }
 
 // ============================================================================

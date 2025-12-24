@@ -493,6 +493,40 @@ def init_db():
             """)
             
             # =====================================================================
+            # Taxonomy Improvement Suggestions Table
+            # =====================================================================
+            # 
+            # Stores AI-generated taxonomy improvement suggestions (merge, split, rename).
+            # These persist across page refreshes and sessions until dismissed or applied.
+            # =====================================================================
+            
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS taxonomy_suggestions (
+                    id TEXT PRIMARY KEY,
+                    agent_id TEXT,
+                    suggestion_type TEXT NOT NULL,
+                    mode_ids JSON NOT NULL,
+                    reason TEXT NOT NULL,
+                    suggested_name TEXT,
+                    status TEXT DEFAULT 'active',
+                    dismissed_at TEXT,
+                    applied_at TEXT,
+                    created_at TEXT NOT NULL,
+                    batch_id TEXT
+                )
+            """)
+            
+            # Indexes for taxonomy_suggestions
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_taxonomy_suggestions_agent 
+                ON taxonomy_suggestions(agent_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_taxonomy_suggestions_status 
+                ON taxonomy_suggestions(status)
+            """)
+            
+            # =====================================================================
             # Settings Table - Application configuration
             # =====================================================================
             
@@ -603,7 +637,7 @@ def get_db_stats() -> dict:
         "failure_modes", "notes", "saturation_log", "saturation_snapshots",
         "reviewed_threads", "agents", "agent_dimensions", "agent_versions", 
         "synthetic_batches", "synthetic_queries", "auto_reviews",
-        "weave_feedback", "trace_suggestions"
+        "weave_feedback", "trace_suggestions", "taxonomy_suggestions"
     ]
     
     for table in tables:

@@ -5,29 +5,26 @@ import {
   RefreshCw,
   Sparkles,
   Plus,
-  TrendingUp,
   Zap,
   ClipboardList,
   AlertTriangle,
   ExternalLink,
   X,
-  Target,
   ArrowRight,
   ChevronDown,
   ChevronUp,
-  ChevronRight,
   Copy,
   Check,
   Trash2,
   CheckCircle2,
   Tag,
-  Eye,
   MoreVertical,
   GitMerge,
   Edit3,
   Cpu,
   Undo2,
   Lightbulb,
+  Target,
 } from "lucide-react";
 import { useApp } from "../../context/AppContext";
 import {
@@ -41,9 +38,10 @@ import {
   getStatusIcon,
   calculateDistributionPercent,
 } from "../../utils/formatters";
-import { Panel, PanelHeader, Badge, ProgressBar, Modal, StatusBadge, ConfirmDialog } from "../ui";
+import { Panel, PanelHeader, Badge, Modal, ConfirmDialog } from "../ui";
 import { EditPromptButton } from "../PromptEditDrawer";
 import { BatchSaturationCharts } from "../BatchSaturationCharts";
+import { SuggestionsPanel } from "./SuggestionsPanel";
 import type { TaxonomyNote, AISuggestion, FailureMode, FailureModeStatus } from "../../types";
 import * as api from "../../lib/api";
 
@@ -109,6 +107,16 @@ export function TaxonomyTab() {
   const [mergeName, setMergeName] = useState("");
   const [merging, setMerging] = useState(false);
 
+  // Split modal state
+  const [showSplitModal, setShowSplitModal] = useState(false);
+  const [splitSourceMode, setSplitSourceMode] = useState<FailureMode | null>(null);
+  const [splitSuggestion, setSplitSuggestion] = useState<api.TaxonomyImprovementSuggestion | null>(null);
+  const [splitName1, setSplitName1] = useState("");
+  const [splitDesc1, setSplitDesc1] = useState("");
+  const [splitName2, setSplitName2] = useState("");
+  const [splitDesc2, setSplitDesc2] = useState("");
+  const [splitting, setSplitting] = useState(false);
+
   // Inline edit state
   const [editingModeId, setEditingModeId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -124,10 +132,14 @@ export function TaxonomyTab() {
     message: string;
   } | null>(null);
 
-  // Taxonomy improvements modal state
-  const [showImprovementsModal, setShowImprovementsModal] = useState(false);
+  // Taxonomy improvements panel state (persistent via database)
+  const [showSuggestionsPanel, setShowSuggestionsPanel] = useState(false);
   const [improvements, setImprovements] = useState<api.TaxonomyImprovementsResult | null>(null);
   const [loadingImprovements, setLoadingImprovements] = useState(false);
+  const [dismissedSuggestionIds, setDismissedSuggestionIds] = useState<Set<string>>(new Set());
+  const [suggestionsFetchedAt, setSuggestionsFetchedAt] = useState<Date | null>(null);
+  const [suggestionsStale, setSuggestionsStale] = useState(false);
+  const [suggestionsLoaded, setSuggestionsLoaded] = useState(false);
 
   // Auto-dismiss notification after 4 seconds
   useEffect(() => {
@@ -174,6 +186,26 @@ export function TaxonomyTab() {
       fetchTaxonomy(selectedAgent.id);
     }
   }, [selectedAgent, fetchTaxonomy]);
+
+  // Load persisted suggestions on mount or agent change
+  useEffect(() => {
+    const loadPersistedSuggestions = async () => {
+      try {
+        const result = await api.getPersistedSuggestions(selectedAgent?.id);
+        if (result.suggestions.length > 0) {
+          setImprovements(result);
+          setSuggestionsLoaded(true);
+        }
+      } catch (error) {
+        console.error("Failed to load persisted suggestions:", error);
+      }
+    };
+    
+    // Only load on initial mount or agent change
+    if (!suggestionsLoaded) {
+      loadPersistedSuggestions();
+    }
+  }, [selectedAgent?.id, suggestionsLoaded]);
 
   const toggleModeExpanded = (modeId: string) => {
     const newExpanded = new Set(expandedModes);
@@ -275,6 +307,7 @@ export function TaxonomyTab() {
       });
       await fetchTaxonomy(selectedAgent?.id);
       cancelEditing();
+      markSuggestionsStale(); // Taxonomy changed, suggestions may be outdated
     } catch (error) {
       console.error("Failed to save:", error);
     } finally {
@@ -301,6 +334,7 @@ export function TaxonomyTab() {
       setMergeSourceId(null);
       setMergeTargetId(null);
       setMergeName("");
+      markSuggestionsStale(); // Taxonomy changed, suggestions may be outdated
     } catch (error) {
       console.error("Failed to merge:", error);
     } finally {
@@ -328,28 +362,184 @@ export function TaxonomyTab() {
 
   // Get taxonomy improvement suggestions
   const handleGetImprovements = async () => {
-    setShowImprovementsModal(true);
+    setShowSuggestionsPanel(true);
     setLoadingImprovements(true);
-    setImprovements(null);
+    // Don't reset improvements immediately to avoid flash - only on success
     
     try {
       const result = await api.getTaxonomyImprovements();
-      setImprovements(result);
+      
+      // Save to database for persistence
+      await api.saveSuggestions(
+        result.suggestions,
+        result.overall_assessment,
+        selectedAgent?.id
+      );
+      
+      // Reload from database to get IDs
+      const persisted = await api.getPersistedSuggestions(selectedAgent?.id);
+      setImprovements(persisted);
+      setDismissedSuggestionIds(new Set()); // Reset dismissed on fresh fetch
+      setSuggestionsFetchedAt(new Date());
+      setSuggestionsStale(false);
+      setSuggestionsLoaded(true);
     } catch (error) {
       console.error("Failed to get improvements:", error);
       setNotification({
         type: "error",
         message: "Failed to analyze taxonomy"
       });
-      setShowImprovementsModal(false);
     } finally {
       setLoadingImprovements(false);
     }
   };
 
+  // Dismiss a suggestion (persists to database)
+  const handleDismissSuggestion = useCallback(async (suggestionId: string) => {
+    // Optimistically update UI
+    setDismissedSuggestionIds(prev => {
+      const next = new Set(prev);
+      next.add(suggestionId);
+      return next;
+    });
+    
+    // Persist to database
+    try {
+      await api.dismissSuggestion(suggestionId);
+    } catch (error) {
+      console.error("Failed to dismiss suggestion:", error);
+      // Revert on error
+      setDismissedSuggestionIds(prev => {
+        const next = new Set(prev);
+        next.delete(suggestionId);
+        return next;
+      });
+    }
+  }, []);
+
+  // Mark suggestions as stale when taxonomy is modified
+  const markSuggestionsStale = useCallback(() => {
+    if (suggestionsFetchedAt) {
+      setSuggestionsStale(true);
+    }
+  }, [suggestionsFetchedAt]);
+
+  // Apply a merge suggestion from the panel
+  const handleApplyMergeSuggestion = useCallback((
+    suggestion: api.TaxonomyImprovementSuggestion,
+    affectedModes: FailureMode[]
+  ) => {
+    if (affectedModes.length >= 2) {
+      setMergeSourceId(affectedModes[0].id);
+      setMergeTargetId(affectedModes[1].id);
+      setMergeName(suggestion.suggested_name || affectedModes[1].name);
+      setShowMergeModal(true);
+    }
+  }, []);
+
+  // Apply a rename suggestion from the panel
+  const handleApplyRenameSuggestion = useCallback((
+    suggestion: api.TaxonomyImprovementSuggestion,
+    mode: FailureMode
+  ) => {
+    setEditingModeId(mode.id);
+    setEditName(suggestion.suggested_name || mode.name);
+    setEditDescription(mode.description);
+    setEditSeverity(mode.severity);
+    setEditStatus(mode.status);
+    setEditSuggestedFix(mode.suggested_fix || "");
+    // Expand the mode card so user can see the edit form
+    setExpandedModes(prev => {
+      const next = new Set(prev);
+      next.add(mode.id);
+      return next;
+    });
+  }, []);
+
+  // Apply a split suggestion from the panel
+  const handleApplySplitSuggestion = useCallback((
+    suggestion: api.TaxonomyImprovementSuggestion,
+    mode: FailureMode
+  ) => {
+    setSplitSourceMode(mode);
+    setSplitSuggestion(suggestion);
+    // Parse suggested names from the suggestion if available
+    // Format is typically "Split into: 'Name1' and 'Name2'" or just a single suggested name
+    const suggestedName = suggestion.suggested_name || "";
+    if (suggestedName.includes("' and '")) {
+      const parts = suggestedName.split("' and '");
+      setSplitName1(parts[0].replace(/^['"]/, ""));
+      setSplitName2(parts[1].replace(/['"]$/, ""));
+    } else {
+      setSplitName1(suggestedName || `${mode.name} - Type A`);
+      setSplitName2(`${mode.name} - Type B`);
+    }
+    setSplitDesc1("");
+    setSplitDesc2("");
+    setShowSplitModal(true);
+  }, []);
+
+  // Execute the split - create two new modes and delete the source
+  const handleSplit = async () => {
+    if (!splitSourceMode || !splitName1.trim() || !splitName2.trim()) return;
+    setSplitting(true);
+    try {
+      // Create first new mode
+      await createFailureMode(
+        splitName1.trim(),
+        splitDesc1.trim() || `Split from: ${splitSourceMode.name}`,
+        splitSourceMode.severity,
+        selectedAgent?.id
+      );
+      // Create second new mode
+      await createFailureMode(
+        splitName2.trim(),
+        splitDesc2.trim() || `Split from: ${splitSourceMode.name}`,
+        splitSourceMode.severity,
+        selectedAgent?.id
+      );
+      // Delete the original mode (notes will become uncategorized for manual reassignment)
+      await deleteFailureMode(splitSourceMode.id, selectedAgent?.id);
+      
+      setShowSplitModal(false);
+      setSplitSourceMode(null);
+      setSplitSuggestion(null);
+      setSplitName1("");
+      setSplitName2("");
+      setSplitDesc1("");
+      setSplitDesc2("");
+      markSuggestionsStale();
+      
+      setNotification({
+        type: "success",
+        message: `Split "${splitSourceMode.name}" into two new categories. Notes moved to uncategorized for reassignment.`
+      });
+    } catch (error) {
+      console.error("Failed to split:", error);
+      setNotification({
+        type: "error",
+        message: "Failed to split failure mode"
+      });
+    } finally {
+      setSplitting(false);
+    }
+  };
+
   // Batch categorization handlers
+  const handleBatchClick = () => {
+    // If already have suggestions ready, open modal
+    if (batchSuggestions.length > 0 && !loadingBatchSuggestions) {
+      setShowBatchModal(true);
+      return;
+    }
+    
+    // If not loading, start fetching
+    if (!loadingBatchSuggestions) {
+      startBatchCategorization();
+    }
+  };
+
   const startBatchCategorization = async () => {
-    setShowBatchModal(true);
     setLoadingBatchSuggestions(true);
     setBatchSuggestions([]);
     setBatchAssignments(new Map());
@@ -382,8 +572,18 @@ export function TaxonomyTab() {
         }
       }
       setBatchAssignments(initialAssignments);
+      
+      // Show notification that suggestions are ready
+      setNotification({
+        type: "success",
+        message: `${result.suggestions.length} suggestions ready - click Batch to review`
+      });
     } catch (error) {
       console.error("Failed to get batch suggestions:", error);
+      setNotification({
+        type: "error",
+        message: "Failed to get batch suggestions"
+      });
     } finally {
       setLoadingBatchSuggestions(false);
     }
@@ -398,16 +598,41 @@ export function TaxonomyTab() {
   };
 
   const applyBatchCategorization = async () => {
-    setApplyingBatch(true);
+    // Get stats before closing
+    const stats = getBatchStats();
+    const toApply = stats.confirmed + stats.newModes;
+    
+    // Close modal immediately and show progress notification
+    setShowBatchModal(false);
+    setNotification({
+      type: "info",
+      message: `Applying ${toApply} categorizations in background...`
+    });
+    
     try {
-      const assignments = Array.from(batchAssignments.values());
-      await api.batchApplyCategories(assignments, selectedAgent?.id);
-      setShowBatchModal(false);
+      // Filter to only non-skip assignments
+      const assignments = Array.from(batchAssignments.values()).filter(a => a.action !== "skip");
+      const result = await api.batchApplyCategories(assignments, selectedAgent?.id);
+      
+      // Clear batch state so button resets
+      setBatchSuggestions([]);
+      setBatchAssignments(new Map());
+      
+      // Show success
+      setNotification({
+        type: "success",
+        message: `Applied ${result.applied} categorizations (${result.new_modes_created} new, ${result.existing_modes_matched} existing)`
+      });
+      
+      // Refresh taxonomy
       fetchTaxonomy(selectedAgent?.id);
+      markSuggestionsStale();
     } catch (error) {
       console.error("Failed to apply batch categorization:", error);
-    } finally {
-      setApplyingBatch(false);
+      setNotification({
+        type: "error",
+        message: error instanceof Error ? error.message : "Failed to apply categorizations"
+      });
     }
   };
 
@@ -737,23 +962,44 @@ export function TaxonomyTab() {
                 <Plus className="w-4 h-4 text-emerald-400" />
                 New Failure Mode
                   </button>
-              <button
-                onClick={handleGetImprovements}
-                disabled={loadingImprovements || (taxonomy?.failure_modes.length || 0) < 2}
-                className="w-full btn-ghost text-sm flex items-center gap-2 justify-start px-3 py-2"
-                title={
-                  (taxonomy?.failure_modes.length || 0) < 2
-                    ? "Need at least 2 failure modes to suggest improvements"
-                    : "Get AI suggestions for improving your taxonomy"
-                }
-              >
-                {loadingImprovements ? (
-                  <RefreshCw className="w-4 h-4 text-purple-400 animate-spin" />
-                ) : (
-                  <Lightbulb className="w-4 h-4 text-purple-400" />
-                )}
-                Suggest Improvements
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => {
+                    if (!improvements && !loadingImprovements) {
+                      // First time - fetch and show
+                      handleGetImprovements();
+                    } else {
+                      // Already have results - just toggle panel
+                      setShowSuggestionsPanel(!showSuggestionsPanel);
+                    }
+                  }}
+                  disabled={(taxonomy?.failure_modes.length || 0) < 2}
+                  className={`flex-1 text-sm flex items-center gap-2 justify-start px-3 py-2 rounded-lg transition-colors ${
+                    showSuggestionsPanel 
+                      ? "bg-purple-500/20 text-purple-300 border border-purple-500/30" 
+                      : "btn-ghost"
+                  }`}
+                  title={
+                    (taxonomy?.failure_modes.length || 0) < 2
+                      ? "Need at least 2 failure modes to suggest improvements"
+                      : showSuggestionsPanel
+                      ? "Hide suggestions panel"
+                      : "Get AI suggestions for improving your taxonomy"
+                  }
+                >
+                  {loadingImprovements ? (
+                    <RefreshCw className="w-4 h-4 text-purple-400 animate-spin" />
+                  ) : (
+                    <Lightbulb className="w-4 h-4 text-purple-400" />
+                  )}
+                  {showSuggestionsPanel ? "Suggestions" : "Suggest Improvements"}
+                </button>
+                <EditPromptButton
+                  promptId="taxonomy_improvement"
+                  size="sm"
+                  variant="ghost"
+                />
+              </div>
               <button
                 onClick={() => fetchTaxonomy(selectedAgent?.id)}
                 disabled={loadingTaxonomy}
@@ -774,12 +1020,30 @@ export function TaxonomyTab() {
               actions={
                 taxonomy?.uncategorized_notes.length ? (
                   <button
-                    onClick={startBatchCategorization}
-                    disabled={loadingBatchSuggestions}
-                    className="btn-ghost text-[10px] flex items-center gap-1 px-1.5 py-0.5"
+                    onClick={handleBatchClick}
+                    className={`btn-ghost text-[10px] flex items-center gap-1.5 px-2 py-1 rounded-lg transition-all ${
+                      batchSuggestions.length > 0 && !loadingBatchSuggestions
+                        ? "bg-emerald-500/20 border border-emerald-500/40 text-emerald-400"
+                        : loadingBatchSuggestions
+                        ? "bg-gold/10 border border-gold/30"
+                        : ""
+                    }`}
+                    title={
+                      loadingBatchSuggestions
+                        ? "Getting AI suggestions..."
+                        : batchSuggestions.length > 0
+                        ? `${batchSuggestions.length} suggestions ready - click to review`
+                        : "Get AI suggestions for all uncategorized notes"
+                    }
                   >
-                    <Zap className="w-3 h-3" />
-                    Batch
+                    {loadingBatchSuggestions ? (
+                      <RefreshCw className="w-3 h-3 animate-spin text-gold" />
+                    ) : batchSuggestions.length > 0 ? (
+                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                    ) : (
+                      <Zap className="w-3 h-3" />
+                    )}
+                    {loadingBatchSuggestions ? "Analyzing..." : batchSuggestions.length > 0 ? `Review ${batchSuggestions.length}` : "Batch"}
                   </button>
                 ) : null
               }
@@ -802,6 +1066,7 @@ export function TaxonomyTab() {
                     suggestion={selectedNote?.id === note.id ? noteSuggestion : null}
                     loadingSuggestion={selectedNote?.id === note.id && loadingSuggestion}
                     onApplySuggestion={applySuggestion}
+                    onDismissSuggestion={() => setNoteSuggestion(null)}
                     onCreateNew={() => setShowCreateModal(true)}
                   />
                 ))
@@ -930,187 +1195,98 @@ export function TaxonomyTab() {
         </div>
       </Modal>
 
-      {/* Taxonomy Improvements Modal */}
-      {showImprovementsModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm">
-          <div className="bg-moon-800 rounded-xl border border-moon-700 w-full max-w-2xl max-h-[85vh] shadow-2xl flex flex-col overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center justify-between px-5 py-4 border-b border-moon-700 flex-shrink-0">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-purple-500/20 rounded-lg">
-                  <Lightbulb className="w-5 h-5 text-purple-400" />
-                </div>
-                <div>
-                  <h3 className="font-display text-lg text-moon-50">Taxonomy Improvements</h3>
-                  <p className="text-xs text-moon-500">AI-powered suggestions to improve your failure mode taxonomy</p>
-                </div>
-              </div>
-              <button 
-                onClick={() => setShowImprovementsModal(false)} 
-                className="p-2 text-moon-500 hover:text-moon-300 hover:bg-moon-700 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+      {/* Split Failure Mode Modal */}
+      <Modal
+        open={showSplitModal}
+        onClose={() => setShowSplitModal(false)}
+        title="Split Failure Mode"
+        footer={
+          <>
+            <button onClick={() => setShowSplitModal(false)} className="btn-ghost">
+              Cancel
+            </button>
+            <button 
+              onClick={handleSplit} 
+              disabled={!splitName1.trim() || !splitName2.trim() || splitting} 
+              className="btn-primary flex items-center gap-2"
+            >
+              {splitting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Target className="w-4 h-4" />}
+              Split
+            </button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <div className="p-3 bg-orange-500/10 rounded-lg border border-orange-500/20">
+            <p className="text-sm text-moon-300">
+              Splitting <span className="font-medium text-moon-100">{splitSourceMode?.name}</span> into two new categories.
+            </p>
+            <p className="text-xs text-moon-500 mt-1">
+              {splitSourceMode?.times_seen || 0} note{(splitSourceMode?.times_seen || 0) !== 1 ? "s" : ""} will be moved to uncategorized for manual reassignment.
+            </p>
+          </div>
+
+          {splitSuggestion?.reason && (
+            <div className="text-xs text-moon-400 italic">
+              AI Reason: {splitSuggestion.reason}
             </div>
+          )}
 
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto p-5">
-              {loadingImprovements ? (
-                <div className="flex flex-col items-center justify-center py-16 text-moon-400">
-                  <RefreshCw className="w-10 h-10 animate-spin mb-4 text-purple-400" />
-                  <p className="text-sm font-medium">Analyzing your taxonomy...</p>
-                  <p className="text-xs text-moon-500 mt-1">This may take 15-30 seconds</p>
-                </div>
-              ) : improvements ? (
-                <div className="space-y-5">
-                  {/* Overall Assessment */}
-                  <div className="p-4 bg-gradient-to-br from-purple-500/10 to-transparent rounded-xl border border-purple-500/20">
-                    <p className="text-sm text-moon-200 leading-relaxed">{improvements.overall_assessment}</p>
-                  </div>
-
-                  {/* Suggestions */}
-                  {improvements.suggestions.length > 0 ? (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-moon-400 uppercase tracking-wide">
-                          {improvements.suggestions.length} Suggestion{improvements.suggestions.length !== 1 ? 's' : ''}
-                        </span>
-                      </div>
-                      
-                      {improvements.suggestions.map((suggestion, idx) => {
-                        const affectedModes = suggestion.mode_ids
-                          .map((id) => taxonomy?.failure_modes.find((m) => m.id === id))
-                          .filter(Boolean);
-                        
-                        // For merge: need exactly 2 modes
-                        const canMerge = suggestion.type === "merge" && affectedModes.length >= 2;
-                        // For rename: need exactly 1 mode
-                        const canRename = suggestion.type === "rename" && affectedModes.length === 1;
-
-                        return (
-                          <div
-                            key={idx}
-                            className="group p-4 rounded-xl bg-moon-900/60 border border-moon-700 hover:border-moon-600 transition-colors"
-                          >
-                            {/* Type badge and action */}
-                            <div className="flex items-start justify-between gap-3 mb-3">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                {suggestion.type === "merge" && (
-                                  <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-blue-500/15 text-blue-400 border border-blue-500/30">
-                                    <GitMerge className="w-3 h-3" />
-                                    Merge
-                                  </span>
-                                )}
-                                {suggestion.type === "rename" && (
-                                  <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-green-500/15 text-green-400 border border-green-500/30">
-                                    <Edit3 className="w-3 h-3" />
-                                    Rename
-                                  </span>
-                                )}
-                                {suggestion.type === "split" && (
-                                  <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-orange-500/15 text-orange-400 border border-orange-500/30">
-                                    <Target className="w-3 h-3" />
-                                    Split
-                                  </span>
-                                )}
-                                {suggestion.suggested_name && (
-                                  <span className="text-xs text-moon-300 font-medium">
-                                    → <span className="text-gold">"{suggestion.suggested_name}"</span>
-                                  </span>
-                                )}
-                              </div>
-                              
-                              {/* Action buttons */}
-                              <div className="flex-shrink-0">
-                                {canMerge && (
-                                  <button
-                                    onClick={() => {
-                                      // Open merge modal with first two modes pre-selected
-                                      setMergeSourceId(affectedModes[0]!.id);
-                                      setMergeTargetId(affectedModes[1]!.id);
-                                      setMergeName(suggestion.suggested_name || affectedModes[1]!.name);
-                                      setShowMergeModal(true);
-                                      setShowImprovementsModal(false);
-                                    }}
-                                    className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 border border-blue-500/30 transition-colors"
-                                  >
-                                    <GitMerge className="w-3 h-3" />
-                                    Apply
-                                  </button>
-                                )}
-                                {canRename && (
-                                  <button
-                                    onClick={() => {
-                                      // Start editing the mode with suggested name
-                                      const mode = affectedModes[0]!;
-                                      setEditingModeId(mode.id);
-                                      setEditName(suggestion.suggested_name || mode.name);
-                                      setEditDescription(mode.description);
-                                      setEditSeverity(mode.severity);
-                                      setEditStatus(mode.status);
-                                      setEditSuggestedFix(mode.suggested_fix || "");
-                                      setShowImprovementsModal(false);
-                                    }}
-                                    className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-green-500/20 text-green-400 hover:bg-green-500/30 border border-green-500/30 transition-colors"
-                                  >
-                                    <Edit3 className="w-3 h-3" />
-                                    Rename
-                                  </button>
-                                )}
-                                {suggestion.type === "split" && (
-                                  <span className="text-xs text-moon-500 italic">Manual action</span>
-                                )}
-                              </div>
-                            </div>
-                            
-                            {/* Reason */}
-                            <p className="text-sm text-moon-300 leading-relaxed mb-3">{suggestion.reason}</p>
-                            
-                            {/* Affected modes */}
-                            {affectedModes.length > 0 && (
-                              <div className="flex flex-wrap gap-1.5">
-                                {affectedModes.slice(0, 4).map((mode) => (
-                                  <span
-                                    key={mode!.id}
-                                    className="inline-flex items-center text-xs px-2 py-1 bg-moon-800 rounded-md text-moon-400 border border-moon-700"
-                                  >
-                                    {mode!.name}
-                                  </span>
-                                ))}
-                                {affectedModes.length > 4 && (
-                                  <span className="text-xs text-moon-500 py-1">
-                                    +{affectedModes.length - 4} more
-                                  </span>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="text-center py-12">
-                      <CheckCircle2 className="w-12 h-12 mx-auto mb-3 text-emerald-400" />
-                      <p className="text-moon-200 font-medium">Your taxonomy looks great!</p>
-                      <p className="text-sm text-moon-500 mt-1">No improvements suggested at this time.</p>
-                    </div>
-                  )}
-                </div>
-              ) : null}
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <label className="block text-sm text-moon-450">First Category</label>
+              <input
+                type="text"
+                value={splitName1}
+                onChange={(e) => setSplitName1(e.target.value)}
+                placeholder="Name for first category"
+                className="w-full"
+              />
+              <textarea
+                value={splitDesc1}
+                onChange={(e) => setSplitDesc1(e.target.value)}
+                placeholder="Description (optional)"
+                rows={2}
+                className="w-full text-sm"
+              />
             </div>
-
-            {/* Footer */}
-            <div className="flex items-center justify-end gap-3 px-5 py-4 border-t border-moon-700 bg-moon-900/50 flex-shrink-0">
-              <button
-                onClick={() => setShowImprovementsModal(false)}
-                className="btn-ghost px-4 py-2"
-              >
-                Done
-              </button>
+            <div className="space-y-2">
+              <label className="block text-sm text-moon-450">Second Category</label>
+              <input
+                type="text"
+                value={splitName2}
+                onChange={(e) => setSplitName2(e.target.value)}
+                placeholder="Name for second category"
+                className="w-full"
+              />
+              <textarea
+                value={splitDesc2}
+                onChange={(e) => setSplitDesc2(e.target.value)}
+                placeholder="Description (optional)"
+                rows={2}
+                className="w-full text-sm"
+              />
             </div>
           </div>
         </div>
-      )}
+      </Modal>
+
+      {/* Suggestions Panel (persistent sidebar) */}
+      <SuggestionsPanel
+        isOpen={showSuggestionsPanel}
+        onToggle={() => setShowSuggestionsPanel(!showSuggestionsPanel)}
+        suggestions={improvements?.suggestions || []}
+        overallAssessment={improvements?.overall_assessment || ""}
+        loading={loadingImprovements}
+        stale={suggestionsStale}
+        failureModes={taxonomy?.failure_modes || []}
+        dismissedIds={dismissedSuggestionIds}
+        onApplyMerge={handleApplyMergeSuggestion}
+        onApplyRename={handleApplyRenameSuggestion}
+        onApplySplit={handleApplySplitSuggestion}
+        onDismiss={handleDismissSuggestion}
+        onRefresh={handleGetImprovements}
+      />
 
       {/* Batch Categorization Modal */}
       {showBatchModal && (
@@ -1625,6 +1801,7 @@ function InboxNoteCard({
   suggestion,
   loadingSuggestion,
   onApplySuggestion,
+  onDismissSuggestion,
   onCreateNew,
 }: {
   note: TaxonomyNote;
@@ -1636,6 +1813,7 @@ function InboxNoteCard({
   suggestion: AISuggestion | null;
   loadingSuggestion: boolean;
   onApplySuggestion: () => void;
+  onDismissSuggestion: () => void;
   onCreateNew: () => void;
 }) {
   const [showAssignDropdown, setShowAssignDropdown] = useState(false);
@@ -1752,9 +1930,20 @@ function InboxNoteCard({
                   </span>
                 )}
               </div>
-              <button onClick={onApplySuggestion} className="w-full btn-ghost text-xs py-1.5 flex items-center justify-center gap-1 border border-gold/30">
-                <Check className="w-3 h-3" /> Apply
-            </button>
+              <div className="flex gap-2">
+                <button 
+                  onClick={onDismissSuggestion} 
+                  className="flex-1 btn-ghost text-xs py-1.5 flex items-center justify-center gap-1 text-moon-500 hover:text-moon-300"
+                >
+                  <X className="w-3 h-3" /> Dismiss
+                </button>
+                <button 
+                  onClick={onApplySuggestion} 
+                  className="flex-1 btn-ghost text-xs py-1.5 flex items-center justify-center gap-1 border border-gold/30"
+                >
+                  <Check className="w-3 h-3" /> Apply
+                </button>
+              </div>
           </div>
           ) : null}
         </div>

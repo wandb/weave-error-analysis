@@ -430,18 +430,33 @@ async def batch_apply_categories(request: BatchApplyRequest):
     - failure_mode_id: Required if action is "existing"
     - new_category: Required if action is "new" (with name, description, severity, suggested_fix)
     """
+    import traceback
     try:
         # Convert to list of dicts
         assignments = [a.model_dump() for a in request.assignments]
         result = taxonomy_service.batch_apply_categories(assignments, agent_id=request.agent_id)
         return result
     except Exception as e:
+        print(f"[ERROR] batch_apply_categories failed: {e}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================================================
 # Taxonomy Improvement Suggestions
 # ============================================================================
+
+class SaveSuggestionsRequest(BaseModel):
+    """Request body for saving taxonomy suggestions."""
+    suggestions: List[dict]
+    overall_assessment: str
+    agent_id: Optional[str] = None
+
+
+class DismissSuggestionRequest(BaseModel):
+    """Request body for dismissing a suggestion."""
+    suggestion_id: str
+
 
 @router.get("/improvements")
 async def get_taxonomy_improvements():
@@ -464,4 +479,57 @@ async def get_taxonomy_improvements():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/suggestions")
+async def get_saved_suggestions(agent_id: Optional[str] = Query(None)):
+    """
+    Get persisted taxonomy improvement suggestions.
+    
+    Returns only active (non-dismissed, non-applied) suggestions.
+    """
+    try:
+        result = taxonomy_service.get_persisted_suggestions(agent_id)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.post("/suggestions")
+async def save_suggestions(request: SaveSuggestionsRequest):
+    """
+    Save taxonomy improvement suggestions to the database.
+    
+    This replaces any existing active suggestions for the agent.
+    """
+    try:
+        result = taxonomy_service.save_suggestions(
+            suggestions=request.suggestions,
+            overall_assessment=request.overall_assessment,
+            agent_id=request.agent_id
+        )
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/suggestions/{suggestion_id}/dismiss")
+async def dismiss_suggestion(suggestion_id: str):
+    """
+    Dismiss a specific suggestion.
+    """
+    try:
+        taxonomy_service.dismiss_suggestion(suggestion_id)
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/suggestions/{suggestion_id}/apply")
+async def mark_suggestion_applied(suggestion_id: str):
+    """
+    Mark a suggestion as applied.
+    """
+    try:
+        taxonomy_service.mark_suggestion_applied(suggestion_id)
+        return {"success": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

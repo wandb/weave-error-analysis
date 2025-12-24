@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Python 3.12+
+- Python 3.11+
 - Node.js 18+ (for frontend)
 - [uv](https://docs.astral.sh/uv/) - Fast Python package manager
 - pnpm (recommended) or npm
@@ -13,18 +13,14 @@
 git clone <repo>
 cd weave-error-analysis
 
-# 1. Install dependencies
+# Install dependencies and run
 uv sync
-
-# 2. Configure environment
-cp .env.example .env
-# Edit .env - at minimum set OPENAI_API_KEY
-
-# 3. Run everything
 uv run ea
 ```
 
 Opens http://localhost:3000 with backend on :8000.
+
+**First-time setup:** The app prompts you to configure API keys through the UI on first launch. No `.env` file needed.
 
 ## Development Workflows
 
@@ -51,43 +47,46 @@ uv run uvicorn agent.agent_server:app --reload --port 9000
 
 Or start the Example Agent from the UI (Agents tab → Start Example Agent).
 
-### Environment Variables
+### Configuration
 
-All configuration lives in the root `.env` file. See `.env.example` for all options.
+All configuration is managed through the **Settings UI** in the app. Settings are stored in the local SQLite database.
 
 **Priority order:**
-1. Settings UI (stored in database) 
-2. Environment variables (`.env`)
-3. Default values
+1. Settings UI (stored in database) — **primary**
+2. Environment variables (optional override)
+3. Default values in code
 
-This means you can:
-- Set API keys in `.env` for development
-- Override specific settings via the UI
-- Use defaults for everything else
+This means:
+- Most users configure everything through the UI
+- Developers can optionally use environment variables for automation
+- All settings have sensible defaults
 
-### Common Environment Variables
+### Environment Variables (Optional)
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `OPENAI_API_KEY` | Yes | API key for AI features |
-| `WANDB_API_KEY` | For Weave | W&B API key |
-| `WANDB_ENTITY` | For Weave | W&B username or team |
-| `WEAVE_PROJECT` | For Weave | Agent's trace project |
+You can override settings via environment variables if needed (e.g., for CI or automation):
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OPENAI_API_KEY` | OpenAI API key | (configured via UI) |
+| `WANDB_API_KEY` | W&B API key for Weave | (configured via UI) |
+| `WANDB_ENTITY` | W&B username or team | (optional) |
+| `WEAVE_PROJECT` | Agent's trace project | (optional) |
+| `TOOL_PROJECT_NAME` | Tool's internal traces | `error-analysis-tool` |
+
+To use environment variables, create a `.env` file in the project root. The app loads it automatically.
 
 ### Adding New Configuration
 
-1. Add to `DEFAULT_SETTINGS` in `backend/services/settings.py`
-2. Add getter function in `backend/config.py`
-3. Document in `.env.example`
-4. If user-facing, add to Settings UI groups in `get_settings_grouped()`
+1. Add to `DefaultSettings` in `backend/services/settings.py`
+2. Add getter function in `backend/config.py` if needed
+3. If user-facing, add to Settings UI groups in `get_settings_grouped()`
 
 ## Project Structure
 
 ```
 weave-error-analysis/
 ├── pyproject.toml       # Python package definition (uv)
-├── .env.example         # Environment template
-├── .env                 # Your local config (gitignored)
+├── .env                 # Optional local config (gitignored)
 │
 ├── error_analysis_cli/  # CLI entry point (uv run ea)
 │   └── main.py          # Typer app
@@ -151,7 +150,7 @@ tests/
 For end-to-end verification, run through the UI workflow:
 
 1. Run `uv run ea`
-2. Go through: Settings → Agent → Synthetic → Sessions → Taxonomy
+2. Go through: Settings → Agent → Synthetic → Taxonomy
 3. Verify each feature works
 
 ## Troubleshooting
@@ -168,13 +167,12 @@ Or use `--strict-ports` to fail instead of auto-detect.
 
 ### API key not working
 
-1. Check `.env` file exists in root directory
-2. Verify no extra quotes: `OPENAI_API_KEY=sk-xxx` (not `"sk-xxx"`)
-3. Check Settings tab - UI settings override env vars
+1. Check Settings tab in the UI — this is where keys should be configured
+2. Verify no extra quotes around values
+3. If using `.env` file, ensure format is `KEY=value` (no quotes needed)
 
 ### Weave traces not showing
 
-1. Verify `WANDB_API_KEY`, `WANDB_ENTITY`, `WEAVE_PROJECT` are set
-2. Check Settings tab for configuration status
-3. Ensure your agent is actually logging to the configured project
-
+1. Verify W&B API key is set in Settings
+2. Check that your agent is configured with the correct Weave project
+3. Ensure your agent is actually logging traces to that project

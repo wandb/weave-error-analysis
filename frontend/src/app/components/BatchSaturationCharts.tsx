@@ -23,7 +23,6 @@ import {
   RefreshCw,
   Layers,
   BarChart3,
-  Sparkles,
   Target,
   ClipboardCheck,
 } from "lucide-react";
@@ -233,49 +232,7 @@ export function BatchSaturationCharts({
             </ResponsiveContainer>
           </ChartSection>
 
-          {/* Chart 2: Review Progress per Batch */}
-          <ChartSection 
-            title="Review Progress per Batch"
-            badge={reviewPercent === 100 ? (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" /> All reviewed
-              </span>
-            ) : undefined}
-          >
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={chartData} barCategoryGap="20%">
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                <XAxis dataKey="name" tick={{ fill: "#6b7280", fontSize: 10 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} axisLine={false} tickLine={false} width={30} />
-                <Tooltip content={<CustomTooltip type="review" />} cursor={{ fill: "rgba(255,255,255,0.05)" }} />
-                <Bar dataKey="totalTraces" fill={COLORS.gray} radius={[4, 4, 0, 0]} name="Total Traces" />
-                <Bar dataKey="reviewed" fill={COLORS.green} radius={[4, 4, 0, 0]} name="Reviewed" />
-              </BarChart>
-            </ResponsiveContainer>
-          </ChartSection>
-
-          {/* Chart 3: Failure Mode Discovery by Batch */}
-          <ChartSection 
-            title="Failure Mode Discovery by Batch"
-            badge={data.summary.saturation_status === "saturated" ? (
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 flex items-center gap-1">
-                <Sparkles className="w-3 h-3" /> Saturating
-              </span>
-            ) : undefined}
-          >
-            <ResponsiveContainer width="100%" height={180}>
-              <BarChart data={chartData} barCategoryGap="20%">
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
-                <XAxis dataKey="name" tick={{ fill: "#6b7280", fontSize: 10 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} axisLine={false} tickLine={false} width={30} />
-                <Tooltip content={<CustomTooltip type="discovery" />} cursor={{ fill: "rgba(255,255,255,0.05)" }} />
-                <Bar dataKey="matchedModes" stackId="a" fill={COLORS.green} radius={[0, 0, 0, 0]} name="Matched" />
-                <Bar dataKey="newModes" stackId="a" fill={COLORS.purple} radius={[4, 4, 0, 0]} name="New" />
-              </BarChart>
-            </ResponsiveContainer>
-          </ChartSection>
-
-          {/* Chart 3: Taxonomy Growth */}
+          {/* Chart 2: Taxonomy Growth */}
           <ChartSection 
             title="Taxonomy Growth"
             badge={data.summary.saturation_status === "saturated" ? (
@@ -348,7 +305,7 @@ function ChartSection({ title, children, badge }: {
   );
 }
 
-function CustomTooltip({ active, payload, type }: TooltipProps<number, string> & { type: "queries" | "review" | "discovery" | "growth" }) {
+function CustomTooltip({ active, payload, type }: TooltipProps<number, string> & { type: "queries" | "growth" }) {
   if (!active || !payload?.length) return null;
 
   const data = payload[0]?.payload;
@@ -359,21 +316,6 @@ function CustomTooltip({ active, payload, type }: TooltipProps<number, string> &
       {type === "queries" && (
         <div className="text-xs space-y-0.5">
           <p><span className="text-blue-400">Queries:</span> <span className="text-moon-200">{data?.queries}</span></p>
-        </div>
-      )}
-      {type === "review" && (
-        <div className="text-xs space-y-0.5">
-          <p><span className="text-moon-400">Total Traces:</span> <span className="text-moon-200">{data?.totalTraces}</span></p>
-          <p><span className="text-green-400">Reviewed:</span> <span className="text-moon-200">{data?.reviewed}</span></p>
-          {data?.totalTraces > 0 && (
-            <p><span className="text-emerald-400">Progress:</span> <span className="text-moon-200">{Math.round((data?.reviewed / data?.totalTraces) * 100)}%</span></p>
-          )}
-        </div>
-      )}
-      {type === "discovery" && (
-        <div className="text-xs space-y-0.5">
-          <p><span className="text-purple-400">New:</span> <span className="text-moon-200">{data?.newModes}</span></p>
-          <p><span className="text-green-400">Matched:</span> <span className="text-moon-200">{data?.matchedModes}</span></p>
         </div>
       )}
       {type === "growth" && (

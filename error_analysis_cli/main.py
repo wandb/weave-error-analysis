@@ -19,6 +19,7 @@ import time
 from pathlib import Path
 
 import typer
+import httpx
 from rich.console import Console
 from rich.panel import Panel
 from dotenv import load_dotenv
@@ -96,6 +97,27 @@ def start_backend(port: int):
     )
 
 
+def wait_for_backend(port: int, timeout: float = 30.0, interval: float = 0.5) -> bool:
+    """
+    Wait for the backend to be ready by polling its health endpoint.
+    
+    Returns True if backend is ready, False if timeout exceeded.
+    """
+    url = f"http://localhost:{port}/api/settings/status"
+    start_time = time.time()
+    
+    while time.time() - start_time < timeout:
+        try:
+            response = httpx.get(url, timeout=2.0)
+            if response.status_code == 200:
+                return True
+        except (httpx.ConnectError, httpx.TimeoutException):
+            pass
+        time.sleep(interval)
+    
+    return False
+
+
 def start_frontend(port: int, backend_port: int):
     """Start Next.js frontend."""
     env = os.environ.copy()
@@ -165,11 +187,18 @@ def start(
     ensure_node_deps()
     init_database()
     
-    # Start servers (no agent - lazy loaded via UI)
+    # Start servers sequentially (backend first, then frontend)
+    # This prevents proxy errors during startup
     console.print(f"\n[bold]Starting...[/]")
     
     backend_proc = start_backend(actual_backend_port)
-    console.print(f"  Backend:  http://localhost:{actual_backend_port}")
+    console.print(f"  Backend:  http://localhost:{actual_backend_port} ", end="")
+    
+    # Wait for backend to be ready before starting frontend
+    if wait_for_backend(actual_backend_port):
+        console.print("[green]✓[/]")
+    else:
+        console.print("[yellow]⚠ slow startup[/]")
     
     frontend_proc = start_frontend(actual_frontend_port, actual_backend_port)
     console.print(f"  Frontend: http://localhost:{actual_frontend_port}")

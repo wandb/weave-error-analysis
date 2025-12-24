@@ -80,14 +80,14 @@ async def update_setting(key: str, request: UpdateSettingRequest):
     Update a single setting.
     
     For API keys and other secrets, the value will be encoded before storage.
+    When Weave-related settings are updated, triggers Weave re-initialization.
     """
-    # Don't allow empty values for required settings
-    required_for_function = {
-        "llm_api_key": "LLM features (synthetic generation, AI suggestions)",
-        "weave_api_key": "Weave trace retrieval",
-    }
-    
     set_setting(key, request.value)
+    
+    # If Weave credentials were updated, try to initialize Weave
+    if key in ("weave_api_key", "weave_entity", "weave_project", "tool_project_name"):
+        from main import ensure_weave_and_prompts
+        await ensure_weave_and_prompts()
     
     return {
         "status": "updated",
@@ -102,12 +102,23 @@ async def bulk_update_settings(request: BulkUpdateRequest):
     Update multiple settings at once.
     
     Useful for saving an entire settings form.
+    When Weave-related settings are updated, triggers Weave re-initialization.
     """
     updated = []
+    weave_settings_updated = False
+    
+    weave_keys = {"weave_api_key", "weave_entity", "weave_project", "tool_project_name"}
     
     for key, value in request.settings.items():
         set_setting(key, value)
         updated.append(key)
+        if key in weave_keys:
+            weave_settings_updated = True
+    
+    # If Weave credentials were updated, try to initialize Weave
+    if weave_settings_updated:
+        from main import ensure_weave_and_prompts
+        await ensure_weave_and_prompts()
     
     return {
         "status": "updated",

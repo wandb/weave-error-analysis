@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import {
   Layers,
   BarChart3,
@@ -35,7 +35,11 @@ function AppLayout() {
     fetchDimensions,
     fetchBatches,
     setShowLandingPage,
+    configStatus,
   } = useApp();
+  
+  // Check if settings are incomplete (missing LLM or Weave API key)
+  const settingsIncomplete = configStatus && (!configStatus.llm.configured || !configStatus.weave.configured);
 
   const handleLogoClick = () => {
     // Clear the sessionStorage dismissal and show landing page
@@ -116,17 +120,20 @@ function AppLayout() {
                 <span className="uppercase text-xs tracking-wide">Refresh</span>
               </button>
 
-              {/* Settings - Icon only in corner */}
+              {/* Settings - Icon only in corner with warning badge */}
               <button
                 onClick={() => setActiveTab("settings")}
-                className="p-2.5 rounded-lg transition-all hover:opacity-90"
+                className="p-2.5 rounded-lg transition-all hover:opacity-90 relative"
                 style={activeTab === "settings"
                   ? { backgroundColor: '#FCBC32', color: '#171A1F' }
                   : { color: '#8F949E' }
                 }
-                title="Settings"
+                title={settingsIncomplete ? "Settings - Configuration incomplete" : "Settings"}
               >
                 <Settings className="w-5 h-5" />
+                {settingsIncomplete && activeTab !== "settings" && (
+                  <span className="absolute -top-1 -right-1 w-3 h-3 bg-amber-500 rounded-full border-2 border-[#171A1F]" />
+                )}
               </button>
             </div>
           </div>
@@ -246,13 +253,22 @@ function AppRouter() {
     completeSetup,
   } = useApp();
 
+  // Track if user clicked Start on landing page and needs setup
+  const [showSetupWizard, setShowSetupWizard] = useState(false);
+
   const handleStart = () => {
-    dismissLandingPage();
-    setActiveTab("agents");
+    // If setup is needed, show the wizard instead of going directly to agents
+    if (needsSetup) {
+      setShowSetupWizard(true);
+    } else {
+      dismissLandingPage();
+      setActiveTab("agents");
+    }
   };
 
   const handleSetupComplete = () => {
     completeSetup();
+    setShowSetupWizard(false);
     dismissLandingPage();
     setActiveTab("agents");
   };
@@ -266,12 +282,12 @@ function AppRouter() {
     );
   }
 
-  // Show setup wizard if essential config is missing
-  if (needsSetup) {
+  // Show setup wizard if user clicked Start and config is missing
+  if (showSetupWizard && needsSetup) {
     return <SetupWizard onComplete={handleSetupComplete} />;
   }
 
-  // Show landing page (workflow guide) on first visit
+  // Show landing page (workflow guide) on first visit - ALWAYS show first
   if (showLandingPage) {
     return (
       <LandingPage

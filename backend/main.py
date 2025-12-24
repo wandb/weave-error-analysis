@@ -38,11 +38,38 @@ from routers import (
 
 # =============================================================================
 # Weave Initialization (Tool Project - for internal traces/prompts)
+# Lazy initialization - only initializes when credentials are available
 # =============================================================================
 
-def init_weave():
+# Track if Weave has been initialized
+_weave_initialized = False
+
+
+def weave_credentials_configured() -> bool:
+    """
+    Check if Weave credentials are available for the tool's internal project.
+    
+    Checks for WANDB_API_KEY in:
+    1. Database settings (weave_api_key)
+    2. Environment variable (WANDB_API_KEY)
+    """
+    from services.settings import get_setting
+    import os
+    
+    # Check database setting first
+    api_key = get_setting("weave_api_key")
+    if api_key:
+        return True
+    
+    # Fall back to environment variable
+    return bool(os.getenv("WANDB_API_KEY"))
+
+
+def init_weave() -> bool:
     """
     Initialize Weave for the TOOL's internal tracing and prompt management.
+    
+    This is a LAZY initialization - only called when credentials are available.
     
     IMPORTANT: This initializes the TOOL project (error-analysis-tool), NOT
     the user's target project. The target project is accessed via WeaveClient
@@ -53,16 +80,58 @@ def init_weave():
     - User can analyze their agent project without tool interference
     - Prompt versions are stored in a dedicated tool project
     """
+    global _weave_initialized
+    
+    if _weave_initialized:
+        return True
+    
     tool_project_id = get_tool_project_id()
+    
+    # Only initialize if we have a tool project configured
+    if not tool_project_id:
+        logger.info("Tool project not configured - skipping Weave initialization")
+        return False
     
     try:
         weave.init(tool_project_id)
+        _weave_initialized = True
         logger.info(f"Weave (tool project) initialized: https://wandb.ai/{tool_project_id}/weave")
-        logger.info("Note: User's agent traces are fetched via separate API calls to their configured project")
+        logger.debug("Note: User's agent traces are fetched via separate API calls to their configured project")
         return True
     except Exception as e:
         logger.warning(f"Failed to initialize Weave tool project: {e}")
         return False
+
+
+def is_weave_initialized() -> bool:
+    """Check if Weave has been initialized."""
+    return _weave_initialized
+
+
+async def ensure_weave_and_prompts():
+    """
+    Ensure Weave is initialized and prompts are published.
+    Called when settings are saved or when Weave features are first used.
+    """
+    global _weave_initialized
+    
+    if not weave_credentials_configured():
+        logger.debug("Weave credentials not configured - skipping initialization")
+        return False
+    
+    # Initialize Weave if not already done
+    if not _weave_initialized:
+        if not init_weave():
+            return False
+    
+    # Enable Weave for prompt manager (will publish prompts if upgrading from local mode)
+    try:
+        from prompts import prompt_manager
+        await prompt_manager.enable_weave()
+    except Exception as e:
+        logger.warning(f"Failed to enable Weave for prompt manager: {e}")
+    
+    return True
 
 
 # =============================================================================
@@ -134,9 +203,13 @@ async def lifespan(app: FastAPI):
     On startup:
     - Initializes database (creates tables if needed)
     - Registers Example Agent if not present
-    - Initializes Weave for tracing
-    - Initializes prompt manager
-    - Triggers background incremental sync to refresh sessions cache
+    - Lazy Weave initialization (only if credentials configured)
+    - Deferred prompt publishing (only when Weave is ready)
+    - Initializes Weave API client for trace fetching
+    
+    Note: Weave and prompts are initialized lazily. If credentials aren't
+    configured at startup, they'll be initialized when the user saves
+    settings for the first time.
     """
     # --- STARTUP ---
     logger.info("Starting Error Analysis Backend...")
@@ -149,26 +222,34 @@ async def lifespan(app: FastAPI):
     # Register Example Agent (so it appears in Agents tab on first run)
     register_example_agent()
     
-    # Initialize Weave (single init for the entire backend)
-    weave_enabled = init_weave()
+    # Lazy Weave initialization - only if credentials are already configured
+    if weave_credentials_configured():
+        weave_enabled = init_weave()
+        
+        # Initialize prompt manager with Weave versioning
+        try:
+            from prompts import prompt_manager
+            await prompt_manager.initialize(enable_weave=weave_enabled)
+            logger.info(f"Prompt manager initialized ({len(prompt_manager.get_all_prompts())} prompts)")
+        except Exception as e:
+            logger.warning(f"Failed to initialize prompt manager: {e}")
+    else:
+        logger.info("Weave credentials not configured - will initialize when settings are provided")
+        # Initialize prompt manager without Weave (local-only mode)
+        try:
+            from prompts import prompt_manager
+            await prompt_manager.initialize(enable_weave=False)
+            logger.info(f"Prompt manager initialized in local mode ({len(prompt_manager.get_all_prompts())} prompts)")
+        except Exception as e:
+            logger.warning(f"Failed to initialize prompt manager: {e}")
     
-    # Initialize prompt manager (will use existing Weave init)
-    try:
-        from prompts import prompt_manager
-        await prompt_manager.initialize(enable_weave=weave_enabled)
-        logger.info(f"Prompt manager initialized ({len(prompt_manager.get_all_prompts())} prompts)")
-    except Exception as e:
-        logger.warning(f"Failed to initialize prompt manager: {e}")
-    
-    # Initialize Weave API client (connection pooling)
+    # Initialize Weave API client (connection pooling) - this is for fetching traces
     try:
         from services.weave_client import weave_client
         await weave_client.init()
         logger.info("WeaveClient HTTP connection pool initialized")
     except Exception as e:
         logger.warning(f"Failed to initialize WeaveClient: {e}")
-    
-    # Note: Session sync removed - using Weave-native trace review
     
     yield
     

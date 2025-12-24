@@ -3,7 +3,6 @@
 import { useState, useEffect } from "react";
 import {
   Settings,
-  Key,
   Database,
   Bot,
   Check,
@@ -29,23 +28,24 @@ import * as api from "../../lib/api";
 
 // Label mappings for better display
 const SETTING_LABELS: Record<string, string> = {
-  llm_provider: "Provider",
-  llm_model: "Default Model",
   llm_api_key: "API Key",
-  llm_api_base: "API Base URL",
+  llm_model: "Model",
   weave_api_key: "W&B API Key",
-  weave_entity: "Entity",
-  weave_project: "Project",
+  tool_project_name: "Tool Tracing Project (optional)",
 };
 
 const SETTING_PLACEHOLDERS: Record<string, string> = {
-  llm_provider: "openai, anthropic, google...",
-  llm_model: "gpt-4o-mini, claude-3-sonnet... (prompts can override)",
-  llm_api_key: "sk-...",
-  llm_api_base: "https://api.openai.com/v1 (optional)",
-  weave_api_key: "Your W&B API key",
-  weave_entity: "Your W&B username or team",
-  weave_project: "your-agent-project (where your agent logs traces)",
+  llm_api_key: "sk-... or any LiteLLM-compatible key",
+  llm_model: "gpt-4o-mini, claude-3-sonnet, etc.",
+  weave_api_key: "Get yours at wandb.ai/authorize",
+  tool_project_name: "entity/project or just project-name",
+};
+
+const SETTING_DESCRIPTIONS: Record<string, string> = {
+  llm_api_key: "OpenAI, Anthropic, or any LiteLLM-compatible API key for AI features",
+  llm_model: "Default model for synthetic generation and AI suggestions (prompts can override)",
+  weave_api_key: "Required to fetch traces from your agent's Weave project",
+  tool_project_name: "Where this tool logs its own traces (query generation, taxonomy work). Leave empty to skip.",
 };
 
 export function SettingsTab() {
@@ -277,7 +277,7 @@ export function SettingsTab() {
                     showSecret={showSecrets[setting.key] || false}
                     onToggleSecret={() => toggleShowSecret(setting.key)}
                     onChange={(value) => handleInputChange(setting.key, value)}
-                    description={setting.description}
+                    description={SETTING_DESCRIPTIONS[setting.key] || setting.description}
                     hasStoredValue={setting.value.startsWith("••••")}
                   />
                 ))}
@@ -289,76 +289,6 @@ export function SettingsTab() {
 
       {/* Prompt Management Section */}
       <PromptsSection />
-
-      {/* Help Text */}
-      <Panel>
-        <PanelHeader className="flex items-center gap-2">
-          <Key className="w-5 h-5 text-accent-gold" />
-          Getting API Keys
-        </PanelHeader>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
-          <div>
-            <h4 className="font-medium text-sand-200 mb-2">LLM API Keys</h4>
-            <ul className="space-y-1 text-ink-400">
-              <li>
-                <strong>OpenAI:</strong>{" "}
-                <a
-                  href="https://platform.openai.com/api-keys"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-accent-coral hover:underline"
-                >
-                  platform.openai.com/api-keys
-                </a>
-              </li>
-              <li>
-                <strong>Anthropic:</strong>{" "}
-                <a
-                  href="https://console.anthropic.com/settings/keys"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-accent-coral hover:underline"
-                >
-                  console.anthropic.com
-                </a>
-              </li>
-              <li>
-                <strong>Google:</strong>{" "}
-                <a
-                  href="https://makersuite.google.com/app/apikey"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-accent-coral hover:underline"
-                >
-                  makersuite.google.com
-                </a>
-              </li>
-            </ul>
-          </div>
-          <div>
-            <h4 className="font-medium text-sand-200 mb-2">W&B / Weave</h4>
-            <ul className="space-y-1 text-ink-400">
-              <li>
-                <strong>API Key:</strong>{" "}
-                <a
-                  href="https://wandb.ai/authorize"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-accent-coral hover:underline"
-                >
-                  wandb.ai/authorize
-                </a>
-              </li>
-              <li>
-                <strong>Entity:</strong> Your W&B username or team name
-              </li>
-              <li>
-                <strong>Project:</strong> The Weave project name where traces are logged
-              </li>
-            </ul>
-          </div>
-        </div>
-      </Panel>
     </div>
   );
 }

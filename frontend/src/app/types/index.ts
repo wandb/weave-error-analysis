@@ -282,8 +282,8 @@ export interface ConfigStatus {
   };
   weave: {
     configured: boolean;
-    entity: string;
-    project: string;
+    entity: string | null;
+    tool_project: string | null;
     project_id: string | null;
     message: string;
   };

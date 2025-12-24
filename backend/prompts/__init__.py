@@ -90,6 +90,29 @@ class PromptManager:
         if self._weave_enabled:
             asyncio.create_task(self._publish_defaults())
     
+    async def enable_weave(self):
+        """
+        Enable Weave publishing after initial local-mode startup.
+        
+        Call this when Weave credentials become available after the prompt
+        manager was initialized in local mode.
+        """
+        if self._weave_enabled:
+            logger.debug("Weave already enabled for prompt manager")
+            return
+        
+        if not self._initialized:
+            # If not initialized yet, just initialize with Weave enabled
+            await self.initialize(enable_weave=True)
+            return
+        
+        # Upgrade from local mode to Weave mode
+        self._weave_enabled = True
+        logger.info("Upgrading prompt manager to Weave mode")
+        
+        # Publish all prompts to Weave
+        await self._publish_defaults()
+    
     async def _publish_defaults(self):
         """Publish default prompts to Weave for initial version tracking."""
         if not self._weave_enabled:

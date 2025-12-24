@@ -235,8 +235,6 @@ function WeaveSetupStep({
   initialStatus: ConfigStatus["weave"];
 }) {
   const [apiKey, setApiKey] = useState("");
-  const [entity, setEntity] = useState("");
-  const [project, setProject] = useState("");
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<TestConnectionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -246,16 +244,14 @@ function WeaveSetupStep({
     if (initialStatus.configured) {
       setTestResult({
         success: true,
-        entity: initialStatus.entity,
-        project: initialStatus.project,
-        message: `Connected to ${initialStatus.project_id}`,
+        message: "W&B API key is configured",
       });
     }
   }, [initialStatus]);
 
   const handleTest = async () => {
-    if (!apiKey.trim() || !entity.trim() || !project.trim()) {
-      setError("Please fill in all fields");
+    if (!apiKey.trim()) {
+      setError("Please enter your W&B API key");
       return;
     }
 
@@ -264,12 +260,8 @@ function WeaveSetupStep({
     setTestResult(null);
 
     try {
-      // Save settings
-      await api.bulkUpdateSettings({
-        weave_api_key: apiKey,
-        weave_entity: entity,
-        weave_project: project,
-      });
+      // Save the API key
+      await api.updateSetting("weave_api_key", apiKey);
       
       // Test connection
       const result = await api.testWeaveConnection();
@@ -293,9 +285,9 @@ function WeaveSetupStep({
         <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 bg-moon-700/50">
           <Cloud className="w-8 h-8 text-gold" />
         </div>
-        <h2 className="font-display text-2xl text-moon-50 mb-2">Weave Connection</h2>
+        <h2 className="font-display text-2xl text-moon-50 mb-2">W&B API Key</h2>
         <p className="text-moon-450">
-          Connect to your W&B Weave project to sync agent traces.
+          Required to fetch and analyze traces from your agent's Weave project.
         </p>
       </div>
 
@@ -304,67 +296,38 @@ function WeaveSetupStep({
           <div className="flex items-center gap-3">
             <CheckCircle className="w-5 h-5 text-teal flex-shrink-0" />
             <div>
-              <p className="text-moon-50 font-medium">Weave Connected</p>
+              <p className="text-moon-50 font-medium">W&B Connected</p>
               <p className="text-sm text-moon-400">
-                Project: {testResult?.project || initialStatus.project}
+                API key is valid. You'll specify agent Weave projects when registering agents.
               </p>
             </div>
           </div>
         </div>
       ) : (
         <>
-          <div className="space-y-4 mb-4">
-            <div>
-              <label className="block text-sm text-moon-400 mb-2">
-                W&B API Key
-              </label>
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                placeholder="Your Weights & Biases API key"
-                className="input-field w-full"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm text-moon-400 mb-2">
-                Entity (username or team)
-              </label>
-              <input
-                type="text"
-                value={entity}
-                onChange={(e) => setEntity(e.target.value)}
-                placeholder="my-team"
-                className="input-field w-full"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm text-moon-400 mb-2">
-                Project Name
-              </label>
-              <input
-                type="text"
-                value={project}
-                onChange={(e) => setProject(e.target.value)}
-                placeholder="my-agent-project"
-                className="input-field w-full"
-              />
-            </div>
+          <div className="mb-4">
+            <label className="block text-sm text-moon-400 mb-2">
+              W&B API Key
+            </label>
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="Your Weights & Biases API key"
+              className="input-field w-full"
+            />
+            <p className="text-xs text-moon-500 mt-2">
+              Get your API key from{" "}
+              <a 
+                href="https://wandb.ai/authorize" 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="text-gold hover:underline inline-flex items-center gap-1"
+              >
+                wandb.ai/authorize <ExternalLink className="w-3 h-3" />
+              </a>
+            </p>
           </div>
-
-          <p className="text-xs text-moon-500 mb-4">
-            Get your API key from{" "}
-            <a 
-              href="https://wandb.ai/authorize" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="text-gold hover:underline inline-flex items-center gap-1"
-            >
-              W&B Settings <ExternalLink className="w-3 h-3" />
-            </a>
-          </p>
 
           {error && (
             <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 mb-4">
@@ -377,7 +340,7 @@ function WeaveSetupStep({
 
           <button
             onClick={handleTest}
-            disabled={testing || !apiKey.trim() || !entity.trim() || !project.trim()}
+            disabled={testing || !apiKey.trim()}
             className="btn-primary w-full flex items-center justify-center gap-2"
           >
             {testing ? (

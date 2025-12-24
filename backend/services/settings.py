@@ -66,31 +66,34 @@ class DefaultSettings(BaseModel):
         internal=True
     )
     
-    # Weave Settings (for connecting to USER'S agent project)
+    # Weave Settings
     weave_api_key: SettingDefinition = SettingDefinition(
         is_secret=True,
-        description="W&B API key for Weave access"
+        description="W&B API key for Weave access (required to fetch agent traces)"
     )
+    tool_project_name: SettingDefinition = SettingDefinition(
+        value="error-analysis-tool",
+        description="Where this tool logs its own traces (optional). Format: entity/project or just project name."
+    )
+    # Legacy settings - kept for backward compatibility but marked as internal
     weave_entity: SettingDefinition = SettingDefinition(
-        description="W&B entity (username or team) where your agent's traces are logged"
+        description="W&B entity (username or team) - now parsed from project name",
+        internal=True
     )
     weave_project: SettingDefinition = SettingDefinition(
-        description="Weave project name where your agent logs traces (e.g., 'customer-support-agent')"
+        description="Weave project - now configured per-agent",
+        internal=True
     )
     weave_api_base: SettingDefinition = SettingDefinition(
         value="https://trace.wandb.ai",
-        description="Weave API base URL (default: https://trace.wandb.ai, change for enterprise/self-hosted)"
+        description="Weave API base URL (default: https://trace.wandb.ai)",
+        internal=True
     )
     
     # Internal Settings (not exposed in Settings UI)
     suggestion_confidence_threshold: SettingDefinition = SettingDefinition(
         value="0.6",
         description="Minimum confidence level (0.0-1.0) for showing AI suggestions",
-        internal=True
-    )
-    tool_project_name: SettingDefinition = SettingDefinition(
-        value="error-analysis-tool",
-        description="Weave project name for tool's internal traces and prompts (separate from your agent's project)",
         internal=True
     )
     sync_query_limit: SettingDefinition = SettingDefinition(
@@ -364,6 +367,11 @@ def get_settings_grouped() -> List[SettingsGroup]:
     
     Only returns user-facing settings. Internal settings are not exposed
     in the Settings UI - they're configured per-prompt or kept at defaults.
+    
+    Note: Weave configuration is simplified:
+    - Only API key is required (for accessing agent traces)
+    - Tool project is optional (for this tool's own observability)
+    - Entity/Project for agent traces are configured per-agent, not globally
     """
     all_settings = get_all_settings(include_secrets=False)
     
@@ -372,20 +380,16 @@ def get_settings_grouped() -> List[SettingsGroup]:
             name="LLM Configuration",
             description="Default LLM settings. Individual prompts can override model and temperature.",
             settings=[
-                all_settings.get("llm_provider", SettingValue(key="llm_provider", value="")),
-                all_settings.get("llm_model", SettingValue(key="llm_model", value="")),
                 all_settings.get("llm_api_key", SettingValue(key="llm_api_key", value="", is_secret=True)),
-                all_settings.get("llm_api_base", SettingValue(key="llm_api_base", value="")),
+                all_settings.get("llm_model", SettingValue(key="llm_model", value="")),
             ]
         ),
         SettingsGroup(
             name="Weave Configuration",
-            description="Settings for connecting to W&B Weave for trace retrieval",
+            description="Connect to W&B Weave to fetch and analyze your agent's traces",
             settings=[
                 all_settings.get("weave_api_key", SettingValue(key="weave_api_key", value="", is_secret=True)),
-                all_settings.get("weave_entity", SettingValue(key="weave_entity", value="")),
-                all_settings.get("weave_project", SettingValue(key="weave_project", value="")),
-                all_settings.get("weave_api_base", SettingValue(key="weave_api_base", value="https://trace.wandb.ai")),
+                all_settings.get("tool_project_name", SettingValue(key="tool_project_name", value="error-analysis-tool")),
             ]
         ),
     ]
@@ -394,17 +398,26 @@ def get_settings_grouped() -> List[SettingsGroup]:
 
 
 def check_weave_configured() -> Dict[str, Any]:
-    """Check if Weave is properly configured."""
+    """
+    Check if Weave is properly configured.
+    
+    Only the API key is required - entity can be derived from the user's W&B account
+    and project can be specified per-agent. The tool tracing project is optional.
+    """
     api_key = get_setting("weave_api_key")
     entity = get_setting("weave_entity")
-    project = get_setting("weave_project")
+    tool_project = get_setting("tool_project_name") or "error-analysis-tool"
     
-    configured = bool(api_key and entity)
+    # Only API key is required for basic Weave functionality
+    configured = bool(api_key)
+    
+    # Build project_id if entity is available
+    project_id = f"{entity}/{tool_project}" if entity else tool_project
     
     return {
         "configured": configured,
         "entity": entity,
-        "project": project,
-        "project_id": f"{entity}/{project}" if entity and project else None,
-        "message": "Weave is configured" if configured else "Weave credentials not set. Configure in Settings."
+        "tool_project": tool_project,
+        "project_id": project_id if configured else None,
+        "message": "Weave is configured" if configured else "W&B API key not set. Configure in Settings."
     }

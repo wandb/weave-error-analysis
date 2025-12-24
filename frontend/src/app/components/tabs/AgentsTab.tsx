@@ -96,10 +96,10 @@ export function AgentsTab() {
   };
 
   const handleCreateAgent = async () => {
-    if (!newAgentName || !newAgentEndpoint) return;
+    if (!newAgentName || !newAgentEndpoint || !newAgentWeaveProject) return;
     setSavingAgent(true);
     try {
-      await createAgent(newAgentName, newAgentEndpoint, newAgentContext, newAgentWeaveProject || undefined);
+      await createAgent(newAgentName, newAgentEndpoint, newAgentContext, newAgentWeaveProject);
       resetAgentForm();
     } catch (error) {
       console.error("Error creating agent:", error);
@@ -810,16 +810,19 @@ function AgentForm({
         </div>
 
         <div>
-          <label className="block text-sm text-ink-400 mb-1">Weave Project</label>
+          <label className="block text-sm text-ink-400 mb-1">
+            Weave Project <span className="text-red-400">*</span>
+          </label>
           <input
             type="text"
             value={weaveProject}
             onChange={(e) => onWeaveProjectChange(e.target.value)}
-            placeholder="e.g., my-chatbot-traces"
+            placeholder="e.g., my-team/my-agent-traces or my-agent-traces"
             className="w-full"
           />
           <p className="text-xs text-ink-500 mt-1">
-            The Weave project where this agent logs traces. Leave empty if not using Weave tracing.
+            Where your agent logs traces. We need this to fetch and analyze your agent's behavior.
+            Format: <span className="text-sand-300">entity/project</span> or just <span className="text-sand-300">project</span> (uses default entity).
           </p>
         </div>
 
@@ -843,7 +846,7 @@ function AgentForm({
           </button>
           <button
             onClick={onSave}
-            disabled={!name || !endpoint || saving}
+            disabled={!name || !endpoint || !weaveProject || saving}
             className="btn-primary flex items-center gap-2"
           >
             {saving ? (

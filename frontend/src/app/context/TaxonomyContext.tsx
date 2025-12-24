@@ -23,6 +23,7 @@ import {
 } from "react";
 import type { Taxonomy } from "../types";
 import * as api from "../lib/api";
+import type { SyncNotesResult } from "../lib/api";
 
 // ============================================================================
 // Context Types
@@ -37,8 +38,8 @@ interface TaxonomyContextState {
   
   // Actions - now accept optional agentId for filtering
   fetchTaxonomy: (agentId?: string) => Promise<void>;
-  syncNotesFromWeave: (agentId?: string) => Promise<void>;
-  autoCategorize: (agentId?: string) => Promise<void>;
+  syncNotesFromWeave: (agentId?: string) => Promise<SyncNotesResult>;
+  autoCategorize: (agentId?: string) => Promise<{ categorized: number } | null>;
   createFailureMode: (name: string, desc: string, severity: string, agentId?: string) => Promise<{ id: string }>;
   deleteFailureMode: (modeId: string, agentId?: string) => Promise<void>;
 }
@@ -84,25 +85,36 @@ export function TaxonomyProvider({ children }: TaxonomyProviderProps) {
     }
   }, []);
   
-  const syncNotesFromWeave = useCallback(async (agentId?: string) => {
+  const syncNotesFromWeave = useCallback(async (agentId?: string): Promise<SyncNotesResult> => {
     setSyncing(true);
     try {
-      await api.syncNotesFromWeave(agentId);
-      await fetchTaxonomy(agentId || currentAgentId);
+      const result = await api.syncNotesFromWeave(agentId);
+      // Only refetch if sync was successful
+      if (result.status === "synced") {
+        await fetchTaxonomy(agentId || currentAgentId);
+      }
+      return result;
     } catch (error) {
       console.error("Error syncing notes:", error);
+      return {
+        status: "error",
+        error: "sync_failed",
+        message: error instanceof Error ? error.message : "Unknown error syncing notes"
+      };
     } finally {
       setSyncing(false);
     }
   }, [fetchTaxonomy, currentAgentId]);
   
-  const autoCategorize = useCallback(async (agentId?: string) => {
+  const autoCategorize = useCallback(async (agentId?: string): Promise<{ categorized: number } | null> => {
     setCategorizing(true);
     try {
-      await api.autoCategorize(agentId);
+      const result = await api.autoCategorize(agentId);
       await fetchTaxonomy(agentId || currentAgentId);
+      return result;
     } catch (error) {
       console.error("Error categorizing:", error);
+      return null;
     } finally {
       setCategorizing(false);
     }

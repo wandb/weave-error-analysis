@@ -561,11 +561,21 @@ class TaxonomyService:
         Returns either a match to existing mode or suggests a new one.
         Optionally filter failure modes by agent.
         """
-        # Get the note
+        # Get the note and optionally the agent context
         with get_db() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM notes WHERE id = ?", (note_id,))
             note_row = cursor.fetchone()
+            
+            # Get agent context if agent_id is provided
+            agent_name = ""
+            agent_context = ""
+            if agent_id:
+                cursor.execute("SELECT name, agent_context FROM agents WHERE id = ?", (agent_id,))
+                agent_row = cursor.fetchone()
+                if agent_row:
+                    agent_name = agent_row["name"] or ""
+                    agent_context = agent_row["agent_context"] or ""
         
         if not note_row:
             raise ValueError("Note not found")
@@ -577,7 +587,7 @@ class TaxonomyService:
         
         if not failure_modes:
             # No existing modes, suggest a new one
-            return await self._suggest_new_category(note_content, note_id)
+            return await self._suggest_new_category(note_content, note_id, agent_name, agent_context)
         
         # Build prompt for semantic matching
         modes_text = "\n".join([
@@ -588,20 +598,21 @@ class TaxonomyService:
         # Get the managed prompt
         prompt_config = prompt_manager.get_prompt("category_suggestion")
         
-        # Prepare variables
-        variables = {
-            "note_content": note_content,
-            "modes_text": modes_text,
-        }
-        
         # Create LLM client with prompt-specific configuration
         llm = LLMClient.for_prompt(prompt_config)
         
+        # Format user prompt with agent context if enabled
+        user_prompt = prompt_config.format_with_agent_context(
+            agent_name=agent_name,
+            agent_context=agent_context,
+            note_content=note_content,
+            modes_text=modes_text
+        )
+        
         # Use LLM client for structured output
-        # Temperature from prompt config is used via LLMClient.for_prompt()
         result = await llm.analyze(
             system_prompt=prompt_config.system_prompt,
-            user_prompt=prompt_config.user_prompt_template.format(**variables),
+            user_prompt=user_prompt,
             response_model=CategorySuggestion
         )
         
@@ -610,24 +621,31 @@ class TaxonomyService:
         result_dict["note_id"] = note_id
         return result_dict
 
-    async def _suggest_new_category(self, note_content: str, note_id: Optional[str] = None) -> dict:
+    async def _suggest_new_category(
+        self, 
+        note_content: str, 
+        note_id: Optional[str] = None,
+        agent_name: str = "",
+        agent_context: str = ""
+    ) -> dict:
         """Suggest a new failure mode category for a note."""
         # Get the managed prompt
         prompt_config = prompt_manager.get_prompt("category_creation")
         
-        # Prepare variables
-        variables = {
-            "note_content": note_content,
-        }
-        
         # Create LLM client with prompt-specific configuration
         llm = LLMClient.for_prompt(prompt_config)
         
+        # Format user prompt with agent context if enabled
+        user_prompt = prompt_config.format_with_agent_context(
+            agent_name=agent_name,
+            agent_context=agent_context,
+            note_content=note_content
+        )
+        
         # Use LLM client for structured output
-        # Temperature from prompt config is used via LLMClient.for_prompt()
         result = await llm.analyze(
             system_prompt=prompt_config.system_prompt,
-            user_prompt=prompt_config.user_prompt_template.format(**variables),
+            user_prompt=user_prompt,
             response_model=CategorySuggestion
         )
         

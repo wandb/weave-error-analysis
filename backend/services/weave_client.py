@@ -93,12 +93,15 @@ class WeaveClientWrapper:
         NOTE: This switches the global Weave context to the user's project.
         Call _restore_tool_project_context() after operations to restore
         the tool project context for LLM calls.
+        
+        For agent-specific operations, prefer using _get_client_for_project()
+        with the agent's weave_project instead.
         """
         project_id = get_target_project_id()
         if not project_id:
             raise ValueError(
-                "Weave target project not configured. "
-                "Please configure 'weave_entity' and 'weave_project' in Settings."
+                "No global Weave project configured. "
+                "For agent operations, use an agent with a configured weave_project."
             )
         
         # Set API key in environment (SDK reads from there)
@@ -134,12 +137,17 @@ class WeaveClientWrapper:
         return get_target_project_id()
     
     def _check_configured(self) -> None:
-        """Check if the target project is configured."""
+        """
+        Check if a global target project is configured.
+        
+        Note: For agent-specific operations, use the agent's weave_project
+        instead of relying on global settings. This check is for legacy
+        operations that don't have an agent context.
+        """
         if not get_target_project_id():
             raise ValueError(
-                "Weave target project not configured. "
-                "Please configure 'weave_entity' and 'weave_project' in Settings "
-                "to point to the Weave project where your agent logs traces."
+                "No Weave project configured. "
+                "When syncing notes, use an agent with a configured weave_project."
             )
     
     # =========================================================================
@@ -266,26 +274,55 @@ class WeaveClientWrapper:
     # FEEDBACK OPERATIONS
     # =========================================================================
     
+    def _get_client_for_project(self, project_id: str) -> SDKClient:
+        """
+        Get a Weave client for a specific project.
+        
+        This initializes a client for querying a specific project,
+        separate from the default target project.
+        
+        Args:
+            project_id: The project to connect to (e.g., "entity/project")
+            
+        Returns:
+            An initialized SDK client for that project
+        """
+        # Set API key in environment (SDK reads from there)
+        api_key = get_wandb_api_key()
+        if api_key:
+            os.environ["WANDB_API_KEY"] = api_key
+        
+        logger.debug(f"Initializing Weave SDK for project: {project_id}")
+        return weave.init(project_id)
+    
     async def query_feedback(
         self,
+        project_id: str | None = None,
         weave_ref: str | None = None,
         limit: int = 100
     ) -> list[dict]:
         """
-        Query feedback from the project.
+        Query feedback from a Weave project.
         
         Args:
+            project_id: The Weave project to query (e.g., "entity/project").
+                       If None, uses the global target project from settings.
             weave_ref: Filter to feedback for a specific call reference
             limit: Maximum number of feedback items
             
         Returns:
             List of feedback objects
         """
-        self._check_configured()
-        
         try:
+            # Use specific project or fall back to global target
+            if project_id:
+                client = self._get_client_for_project(project_id)
+            else:
+                self._check_configured()
+                client = self.client
+            
             # Get all feedback in project
-            feedback_iter = self.client.get_feedback()
+            feedback_iter = client.get_feedback()
             results = []
             for fb in feedback_iter:
                 # If weave_ref filter is specified, check match
@@ -304,10 +341,18 @@ class WeaveClientWrapper:
                 results.append(fb_dict)
                 if len(results) >= limit:
                     break
+            
+            # Restore tool project context after querying user's project
+            if project_id:
+                self.restore_tool_context()
+            
             return results
                 
         except Exception as e:
             logger.warning(f"Error fetching feedback: {e}")
+            # Still try to restore context on error
+            if project_id:
+                self.restore_tool_context()
             return []
     
     async def get_feedback_for_call(self, call_id: str) -> list[dict]:

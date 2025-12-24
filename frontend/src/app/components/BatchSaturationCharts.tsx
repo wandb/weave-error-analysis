@@ -144,13 +144,11 @@ export function BatchSaturationCharts({
   const styles = getStatusStyles(data.summary.saturation_status);
   const StatusIcon = styles.icon;
 
-  // Prepare chart data
+  // Prepare chart data - using query_count from backend
   const chartData = data.batches.map((b, i) => ({
     name: b.batch_name.length > 12 ? `B${i + 1}` : b.batch_name,
     fullName: b.batch_name,
-    reviewed: b.reviewed_sessions,
-    unreviewed: b.total_sessions - b.reviewed_sessions,
-    total: b.total_sessions,
+    queries: b.query_count,
     newModes: b.new_modes_discovered,
     matchedModes: b.existing_modes_matched,
     cumulative: b.cumulative_modes,
@@ -164,10 +162,13 @@ export function BatchSaturationCharts({
 
   return (
     <div className={`bg-moon-900/60 border ${styles.border} rounded-lg overflow-hidden`}>
-      {/* Header */}
-      <button
+      {/* Header - Use div with role="button" to avoid nested button hydration warning */}
+      <div
         onClick={() => setExpanded(!expanded)}
-        className="w-full px-4 py-3 flex items-center justify-between hover:bg-moon-800/30 transition-colors"
+        className="w-full px-4 py-3 flex items-center justify-between hover:bg-moon-800/30 transition-colors cursor-pointer"
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => e.key === 'Enter' && setExpanded(!expanded)}
       >
         <div className="flex items-center gap-3">
           <div className={`p-1.5 rounded-lg ${styles.bg}`}>
@@ -176,7 +177,7 @@ export function BatchSaturationCharts({
           <div className="text-left">
             <h3 className="text-sm font-medium text-moon-100">Batch Saturation</h3>
             <p className="text-xs text-moon-500">
-              {data.summary.total_modes} modes · {data.summary.total_batches} batches · {data.summary.total_reviewed}/{data.summary.total_sessions} reviewed
+              {data.summary.total_modes} modes · {data.summary.total_batches} batches · {data.summary.total_queries} queries
             </p>
           </div>
         </div>
@@ -193,28 +194,26 @@ export function BatchSaturationCharts({
           </button>
           {expanded ? <ChevronUp className="w-4 h-4 text-moon-500" /> : <ChevronDown className="w-4 h-4 text-moon-500" />}
         </div>
-      </button>
+      </div>
 
       {expanded && (
         <div className="px-4 pb-4 border-t border-moon-800 pt-4 space-y-6">
           {/* Summary Stats */}
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <StatCard value={data.summary.total_batches} label="Batches" icon={<Layers className="w-4 h-4" />} />
-            <StatCard value={data.summary.total_sessions} label="Sessions" icon={<BarChart3 className="w-4 h-4" />} />
-            <StatCard value={data.summary.total_reviewed} label="Reviewed" icon={<CheckCircle2 className="w-4 h-4" />} color="text-blue-400" />
+            <StatCard value={data.summary.total_queries} label="Queries" icon={<BarChart3 className="w-4 h-4" />} color="text-blue-400" />
             <StatCard value={data.summary.total_modes} label="Failure Modes" icon={<Target className="w-4 h-4" />} color="text-purple-400" />
           </div>
 
-          {/* Chart 1: Sessions Reviewed per Batch */}
-          <ChartSection title="Sessions Reviewed per Batch">
+          {/* Chart 1: Queries per Batch */}
+          <ChartSection title="Queries per Batch">
             <ResponsiveContainer width="100%" height={180}>
               <BarChart data={chartData} barCategoryGap="20%">
                 <CartesianGrid strokeDasharray="3 3" stroke="#374151" vertical={false} />
                 <XAxis dataKey="name" tick={{ fill: "#6b7280", fontSize: 10 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} axisLine={false} tickLine={false} width={30} />
-                <Tooltip content={<CustomTooltip type="sessions" />} cursor={{ fill: "rgba(255,255,255,0.05)" }} />
-                <Bar dataKey="reviewed" stackId="a" fill={COLORS.blue} radius={[0, 0, 0, 0]} name="Reviewed" />
-                <Bar dataKey="unreviewed" stackId="a" fill={COLORS.gray} radius={[4, 4, 0, 0]} name="Unreviewed" />
+                <Tooltip content={<CustomTooltip type="queries" />} cursor={{ fill: "rgba(255,255,255,0.05)" }} />
+                <Bar dataKey="queries" fill={COLORS.blue} radius={[4, 4, 0, 0]} name="Queries" />
               </BarChart>
             </ResponsiveContainer>
           </ChartSection>
@@ -313,7 +312,7 @@ function ChartSection({ title, children, badge }: {
   );
 }
 
-function CustomTooltip({ active, payload, type }: TooltipProps<number, string> & { type: "sessions" | "discovery" | "growth" }) {
+function CustomTooltip({ active, payload, type }: TooltipProps<number, string> & { type: "queries" | "discovery" | "growth" }) {
   if (!active || !payload?.length) return null;
 
   const data = payload[0]?.payload;
@@ -321,10 +320,9 @@ function CustomTooltip({ active, payload, type }: TooltipProps<number, string> &
   return (
     <div className="bg-moon-800 border border-moon-700 rounded-lg px-3 py-2 shadow-xl">
       <p className="text-xs font-medium text-moon-100 mb-1">{data?.fullName || data?.name}</p>
-      {type === "sessions" && (
+      {type === "queries" && (
         <div className="text-xs space-y-0.5">
-          <p><span className="text-blue-400">Reviewed:</span> <span className="text-moon-200">{data?.reviewed}</span></p>
-          <p><span className="text-moon-500">Total:</span> <span className="text-moon-200">{data?.total}</span></p>
+          <p><span className="text-blue-400">Queries:</span> <span className="text-moon-200">{data?.queries}</span></p>
         </div>
       )}
       {type === "discovery" && (

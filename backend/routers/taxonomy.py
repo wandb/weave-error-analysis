@@ -215,18 +215,57 @@ async def merge_failure_modes(request: MergeFailureModesRequest):
 
 @router.post("/notes/sync")
 async def sync_notes_from_weave(
-    agent_id: Optional[str] = Query(None, description="Associate synced notes with agent ID")
+    agent_id: Optional[str] = Query(None, description="Agent ID to sync notes for (uses agent's weave_project)")
 ):
     """
     Sync notes from Weave feedback into the local taxonomy database.
     
-    This pulls all notes from Weave and adds any new ones to our local DB.
+    This pulls feedback/notes from the agent's Weave project and adds them to our local DB.
     Existing notes (matched by content and trace) are skipped.
-    Optionally associates notes with a specific agent.
+    
+    The agent's `weave_project` field specifies where to fetch feedback from.
+    This is set during agent registration and is required.
     """
+    from database import get_db_readonly
+    
     try:
-        # Fetch notes from Weave
-        feedback_list = await weave_client.query_feedback(limit=get_feedback_query_limit())
+        # Must have an agent_id to know which Weave project to sync from
+        if not agent_id:
+            return {
+                "status": "error",
+                "error": "agent_required",
+                "message": "Please select an agent to sync notes from. Each agent has its own Weave project configured."
+            }
+        
+        # Get the agent's weave_project
+        with get_db_readonly() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT name, weave_project FROM agents WHERE id = ?", (agent_id,))
+            row = cursor.fetchone()
+            
+            if not row:
+                return {
+                    "status": "error",
+                    "error": "agent_not_found",
+                    "message": "Agent not found."
+                }
+            
+            agent_name = row["name"]
+            target_project = row["weave_project"]
+        
+        # Check if agent has weave_project configured
+        if not target_project:
+            return {
+                "status": "error",
+                "error": "weave_not_configured",
+                "message": f"Agent '{agent_name}' does not have a Weave project configured. Edit the agent to set its weave_project."
+            }
+        
+        # Fetch notes from Weave using the agent's project
+        feedback_list = await weave_client.query_feedback(
+            project_id=target_project,
+            limit=get_feedback_query_limit()
+        )
         
         # Filter to notes only
         weave_notes = []
@@ -243,7 +282,7 @@ async def sync_notes_from_weave(
                         "note": note_text,
                         "call_id": call_id,
                         "weave_ref": weave_ref,
-                        "weave_url": f"https://wandb.ai/{get_target_project_id()}/weave/calls/{call_id}" if call_id else "",
+                        "weave_url": f"https://wandb.ai/{target_project}/weave/calls/{call_id}" if call_id else "",
                         "created_at": fb.get("created_at")
                     })
         
@@ -255,6 +294,13 @@ async def sync_notes_from_weave(
             "weave_notes_found": len(weave_notes),
             "new_notes_added": result["new"],
             "existing_notes_skipped": result["existing"]
+        }
+    except ValueError as e:
+        # WeaveClient raises ValueError when not configured
+        return {
+            "status": "error",
+            "error": "weave_api_error",
+            "message": str(e)
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -271,6 +317,19 @@ async def assign_note(request: AssignNoteRequest):
     if not success:
         raise HTTPException(status_code=404, detail="Note or failure mode not found")
     return {"status": "assigned", "note_id": request.note_id, "failure_mode_id": request.failure_mode_id}
+
+
+@router.post("/notes/{note_id}/unassign")
+async def unassign_note(note_id: str):
+    """
+    Remove a note from its failure mode, moving it back to uncategorized.
+    
+    This allows users to reassign notes that were incorrectly categorized.
+    """
+    success = taxonomy_service.unassign_note(note_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Note not found")
+    return {"status": "unassigned", "note_id": note_id}
 
 
 # ============================================================================

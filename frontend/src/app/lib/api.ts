@@ -402,17 +402,50 @@ export async function fetchTaxonomy(agentId?: string): Promise<Taxonomy> {
   return cachedGet(`${API_BASE}/taxonomy${params}`, { ttl: CACHE_TTL.SHORT });
 }
 
-export async function syncNotesFromWeave(agentId?: string): Promise<{ synced: number }> {
+export interface SyncNotesResult {
+  status: "synced" | "error";
+  weave_notes_found?: number;
+  new_notes_added?: number;
+  existing_notes_skipped?: number;
+  error?: string;
+  message?: string;
+}
+
+export async function syncNotesFromWeave(agentId?: string): Promise<SyncNotesResult> {
+  // Use direct backend URL to avoid Next.js proxy timeout
+  // Syncing from Weave can take time depending on API response
+  const backendUrl = getBackendUrl();
   const params = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : "";
-  return apiCall(`${API_BASE}/taxonomy/notes/sync${params}`, { method: "POST" });
+  const response = await fetch(`${backendUrl}/api/taxonomy/notes/sync${params}`, {
+    method: "POST",
+  });
+  
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({ detail: "Request failed" }));
+    const message = errorBody.detail || errorBody.message || `HTTP ${response.status}`;
+    throw new ApiError(response.status, message, "/api/taxonomy/notes/sync");
+  }
+  
+  return response.json();
 }
 
 export async function autoCategorize(agentId?: string): Promise<{ categorized: number }> {
-  return apiCall(`${API_BASE}/taxonomy/auto-categorize`, {
+  // Use direct backend URL to avoid Next.js proxy timeout
+  // Auto-categorize can take several minutes with many notes
+  const backendUrl = getBackendUrl();
+  const response = await fetch(`${backendUrl}/api/taxonomy/auto-categorize`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ agent_id: agentId || null }),
   });
+  
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({ detail: "Request failed" }));
+    const message = errorBody.detail || errorBody.message || `HTTP ${response.status}`;
+    throw new ApiError(response.status, message, "/api/taxonomy/auto-categorize");
+  }
+  
+  return response.json();
 }
 
 // Saturation History API
@@ -448,8 +481,7 @@ export interface BatchSaturationData {
   batch_id: string;
   batch_name: string;
   batch_order: number;
-  total_sessions: number;
-  reviewed_sessions: number;
+  query_count: number;
   new_modes_discovered: number;
   existing_modes_matched: number;
   cumulative_modes: number;
@@ -459,8 +491,7 @@ export interface BatchSaturationResponse {
   batches: BatchSaturationData[];
   summary: {
     total_batches: number;
-    total_sessions: number;
-    total_reviewed: number;
+    total_queries: number;
     total_modes: number;
     saturation_status: "discovering" | "stabilizing" | "saturated";
   };
@@ -486,6 +517,12 @@ export async function assignNoteToMode(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ note_id: noteId, failure_mode_id: modeId, method }),
   });
+  invalidateCache(/\/taxonomy/);
+}
+
+export async function unassignNote(noteId: string): Promise<void> {
+  await apiCall(`${API_BASE}/taxonomy/notes/${noteId}/unassign`, { method: "POST" });
+  invalidateCache(/\/taxonomy/);
 }
 
 export async function createFailureMode(
@@ -603,11 +640,22 @@ export interface BatchApplyResult {
 }
 
 export async function batchSuggestCategories(noteIds?: string[], agentId?: string): Promise<BatchSuggestResult> {
-  return apiCall(`${API_BASE}/taxonomy/batch-suggest`, {
+  // Use direct backend URL to avoid Next.js proxy timeout
+  // Batch suggestions make multiple LLM calls and can take minutes
+  const backendUrl = getBackendUrl();
+  const response = await fetch(`${backendUrl}/api/taxonomy/batch-suggest`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ note_ids: noteIds || null, agent_id: agentId || null }),
   });
+  
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => ({ detail: "Request failed" }));
+    const message = errorBody.detail || errorBody.message || `HTTP ${response.status}`;
+    throw new ApiError(response.status, message, "/api/taxonomy/batch-suggest");
+  }
+  
+  return response.json();
 }
 
 export async function batchApplyCategories(

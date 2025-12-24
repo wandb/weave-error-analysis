@@ -116,6 +116,20 @@ export function TaxonomyTab() {
   const [editSuggestedFix, setEditSuggestedFix] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Notification state for user feedback
+  const [notification, setNotification] = useState<{
+    type: "success" | "error" | "info";
+    message: string;
+  } | null>(null);
+
+  // Auto-dismiss notification after 4 seconds
+  useEffect(() => {
+    if (notification) {
+      const timer = setTimeout(() => setNotification(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
+
   // Calculate total notes for distribution percentages
   const totalCategorizedNotes = useMemo(() => {
     return taxonomy?.failure_modes.reduce((sum, m) => sum + m.times_seen, 0) || 0;
@@ -162,6 +176,52 @@ export function TaxonomyTab() {
       newExpanded.add(modeId);
     }
     setExpandedModes(newExpanded);
+  };
+
+  // Sync notes from Weave with feedback
+  const handleSyncFromWeave = async () => {
+    const result = await syncNotesFromWeave(selectedAgent?.id);
+    if (result.status === "error") {
+      setNotification({
+        type: "error",
+        message: result.message || "Failed to sync notes from Weave"
+      });
+    } else {
+      const newCount = result.new_notes_added || 0;
+      const skippedCount = result.existing_notes_skipped || 0;
+      if (newCount > 0) {
+        setNotification({
+          type: "success",
+          message: `Synced ${newCount} new note${newCount !== 1 ? 's' : ''} from Weave${skippedCount > 0 ? ` (${skippedCount} existing skipped)` : ''}`
+        });
+      } else if (skippedCount > 0) {
+        setNotification({
+          type: "info",
+          message: `No new notes found (${skippedCount} already synced)`
+        });
+      } else {
+        setNotification({
+          type: "info",
+          message: "No notes found in Weave"
+        });
+      }
+    }
+  };
+
+  // Auto-categorize with feedback
+  const handleAutoCategorize = async () => {
+    const result = await autoCategorize(selectedAgent?.id);
+    if (result) {
+      setNotification({
+        type: "success",
+        message: `Categorized ${result.categorized} note${result.categorized !== 1 ? 's' : ''}`
+      });
+    } else {
+      setNotification({
+        type: "error",
+        message: "Failed to auto-categorize notes"
+      });
+    }
   };
 
   // Note: handleViewSession removed - review traces in Weave UI directly
@@ -401,6 +461,30 @@ export function TaxonomyTab() {
 
   return (
     <div className="space-y-4">
+      {/* Notification Toast */}
+      {notification && (
+        <div
+          className={`fixed top-4 right-4 z-50 px-4 py-3 rounded-lg shadow-lg flex items-center gap-3 animate-in fade-in slide-in-from-top-2 duration-200 ${
+            notification.type === "success"
+              ? "bg-emerald-900/90 border border-emerald-500/40 text-emerald-200"
+              : notification.type === "error"
+              ? "bg-red-900/90 border border-red-500/40 text-red-200"
+              : "bg-blue-900/90 border border-blue-500/40 text-blue-200"
+          }`}
+        >
+          {notification.type === "success" && <Check className="w-4 h-4 text-emerald-400" />}
+          {notification.type === "error" && <AlertTriangle className="w-4 h-4 text-red-400" />}
+          {notification.type === "info" && <RefreshCw className="w-4 h-4 text-blue-400" />}
+          <span className="text-sm">{notification.message}</span>
+          <button
+            onClick={() => setNotification(null)}
+            className="text-moon-400 hover:text-moon-200 ml-2"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* ========================================================================= */}
       {/* Hero Stats Bar - Compact overview at the top */}
       {/* ========================================================================= */}
@@ -571,17 +655,18 @@ export function TaxonomyTab() {
           <Panel className="flex-shrink-0">
             <PanelHeader icon={<Zap className="w-4 h-4 text-teal" />} title="Actions" />
             <div className="space-y-2">
-                      <button
-                onClick={() => syncNotesFromWeave(selectedAgent?.id)}
-                disabled={syncing}
+              <button
+                onClick={handleSyncFromWeave}
+                disabled={syncing || !selectedAgent}
                 className="w-full btn-ghost text-sm flex items-center gap-2 justify-start px-3 py-2"
-                      >
+                title={!selectedAgent ? "Select an agent first" : undefined}
+              >
                 <RefreshCw className={`w-4 h-4 text-teal ${syncing ? "animate-spin" : ""}`} />
                 Sync from Weave
-                      </button>
-                      <div className="flex items-center gap-1">
+              </button>
+              <div className="flex items-center gap-1">
                 <button
-                  onClick={() => autoCategorize(selectedAgent?.id)}
+                  onClick={handleAutoCategorize}
                   disabled={categorizing || !taxonomy?.uncategorized_notes.length}
                   className="flex-1 btn-ghost text-sm flex items-center gap-2 justify-start px-3 py-2"
                 >

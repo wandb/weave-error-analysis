@@ -367,7 +367,7 @@ export function TaxonomyTab() {
     // Don't reset improvements immediately to avoid flash - only on success
     
     try {
-      const result = await api.getTaxonomyImprovements();
+      const result = await api.getTaxonomyImprovements(selectedAgent?.id);
       
       // Save to database for persistence
       await api.saveSuggestions(
@@ -1019,32 +1019,39 @@ export function TaxonomyTab() {
               badge={<Badge variant="gold">{taxonomy?.uncategorized_notes.length || 0}</Badge>}
               actions={
                 taxonomy?.uncategorized_notes.length ? (
-                  <button
-                    onClick={handleBatchClick}
-                    className={`btn-ghost text-[10px] flex items-center gap-1.5 px-2 py-1 rounded-lg transition-all ${
-                      batchSuggestions.length > 0 && !loadingBatchSuggestions
-                        ? "bg-emerald-500/20 border border-emerald-500/40 text-emerald-400"
-                        : loadingBatchSuggestions
-                        ? "bg-gold/10 border border-gold/30"
-                        : ""
-                    }`}
-                    title={
-                      loadingBatchSuggestions
-                        ? "Getting AI suggestions..."
-                        : batchSuggestions.length > 0
-                        ? `${batchSuggestions.length} suggestions ready - click to review`
-                        : "Get AI suggestions for all uncategorized notes"
-                    }
-                  >
-                    {loadingBatchSuggestions ? (
-                      <RefreshCw className="w-3 h-3 animate-spin text-gold" />
-                    ) : batchSuggestions.length > 0 ? (
-                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                    ) : (
-                      <Zap className="w-3 h-3" />
-                    )}
-                    {loadingBatchSuggestions ? "Analyzing..." : batchSuggestions.length > 0 ? `Review ${batchSuggestions.length}` : "Batch"}
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={handleBatchClick}
+                      className={`btn-ghost text-[10px] flex items-center gap-1.5 px-2 py-1 rounded-lg transition-all ${
+                        batchSuggestions.length > 0 && !loadingBatchSuggestions
+                          ? "bg-emerald-500/20 border border-emerald-500/40 text-emerald-400"
+                          : loadingBatchSuggestions
+                          ? "bg-gold/10 border border-gold/30"
+                          : ""
+                      }`}
+                      title={
+                        loadingBatchSuggestions
+                          ? "Getting AI suggestions..."
+                          : batchSuggestions.length > 0
+                          ? `${batchSuggestions.length} suggestions ready - click to review`
+                          : "Get AI suggestions for all uncategorized notes"
+                      }
+                    >
+                      {loadingBatchSuggestions ? (
+                        <RefreshCw className="w-3 h-3 animate-spin text-gold" />
+                      ) : batchSuggestions.length > 0 ? (
+                        <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                      ) : (
+                        <Zap className="w-3 h-3" />
+                      )}
+                      {loadingBatchSuggestions ? "Analyzing..." : batchSuggestions.length > 0 ? `Review ${batchSuggestions.length}` : "Batch"}
+                    </button>
+                    <EditPromptButton
+                      promptId="category_suggestion"
+                      size="sm"
+                      variant="ghost"
+                    />
+                  </div>
                 ) : null
               }
             />

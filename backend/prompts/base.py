@@ -39,11 +39,6 @@ class PromptConfig(BaseModel):
     llm_temperature: float | None = Field(
         default=None, 
         description="Temperature override (0.0-1.0). If None, uses global default."
-    )    
-    include_agent_context: bool = Field(
-        default=True,
-        description="Whether to inject agent context into this prompt. "
-                    "When True, the agent's description is prepended to the prompt."
     )
     
     def get_effective_model(self, global_model: str) -> str:
@@ -61,29 +56,17 @@ class PromptConfig(BaseModel):
         **kwargs
     ) -> str:
         """
-        Format the user prompt template, optionally prepending agent context.
+        Format the user prompt template with agent context.
         
         Agent name is always available via {agent_name}.
-        When include_agent_context is True, the full context block is prepended.
+        Agent context is always available via {agent_context}.
         """
-        # Agent name is always available
+        # Agent name and context are always available as template variables
         kwargs["agent_name"] = agent_name
+        kwargs["agent_context"] = agent_context or "No additional context provided."
         
         # Format the template
-        formatted = self.user_prompt_template.format(**kwargs)
-        
-        # Prepend agent context block if enabled and context exists
-        if self.include_agent_context and agent_context:
-            context_block = f"""=== Agent Context ===
-Agent: {agent_name}
-
-{agent_context}
-=====================
-
-"""
-            return context_block + formatted
-        
-        return formatted
+        return self.user_prompt_template.format(**kwargs)
 
 
 class PromptVersion(BaseModel):

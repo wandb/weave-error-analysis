@@ -61,11 +61,9 @@ export function PromptEditDrawer({
   // LLM Configuration state
   const [llmModel, setLlmModel] = useState<string>("");
   const [llmTemperature, setLlmTemperature] = useState<number | null>(null);
-  const [includeAgentContext, setIncludeAgentContext] = useState<boolean>(true);
   // Track original LLM values to detect changes
   const [originalLlmModel, setOriginalLlmModel] = useState<string>("");
   const [originalLlmTemperature, setOriginalLlmTemperature] = useState<number | null>(null);
-  const [originalIncludeAgentContext, setOriginalIncludeAgentContext] = useState<boolean>(true);
 
   // Version info
   const [versions, setVersions] = useState<PromptVersionsResponse | null>(null);
@@ -77,8 +75,7 @@ export function PromptEditDrawer({
   
   // Computed: check if LLM config has changed from original
   const isLlmConfigDirty = llmModel !== originalLlmModel || 
-    llmTemperature !== originalLlmTemperature || 
-    includeAgentContext !== originalIncludeAgentContext;
+    llmTemperature !== originalLlmTemperature;
 
   // Variable insertion helpers
   const [copiedVar, setCopiedVar] = useState<string | null>(null);
@@ -104,10 +101,8 @@ export function PromptEditDrawer({
       setUserPromptTemplate("");
       setLlmModel("");
       setLlmTemperature(null);
-      setIncludeAgentContext(true);
       setOriginalLlmModel("");
       setOriginalLlmTemperature(null);
-      setOriginalIncludeAgentContext(true);
       setError(null);
       setSaveSuccess(false);
       setIsPromptDirty(false);
@@ -130,13 +125,10 @@ export function PromptEditDrawer({
       // Set both current and original LLM values
       const model = promptData.llm_model || "";
       const temp = promptData.llm_temperature;
-      const agentCtx = promptData.include_agent_context ?? true;
       setLlmModel(model);
       setLlmTemperature(temp);
-      setIncludeAgentContext(agentCtx);
       setOriginalLlmModel(model);
       setOriginalLlmTemperature(temp);
-      setOriginalIncludeAgentContext(agentCtx);
       setVersions(versionsData);
       setIsPromptDirty(false);
     } catch (err) {
@@ -207,13 +199,11 @@ export function PromptEditDrawer({
         undefined,  // Don't update system prompt
         undefined,  // Don't update user template
         llmModel || null,
-        llmTemperature,
-        includeAgentContext
+        llmTemperature
       );
       // Update original values to reflect saved state
       setOriginalLlmModel(llmModel);
       setOriginalLlmTemperature(llmTemperature);
-      setOriginalIncludeAgentContext(includeAgentContext);
     } catch (err) {
       console.error("Failed to save LLM config:", err);
     }
@@ -230,13 +220,10 @@ export function PromptEditDrawer({
       setUserPromptTemplate(reset.user_prompt_template);
       const model = reset.llm_model || "";
       const temp = reset.llm_temperature;
-      const agentCtx = reset.include_agent_context ?? true;
       setLlmModel(model);
       setLlmTemperature(temp);
-      setIncludeAgentContext(agentCtx);
       setOriginalLlmModel(model);
       setOriginalLlmTemperature(temp);
-      setOriginalIncludeAgentContext(agentCtx);
       setIsPromptDirty(false);
       setSaveSuccess(true);
       onSave?.(reset);
@@ -274,13 +261,10 @@ export function PromptEditDrawer({
       setUserPromptTemplate(updated.user_prompt_template);
       const model = updated.llm_model || "";
       const temp = updated.llm_temperature;
-      const agentCtx = updated.include_agent_context ?? true;
       setLlmModel(model);
       setLlmTemperature(temp);
-      setIncludeAgentContext(agentCtx);
       setOriginalLlmModel(model);
       setOriginalLlmTemperature(temp);
-      setOriginalIncludeAgentContext(agentCtx);
       setIsPromptDirty(false);
       
       // Reload versions to update current status
@@ -412,11 +396,9 @@ export function PromptEditDrawer({
               <LLMConfigSection
                 model={llmModel}
                 temperature={llmTemperature}
-                includeAgentContext={includeAgentContext}
                 globalModel={globalModel}
                 onModelChange={handleLlmModelChange}
                 onTemperatureChange={handleLlmTemperatureChange}
-                onIncludeAgentContextChange={setIncludeAgentContext}
               />
 
               {/* Variables Reference */}
@@ -883,11 +865,9 @@ function VersionInfo({ versions, prompt, showVersions, onToggle, onSwitchVersion
 interface LLMConfigSectionProps {
   model: string;
   temperature: number | null;
-  includeAgentContext: boolean;
   globalModel: string;
   onModelChange: (value: string) => void;
   onTemperatureChange: (value: number | null) => void;
-  onIncludeAgentContextChange: (value: boolean) => void;
 }
 
 const MODEL_PRESETS_BASE = [
@@ -918,11 +898,9 @@ const MODEL_PRESETS_BASE = [
 function LLMConfigSection({
   model,
   temperature,
-  includeAgentContext,
   globalModel,
   onModelChange,
   onTemperatureChange,
-  onIncludeAgentContextChange,
 }: LLMConfigSectionProps) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -1159,36 +1137,6 @@ function LLMConfigSection({
           </div>
 
           {/* Agent Context Toggle */}
-          <div
-            className="flex items-center justify-between p-3 rounded-lg"
-            style={{
-              backgroundColor: "rgba(37, 40, 48, 0.5)",
-              border: "1px solid #333333",
-            }}
-          >
-            <div className="flex-1">
-              <label className="text-xs font-medium" style={{ color: "#FDFDFD" }}>
-                Include Agent Context
-              </label>
-              <p className="text-[10px] mt-0.5" style={{ color: "#8F949E" }}>
-                Prepends agent description to the prompt for better context
-              </p>
-            </div>
-            <button
-              onClick={() => onIncludeAgentContextChange(!includeAgentContext)}
-              className="relative w-10 h-5 rounded-full transition-colors"
-              style={{
-                backgroundColor: includeAgentContext ? "#10BFCC" : "#333333",
-              }}
-            >
-              <span
-                className="absolute top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform"
-                style={{
-                  left: includeAgentContext ? "calc(100% - 18px)" : "2px",
-                }}
-              />
-            </button>
-          </div>
         </div>
       )}
     </div>
@@ -1216,7 +1164,7 @@ function PromptPreviewSection({
   model,
   temperature,
 }: PromptPreviewSectionProps) {
-  const { selectedAgent, dimensions } = useApp();
+  const { selectedAgent, dimensions, taxonomy } = useApp();
   const [showPreview, setShowPreview] = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
@@ -1257,13 +1205,62 @@ function PromptPreviewSection({
         case "trace_summary":
           values[v] = "User asked about order status, bot provided incorrect information";
           break;
+        case "modes_text":
+          // Format failure modes from taxonomy for preview
+          if (taxonomy && taxonomy.failure_modes && taxonomy.failure_modes.length > 0) {
+            const modeLines = taxonomy.failure_modes.map((m) => 
+              `- ID: ${m.id}\n  Name: ${m.name}\n  Description: ${m.description}\n  Notes count: ${m.times_seen}`
+            );
+            values[v] = modeLines.join("\n");
+          } else {
+            values[v] = "- ID: mode_1\n  Name: API Timeout\n  Description: External API calls taking too long\n  Notes count: 5\n- ID: mode_2\n  Name: Unclear Request\n  Description: User query was ambiguous\n  Notes count: 3";
+          }
+          break;
+        // Synthetic prompt variables
+        case "agent_context_section":
+          // Format agent context section for dimension/value suggestion
+          if (selectedAgent?.name || selectedAgent?.agent_context) {
+            values[v] = `Agent: ${selectedAgent?.name || "My Agent"}\nPurpose: ${selectedAgent?.agent_context || "A helpful AI assistant"}`;
+          } else {
+            values[v] = "Agent: Customer Support Bot\nPurpose: Helps users with order inquiries and returns";
+          }
+          break;
+        case "count":
+          values[v] = "4";
+          break;
+        case "testing_goals_section":
+          values[v] = "Focus on edge cases and error handling scenarios";
+          break;
+        case "dimension_name":
+          // Use first dimension if available
+          if (dimensions && dimensions.length > 0) {
+            values[v] = dimensions[0].name;
+          } else {
+            values[v] = "user_type";
+          }
+          break;
+        case "dimension_description":
+          if (dimensions && dimensions.length > 0 && dimensions[0].description) {
+            values[v] = dimensions[0].description;
+          } else {
+            values[v] = "Type of user interacting with the system";
+          }
+          break;
+        case "existing_values":
+          // Format existing values from first dimension
+          if (dimensions && dimensions.length > 0 && dimensions[0].values.length > 0) {
+            values[v] = dimensions[0].values.join(", ");
+          } else {
+            values[v] = "new_user, returning_user, premium_user";
+          }
+          break;
         default:
           values[v] = `[${v}]`;
       }
     });
     
     return values;
-  }, [variables, selectedAgent, dimensions]);
+  }, [variables, selectedAgent, dimensions, taxonomy]);
 
   // Generate preview by replacing variables with real values
   const getPreview = (template: string) => {

@@ -17,7 +17,6 @@ CATEGORY_SUGGESTION_PROMPT = PromptConfig(
     name="Category Suggestion",
     description="Suggests which failure mode category a note belongs to",
     feature="taxonomy",
-    include_agent_context=True,
     
     system_prompt="""You are analyzing failure modes for an AI agent. Your task is to categorize observations about agent failures into failure mode categories.
 
@@ -48,7 +47,10 @@ CATEGORY_SUGGESTION_PROMPT = PromptConfig(
 - "Format violations" - Doesn't follow requested output format
 - "Escalation failure" - Doesn't recognize when to hand off to human""",
 
-    user_prompt_template="""Given this observation/note about an agent failure:
+    user_prompt_template="""Agent context:
+{agent_context}
+
+Given this observation/note about an agent failure:
 "{note_content}"
 
 And these existing failure mode categories:
@@ -64,7 +66,8 @@ Then decide: Does this note fit an EXISTING category (provide the ID), or is it 
     available_variables=[
         "note_content",
         "modes_text",
-        "agent_name"
+        "agent_name",
+        "agent_context"
     ]
 )
 
@@ -74,7 +77,6 @@ CATEGORY_CREATION_PROMPT = PromptConfig(
     name="New Category Creation",
     description="Creates a new failure mode category when no existing category fits",
     feature="taxonomy",
-    include_agent_context=True,
     
     system_prompt="""You are analyzing failure modes for an AI agent. Create a new failure mode category for the given issue.
 
@@ -89,7 +91,10 @@ CATEGORY_CREATION_PROMPT = PromptConfig(
 - "Multi-turn context loss" (not "Forgot what user said")
 - "Numerical calculation errors" (not "Wrong numbers")""",
 
-    user_prompt_template="""Given this observation/note about an agent failure:
+    user_prompt_template="""Agent context:
+{agent_context}
+
+Given this observation/note about an agent failure:
 "{note_content}"
 
 Create a failure mode category for this issue.
@@ -103,7 +108,8 @@ Then provide a name, description, and suggested fix.""",
 
     available_variables=[
         "note_content",
-        "agent_name"
+        "agent_name",
+        "agent_context"
     ]
 )
 

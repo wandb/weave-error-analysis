@@ -1183,7 +1183,7 @@ class TaxonomyService:
     # Taxonomy Improvement Suggestions
     # ------------------------------------------------------------------------
     
-    async def suggest_taxonomy_improvements(self) -> dict:
+    async def suggest_taxonomy_improvements(self, agent_id: str | None = None) -> dict:
         """
         Analyze the current taxonomy and suggest improvements.
         
@@ -1192,16 +1192,31 @@ class TaxonomyService:
         - Categories that might need splitting (too broad)
         - Naming improvements
         
+        Args:
+            agent_id: Optional agent ID to filter modes and get agent context
+        
         Returns:
             Dict with suggestions list and overall assessment
         """
-        modes = self.get_all_failure_modes()
+        modes = self.get_all_failure_modes(agent_id=agent_id)
         
         if len(modes) < 2:
             return {
                 "suggestions": [],
                 "overall_assessment": "Need at least 2 failure modes to analyze taxonomy"
             }
+        
+        # Get agent context if agent_id is provided
+        agent_name = ""
+        agent_context = ""
+        if agent_id:
+            with get_db_readonly() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT name, agent_context FROM agents WHERE id = ?", (agent_id,))
+                agent_row = cursor.fetchone()
+                if agent_row:
+                    agent_name = agent_row["name"] or ""
+                    agent_context = agent_row["agent_context"] or ""
         
         modes_text = "\n".join([
             f"- ID: {m.id}\n  Name: {m.name}\n  Description: {m.description}\n  Notes count: {m.times_seen}"
@@ -1211,19 +1226,20 @@ class TaxonomyService:
         # Get the managed prompt
         prompt_config = prompt_manager.get_prompt("taxonomy_improvement")
         
-        # Prepare variables
-        variables = {
-            "modes_text": modes_text,
-        }
-        
         # Create LLM client with prompt-specific configuration
         llm = LLMClient.for_prompt(prompt_config)
         
+        # Format user prompt with agent context
+        user_prompt = prompt_config.format_with_agent_context(
+            agent_name=agent_name,
+            agent_context=agent_context,
+            modes_text=modes_text
+        )
+        
         # Use LLM client for structured output
-        # Temperature from prompt config is used via LLMClient.for_prompt()
         result = await llm.analyze(
             system_prompt=prompt_config.system_prompt,
-            user_prompt=prompt_config.user_prompt_template.format(**variables),
+            user_prompt=user_prompt,
             response_model=TaxonomyImprovementsResponse
         )
         

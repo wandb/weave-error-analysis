@@ -459,7 +459,7 @@ class DismissSuggestionRequest(BaseModel):
 
 
 @router.get("/improvements")
-async def get_taxonomy_improvements():
+async def get_taxonomy_improvements(agent_id: Optional[str] = Query(None)):
     """
     Analyze the current taxonomy and suggest improvements.
     
@@ -468,12 +468,15 @@ async def get_taxonomy_improvements():
     - Categories that might need splitting (too broad)
     - Naming improvements (symptom → root cause naming)
     
+    Args:
+    - agent_id: Optional agent ID to filter failure modes and include agent context
+    
     Returns:
     - suggestions: List of improvement recommendations
     - overall_assessment: Summary of taxonomy health
     """
     try:
-        result = await taxonomy_service.suggest_taxonomy_improvements()
+        result = await taxonomy_service.suggest_taxonomy_improvements(agent_id=agent_id)
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

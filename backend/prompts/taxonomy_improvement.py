@@ -18,7 +18,10 @@ Suggest improvements to make the taxonomy cleaner and more actionable.
 Look for categories that are too similar (should merge), too broad (should split), or have unclear naming.
 If the taxonomy looks good, return an empty suggestions array.""",
 
-    user_prompt_template="""Analyze this failure mode taxonomy:
+    user_prompt_template="""Agent context:
+{agent_context}
+
+Analyze this failure mode taxonomy:
 
 {modes_text}
 
@@ -28,7 +31,8 @@ Suggest improvements focusing on:
 3. Naming that could be clearer or more specific""",
 
     available_variables=[
-        "modes_text"
+        "modes_text",
+        "agent_context"
     ]
 )
 

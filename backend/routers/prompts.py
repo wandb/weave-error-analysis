@@ -20,7 +20,6 @@ class PromptUpdateRequest(BaseModel):
     user_prompt_template: str | None = None
     llm_model: str | None = None
     llm_temperature: float | None = None
-    include_agent_context: bool | None = None
 
 
 class VersionSelectRequest(BaseModel):
@@ -81,8 +80,7 @@ async def update_prompt(prompt_id: str, request: PromptUpdateRequest):
             system_prompt=request.system_prompt,
             user_prompt_template=request.user_prompt_template,
             llm_model=request.llm_model,
-            llm_temperature=request.llm_temperature,
-            include_agent_context=request.include_agent_context
+            llm_temperature=request.llm_temperature
         )
         return {
             **updated.model_dump(),

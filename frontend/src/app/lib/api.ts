@@ -684,11 +684,12 @@ export interface TaxonomyImprovementsResult {
   overall_assessment: string;
 }
 
-export async function getTaxonomyImprovements(): Promise<TaxonomyImprovementsResult> {
+export async function getTaxonomyImprovements(agentId?: string): Promise<TaxonomyImprovementsResult> {
   // Use direct backend URL to avoid Next.js proxy timeout
   // Taxonomy improvement suggestions require LLM analysis which can take 30+ seconds
   const backendUrl = getBackendUrl();
-  const response = await fetch(`${backendUrl}/api/taxonomy/improvements`);
+  const params = agentId ? `?agent_id=${encodeURIComponent(agentId)}` : "";
+  const response = await fetch(`${backendUrl}/api/taxonomy/improvements${params}`);
   
   if (!response.ok) {
     const errorBody = await response.json().catch(() => ({ detail: "Request failed" }));
@@ -1013,8 +1014,7 @@ export async function updatePrompt(
   systemPrompt?: string | null,
   userPromptTemplate?: string,
   llmModel?: string | null,
-  llmTemperature?: number | null,
-  includeAgentContext?: boolean
+  llmTemperature?: number | null
 ): Promise<PromptConfig> {
   // Build request body, only including defined fields
   const body: Record<string, unknown> = {};
@@ -1022,7 +1022,6 @@ export async function updatePrompt(
   if (userPromptTemplate !== undefined) body.user_prompt_template = userPromptTemplate;
   if (llmModel !== undefined) body.llm_model = llmModel;
   if (llmTemperature !== undefined) body.llm_temperature = llmTemperature;
-  if (includeAgentContext !== undefined) body.include_agent_context = includeAgentContext;
   
   const result = await apiCall<PromptConfig>(`${API_BASE}/prompts/${promptId}`, {
     method: "PUT",

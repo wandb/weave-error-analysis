@@ -233,8 +233,7 @@ class PromptManager:
         system_prompt: str | None = None,
         user_prompt_template: str | None = None,
         llm_model: str | None = None,
-        llm_temperature: float | None = None,
-        include_agent_context: bool | None = None
+        llm_temperature: float | None = None
     ) -> PromptConfig:
         """
         Update a prompt and optionally create a new version in Weave.
@@ -279,8 +278,6 @@ class PromptManager:
             updates["llm_model"] = llm_model if llm_model != "" else None
         if llm_temperature is not None:
             updates["llm_temperature"] = llm_temperature
-        if include_agent_context is not None:
-            updates["include_agent_context"] = include_agent_context
         
         # Only mark as non-default if prompt content changed
         if prompt_content_changed:
